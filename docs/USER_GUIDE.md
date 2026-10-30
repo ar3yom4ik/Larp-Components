@@ -32,6 +32,24 @@ To use your own Mixamo character:
 
 Imported projects embed the original model/animation files and any replacement maps. Before sharing an exported project, make sure you have permission to distribute every embedded asset; Mixamo's restrictions on raw-asset redistribution may apply. Different rigs, rest poses and material implementations can still need adjustment.
 
+## Windows, colours and graphics options
+
+- **Panels** (catalog, properties, output) can be resized by dragging the inner edge, detached
+  with the header button into a movable, resizable window, closed with the X, and re-opened from
+  **Home → Windows** or **Settings → Interface → Panels**. **Reset layout** restores the default
+  arrangement.
+- **Settings → Interface & colours → Layout style** offers Larp UI, Visual Components, R-pro and
+  **Custom**. The custom skin exposes every surface colour (accent, window, title bar, tabs,
+  ribbon, panels, dock, 3D viewport, status bar, chrome text) with a reset button. Colours are
+  saved with your settings and travel with settings export/import.
+- **Settings → Video** has **3D resolution** (50 % to 200 %; below 100 % is faster and softer)
+  and **Antialiasing**: Off, FXAA (fast) or MSAA (smooth).
+- The **floor map** in the corner is drawn from the same plan as the AI Factory preview. The
+  expand button opens it as a movable, resizable window; clicking an object selects it.
+- **Workers**: the colour you pick in Properties → Appearance is the **T-shirt colour**. The hat
+  has its own colour; the hi-visibility default is yellow. Cosmetics (hard hat, cap, safety
+  glasses, ear defenders, cat ears, earrings) are modelled individually and follow the head.
+
 ## Graphics, privacy and safety
 
 - Graphics settings change real lighting, directional/contact shadows, exposure, resolution and AO. The **Max** mode uses WebGPU voxel global illumination (VXGI) when the browser supports WebGPU, with bounce lights disabled to avoid double counting. Otherwise it uses an approximation with bounce lights and screen-space occlusion. Neither is path tracing. Imported-model per-map strength controls require the WebGL renderer.

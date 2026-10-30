@@ -19,7 +19,7 @@ import {
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CameraPreset, ComponentKind, SceneItem, ToolMode, Vec3 } from "../types";
 import type { BuildingSettings, GraphicsQuality, SkinId } from "../theme";
-import { useAppearance } from "../theme";
+import { activeScheme, useAppearance } from "../theme";
 import { COMPONENTS, getDef } from "../data/library";
 import { PartIcon, partAccent } from "./PartIcon";
 import { FactoryEnvironment, FactoryModel, MODEL_HEIGHTS, type BuildingStyle } from "./FactoryModels";
@@ -27,7 +27,9 @@ import { ImportedModel } from "./ImportedModel";
 import { WireLayer } from "./WireLayer";
 import { Environment, Lightformer } from "@react-three/drei";
 import { BoxesLayer } from "./ProductModels";
-import { AmbientOcclusion, RendererSettings } from "./GraphicsEffects";
+import { PostEffects, RendererSettings } from "./GraphicsEffects";
+import { FloorPlanView } from "./FloorPlanView";
+import { setPanel, useLayout } from "../layout";
 import { GlobalIlluminationPipeline } from "./GpuGlobalIllumination";
 import { CornellBenchmark } from "./CornellBenchmark";
 import { useCornellRoom } from "../cornellRoom";
@@ -62,6 +64,7 @@ interface ViewportProps {
   onBeginEdit: () => void;
   onDeleteItem: (id: string) => void;
   onDuplicateItem: (id: string) => void;
+  onShowFloorMap: () => void;
 }
 
 type DragState =
@@ -572,41 +575,19 @@ function SimPlayer({ running, onToggleRun, onReset, speed, onSpeed, onToggleFull
   );
 }
 
-function FloorMap({ items, selectedId, onSelect }: { items: SceneItem[]; selectedId: string | null; onSelect: (id: string | null) => void }) {
-  const bounds = useMemo(() => {
-    const xs = items.map((i) => i.position[0]);
-    const zs = items.map((i) => i.position[2]);
-    const minX = Math.min(-6, ...xs) - 3;
-    const maxX = Math.max(6, ...xs) + 3;
-    const minZ = Math.min(-6, ...zs) - 3;
-    const maxZ = Math.max(6, ...zs) + 3;
-    return { minX, maxX, minZ, maxZ };
-  }, [items]);
-  const w = bounds.maxX - bounds.minX;
-  const h = bounds.maxZ - bounds.minZ;
+/** Corner mini-map. Uses the same plan geometry as the AI Factory preview. */
+function FloorMap({ items, selectedId, onSelect, onExpand }: { items: SceneItem[]; selectedId: string | null; onSelect: (id: string | null) => void; onExpand: () => void }) {
   return (
-    <div className="w-[170px] overflow-hidden rounded border border-white/10 bg-[#2a2a2c]/90 shadow-lg backdrop-blur">
+    <div className="w-[186px] overflow-hidden rounded border border-white/10 bg-[#2a2a2c]/90 shadow-lg backdrop-blur" data-floor-map>
       <div className="flex items-center justify-between border-b border-white/10 px-2.5 py-1">
         <span className="font-mono text-[8px] uppercase tracking-[0.18em] text-white/50">{t("Floor map")}</span>
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
+        <span className="flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
+          <button type="button" onClick={onExpand} aria-label={t("Open floor map")} title={t("Open floor map")} className="rounded p-0.5 text-white/45 hover:bg-white/10 hover:text-white"><Maximize2 size={9} /></button>
+        </span>
       </div>
-      <div className="relative h-[96px] w-full bg-[#3a3a3d]">
-        {items.map((item) => {
-          const left = ((item.position[0] - bounds.minX) / w) * 100;
-          const top = ((item.position[2] - bounds.minZ) / h) * 100;
-          const selected = selectedId === item.id;
-          const color = ["robot", "cobot", "kuka", "fanuc"].includes(item.kind) ? "#6DBE45" : item.kind === "conveyor" ? "#4DA3E8" : "#d9d9d9";
-          return (
-            <button
-              key={item.id}
-              type="button"
-              aria-label={`Select ${item.name}`}
-              onClick={() => onSelect(item.id)}
-              className={cn("absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-[2px] transition", selected ? "z-10 scale-150 ring-2 ring-[var(--teal)]" : "opacity-80 hover:opacity-100")}
-              style={{ left: `${left}%`, top: `${top}%`, backgroundColor: selected ? TEAL : color }}
-            />
-          );
-        })}
+      <div className="relative h-[112px] w-full">
+        <FloorPlanView items={items} selectedId={selectedId} onSelect={onSelect} width={186} height={112} />
       </div>
     </div>
   );
@@ -636,6 +617,7 @@ export const Viewport = memo(function Viewport({
   onBeginEdit,
   onDeleteItem,
   onDuplicateItem,
+  onShowFloorMap,
 }: ViewportProps) {
   useLanguage();
   const appearance = useAppearance();
@@ -671,19 +653,31 @@ export const Viewport = memo(function Viewport({
   const [hudVisible, setHudVisible] = useState(true);
   const [dragActive, setDragActive] = useState(false);
   const [low, setLow] = useState(false);
-  const [panelsOpen, setPanelsOpen] = useState(true);
+  // The side panels are part of the dockable layout, so this toggle opens and closes
+  // them through the same store as the panel headers and the ribbon.
+  const layout = useLayout();
+  const panelsOpen = layout.catalog.open || layout.inspector.open;
+  const setPanelsOpen = (open: boolean) => { setPanel("catalog", { open }); setPanel("inspector", { open }); };
   const wrapper = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
-  const dark = skin === "rpro";
-  const sceneBg = gfx.useSkinBackground ? (dark ? "#29262a" : skin === "vc" ? "#f1f2f3" : "#e3e6e9") : gfx.background;
+  // The custom skin owns the 3D viewport colour too; its brightness decides whether
+  // grid, fog and helper colours use the dark or the light palette.
+  const scheme = activeScheme(appearance);
+  const schemeDark = skin === "custom" && (() => {
+    const n = parseInt(scheme.viewportBg.slice(1), 16);
+    return (((n >> 16) & 255) * 0.299 + ((n >> 8) & 255) * 0.587 + (n & 255) * 0.114) / 255 < 0.5;
+  })();
+  const dark = skin === "rpro" || schemeDark;
+  const sceneBg = gfx.useSkinBackground ? (skin === "custom" ? scheme.viewportBg : dark ? "#29262a" : skin === "vc" ? "#f1f2f3" : "#e3e6e9") : gfx.background;
   const azimuth = gfx.sunAzimuth * Math.PI / 180, elevation = gfx.sunElevation * Math.PI / 180;
   const lightPosition: Vec3 = [36 * Math.cos(elevation) * Math.cos(azimuth), 36 * Math.sin(elevation), 36 * Math.cos(elevation) * Math.sin(azimuth)];
   const shadowExtent = Math.max(18, Math.ceil(Math.max(building.width, building.depth) * 0.7));
-  const renderDpr = gfx.adaptive && low ? 1 : gfx.pixelRatio;
+  // Below 1 renders fewer pixels than the screen has (faster, softer).
+  const renderDpr = gfx.adaptive && low ? Math.min(1, gfx.pixelRatio) : gfx.pixelRatio;
+  const aoActive = effectiveGi === "ao" || effectiveGi === "approx";
   useEffect(() => { setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1); }, [layoutName]);
   useEffect(() => { setFitNonce(0); setView(benchmark ? "room" : "iso"); setViewNonce((n) => n + 1); }, [benchmark]);
-  useEffect(() => { document.documentElement.dataset.panels = panelsOpen ? "open" : "closed"; }, [panelsOpen]);
 
   const pickView = (next: CameraPreset) => {
     setFitNonce(0);
@@ -718,12 +712,13 @@ export const Viewport = memo(function Viewport({
       onDrop={(event) => { setDragActive(false); const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); onImportFiles(files); } }}
     >
       <Canvas
-        key={gpuMode ? "renderer-webgpu" : "renderer-webgl"}
+        // The antialias mode is a context attribute, so switching it recreates the context.
+        key={`${gpuMode ? "renderer-webgpu" : "renderer-webgl"}-${gfx.antialias}`}
         shadows={gfx.shadows ? (gfx.softShadows ? "percentage" : "basic") : false}
         // The WebGPU VXGI pipeline accumulates TRAA samples across frames, so it must keep rendering.
         frameloop={running || gpuMode ? "always" : "demand"}
         dpr={renderDpr}
-        gl={gpuMode ? makeRenderer : { antialias: true, powerPreference: "high-performance", stencil: false }}
+        gl={gpuMode ? makeRenderer : { antialias: gfx.antialias === "msaa", powerPreference: "high-performance", stencil: false }}
         camera={{ position: VIEWS.iso.position, fov: 36, near: 0.1, far: 220 }}
         onPointerMissed={() => {
           onSelect(null);
@@ -793,13 +788,13 @@ export const Viewport = memo(function Viewport({
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[80, 80, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
         {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows position={[0, 0.015, 0]} scale={[Math.max(24, building.width + 8), Math.max(24, building.depth + 8)]} opacity={gfx.contactOpacity} far={5} blur={1.5} resolution={256} smooth={false} frames={running ? Infinity : 1} />}
-        {(effectiveGi === "ao" || effectiveGi === "approx") && <AmbientOcclusion intensity={gfx.aoIntensity} radius={gfx.aoRadius} pixelRatio={renderDpr} />}
+        <PostEffects gfx={gfx} pixelRatio={renderDpr} aoActive={aoActive} />
       </Canvas>
 
       {gfx.showFps && <FpsBadge />}
       {/* Floating simulation player (top centre) */}
       <div className="sim-player-wrap pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-        <SimPlayer running={running} onToggleRun={onToggleRun} onReset={onResetSim} speed={simSpeed} onSpeed={onSimSpeed} onToggleFullscreen={toggleFullscreen} onToggleViewExtras={() => setPanelsOpen((v) => !v)} onToggleGrid={() => setGridVisible((v) => !v)} />
+        <SimPlayer running={running} onToggleRun={onToggleRun} onReset={onResetSim} speed={simSpeed} onSpeed={onSimSpeed} onToggleFullscreen={toggleFullscreen} onToggleViewExtras={() => setPanelsOpen(!panelsOpen)} onToggleGrid={() => setGridVisible((v) => !v)} />
       </div>
 
       {/* Scene identity */}
@@ -898,7 +893,7 @@ export const Viewport = memo(function Viewport({
         <ViewCube view={view} onPick={pickView} />
       </div>
       <div className={cn("absolute bottom-3 right-3 hidden md:block", mobile && "!hidden")}>
-        <FloorMap items={items} selectedId={selectedId} onSelect={onSelect} />
+        <FloorMap items={items} selectedId={selectedId} onSelect={onSelect} onExpand={onShowFloorMap} />
       </div>
       <div className={cn("viewport-hint pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#2a2a2c]/85 px-3 py-1 shadow-lg backdrop-blur lg:flex", mobile && "!hidden")}>
         <span className="whitespace-nowrap font-mono text-[8.5px] uppercase tracking-[0.1em] text-white/55">

@@ -1,6 +1,6 @@
 # Larp Factory V2 — independent AI/developer handoff
 
-**Release date:** 2026-10-30  
+**Release date:** 2026-10-30 (V2.1)  
 **Audience:** a developer or another AI starting without any prior conversation.  
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V2 is the numbered release of this work.
 
@@ -52,6 +52,45 @@ The bundled default is **Quaternius Animated Human, CC0**, a textured 41-bone hu
 Select an operator in the Scene Tree and open **Properties → Animated worker**. Choose built-in rigged worker, classic mannequin, a previously imported skinned scene model, or **Import rigged character** for a local FBX/GLB With Skin. Imported appearance/settings are copied to the worker, so deleting the source scene object does not erase it. For per-role animation use the upload buttons beside idle/walk/work; FBX, GLB, glTF and DAE are accepted. Animation-only GLB skeletons may be ordinary named `Object3D`s rather than `Bone`s and are intentionally supported. Mixamo **Without Skin** animation with **In Place** walking is recommended. Clip selectors appear if the file has multiple clips.
 
 `workerAnimation.ts` canonicalizes Mixamo names, matches humanoid joints, aligns major rest-pose directions including T/A pose differences, transforms quaternion deltas between joint bases, and caches retargeted clips. The simulator controls horizontal movement; horizontal hips/root motion is removed. `RiggedHuman.tsx` drives idle/walk/work from simulation state with a 0.25 s crossfade, respects pause and simulation speed, follows head position for accessories, and uses a bounded approximate foot-ground correction. **Keep feet near floor** can be disabled for jumping clips. This is not a general animation-retargeting/foot-IK system; differently named/non-humanoid rigs, uncommon joints, very different axes/twists and special motions can still need manual conversion. Adjust forward axis and height. Mixamo's rules restrict distribution of raw files; this package does not include Adobe assets or login information, and exported projects embed user-selected files. Users are responsible for their own asset rights.
+
+### Workspace layout, colours and render options (V2.1)
+
+`src/layout.ts` is the single store for panel geometry: per panel (`catalog`, `inspector`,
+`dock`) it keeps `open`, `floating`, docked `size` and floating `x/y/width/height`, clamped on
+every write and persisted in `localStorage` (`larp-layout-v1`). `components/PanelShell.tsx` owns
+the resize edge, the detach/dock command and the close command; a floating panel is a fixed
+window dragged by its title strip and resized by its bottom-right corner. The catalog and
+properties panels fill their wrapper (`flex-1`) instead of setting their own width, so the panel
+width is authoritative. `App.tsx` renders docked shells inside `<main>` and floating ones over the
+workspace; closed panels are re-opened from the ribbon (Home → Windows), the settings window
+(Interface → Panels) or `PanelToggles`.
+
+`theme.ts` also stores a `ColorScheme` (eleven `#rrggbb` fields) used by the fourth skin,
+`custom`. `applyDocument()` writes the scheme as CSS custom properties on `documentElement`,
+removes the variables it wrote before, and only injects values that passed `sanitizeScheme`, so a
+stored or imported file cannot inject CSS. The 3D viewport background and the light/dark helper
+palette in `Viewport.tsx` follow the scheme.
+
+`GraphicsSettings.antialias` is `off | fxaa | msaa`. MSAA is a context attribute, so the `<Canvas>`
+key includes the mode and the renderer is rebuilt on change. FXAA and GTAO share one
+`EffectComposer` in `GraphicsEffects.tsx` (`PostEffects`), which is rebuilt whenever the set of
+passes changes and is skipped entirely on the WebGPU/VXGI path (that pipeline owns the frame and
+uses TRAA). `RESOLUTION_STEPS` in `theme.ts` includes values below 1.
+
+`utils/floorPlan.ts` converts scene items into one plan geometry (footprints with rotation,
+circles for robots and workers, sampled conveyor polylines, dashed fences) used by
+`FloorPlanView.tsx`, which is embedded in the AI Factory preview, the corner map and the movable
+`FloorMapWindow.tsx`.
+
+`components/WorkerCosmetics.tsx` holds the procedural PPE (hard hat, cap, wraparound glasses, ear
+defenders, cat ears, earrings) with shared geometry/material caches. `utils/workerShirt.ts`
+patches the character material's fragment shader to replace only the warm, blue-free clothing
+band of the palette texture with the worker colour, so the shirt follows the worker colour while
+skin, hands and boots keep their own colours (not applied on the WebGPU path, where
+`onBeforeCompile` is ignored). `RiggedHuman.tsx` normalises saved worker settings, guards against
+NaN transforms and ground corrections, relies on the uncullable skinned meshes
+(`ImportedModel.cloneModel` sets `frustumCulled = false`) and wraps the rig in an error boundary
+that falls back to the mannequin.
 
 ### Factory, graphics and touch
 

@@ -1,14 +1,13 @@
 import { useMemo, useState } from "react";
-import { isRobotKind } from "../utils/kinds";
 import { Dices, Factory, Minus, Plus, Sparkles, X } from "lucide-react";
 import { DEFAULT_GEN, FACTORY_RECIPES, generateFactory, parsePrompt, validateFactory, type FactoryStyle, type GenOptions } from "../sim/generator";
-import { samplePath } from "../sim/spline";
 import type { SceneItem } from "../types";
 import { cn } from "../utils/cn";
 import { t } from "../i18n";
 import { getProduct, PRODUCTS } from "../data/products";
 import { ProductPicker } from "./ProductPicker";
 import { PalletPattern } from "./PalletPattern";
+import { FloorPlanView } from "./FloorPlanView";
 
 interface Props {
   open: boolean;
@@ -23,57 +22,6 @@ const STYLES: { id: FactoryStyle; label: string }[] = [
   { id: "U", label: "U-shape" },
   { id: "S", label: "S-curve" },
 ];
-
-function Preview({ items }: { items: SceneItem[] }) {
-  const geometry = useMemo(() => {
-    const lines: [number, number][][] = [];
-    items.forEach((item) => {
-      if (item.kind !== "conveyor" || !item.points) return;
-      const rot = (item.rotation * Math.PI) / 180;
-      const path = samplePath(item.points, 0.3);
-      lines.push(
-        path.x.map((lx, i) => [item.position[0] + lx * Math.cos(rot) + path.z[i] * Math.sin(rot), item.position[2] - lx * Math.sin(rot) + path.z[i] * Math.cos(rot)] as [number, number]),
-      );
-    });
-    const xs = items.map((i) => i.position[0]);
-    const zs = items.map((i) => i.position[2]);
-    const minX = Math.min(...xs, ...lines.flat().map((p) => p[0])) - 3;
-    const maxX = Math.max(...xs, ...lines.flat().map((p) => p[0])) + 3;
-    const minZ = Math.min(...zs, ...lines.flat().map((p) => p[1])) - 3;
-    const maxZ = Math.max(...zs, ...lines.flat().map((p) => p[1])) + 3;
-    return { lines, minX, maxX, minZ, maxZ };
-  }, [items]);
-  const w = geometry.maxX - geometry.minX;
-  const h = geometry.maxZ - geometry.minZ;
-  const scale = Math.min(380 / w, 250 / h);
-  const sx = (x: number) => (x - geometry.minX) * scale + (400 - w * scale) / 2;
-  const sz = (z: number) => (z - geometry.minZ) * scale + (270 - h * scale) / 2;
-  return (
-    <svg viewBox="0 0 400 270" className="h-full w-full">
-      <defs>
-        <pattern id="gridp" width="20" height="20" patternUnits="userSpaceOnUse">
-          <path d="M20 0H0V20" fill="none" stroke="#ffffff" strokeOpacity=".05" />
-        </pattern>
-      </defs>
-      <rect width="400" height="270" fill="#1e1e1e" />
-      <rect width="400" height="270" fill="url(#gridp)" />
-      {geometry.lines.map((line, i) => (
-        <polyline key={i} points={line.map((p) => `${sx(p[0])},${sz(p[1])}`).join(" ")} fill="none" stroke="#4DA3E8" strokeWidth={Math.max(3, scale * 0.6)} strokeLinecap="round" opacity=".85" />
-      ))}
-      {items.map((item) => {
-        const x = sx(item.position[0]);
-        const y = sz(item.position[2]);
-        if (isRobotKind(item.kind)) return <circle key={item.id} cx={x} cy={y} r={Math.max(4, scale * 0.7)} fill="#6DBE45" stroke="#d9f5c3" strokeWidth="1" />;
-        if (item.kind === "cnc") return <rect key={item.id} x={x - scale * 1.1} y={y - scale * 0.9} width={scale * 2.2} height={scale * 1.8} fill="#e8e8e8" opacity=".9" rx="1" transform={`rotate(${-item.rotation} ${x} ${y})`} />;
-        if (item.kind === "crates") return <rect key={item.id} x={x - scale * 0.6} y={y - scale * 0.4} width={scale * 1.2} height={scale * 0.8} fill="#b88a55" transform={`rotate(${-item.rotation} ${x} ${y})`} />;
-        if (item.kind === "feeder") return <rect key={item.id} x={x - 5} y={y - 5} width="10" height="10" fill="#E0A030" />;
-        if (item.kind === "fence") return <rect key={item.id} x={x - scale * 1.5} y={y - 1} width={scale * 3} height="2" fill="#F2B705" opacity=".8" transform={`rotate(${-item.rotation} ${x} ${y})`} />;
-        if (item.kind === "operator") return <circle key={item.id} cx={x} cy={y} r="3" fill="var(--teal)" />;
-        return null;
-      })}
-    </svg>
-  );
-}
 
 export function GeneratorDialog({ open, initial, onClose, onBuild }: Props) {
   const [options, setOptions] = useState<GenOptions>({ ...DEFAULT_GEN, ...initial });
@@ -127,7 +75,7 @@ export function GeneratorDialog({ open, initial, onClose, onBuild }: Props) {
 <div className="mt-3"><h3 className="mb-2 text-[10px] uppercase tracking-wider text-white/40">{t("Per-cell recipe")}</h3><div className="space-y-1.5">{Array.from({ length: Math.max(1, options.stages) }, (_, index) => <div key={index} className="grid grid-cols-[52px_1fr_1fr_92px] items-center gap-1.5"><span className="text-[9px] text-white/35">Cell {index + 1}</span><select aria-label={`Cell ${index + 1} input product`} value={options.cellInputs[index] ?? input} onChange={(e) => { const cellInputs = [...options.cellInputs]; cellInputs[index] = e.target.value; set({ cellInputs }); }} className="min-w-0 rounded border border-white/12 bg-[#202023] px-1 py-1 text-[10px]"><option value={input}>Default · {getProduct(input).name}</option>{PRODUCTS.slice(0, 30).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><select aria-label={`Cell ${index + 1} output product`} value={options.cellOutputs[index] ?? output} onChange={(e) => { const cellOutputs = [...options.cellOutputs]; cellOutputs[index] = e.target.value; set({ cellOutputs }); }} className="min-w-0 rounded border border-white/12 bg-[#202023] px-1 py-1 text-[10px]"><option value={output}>Default · {getProduct(output).name}</option>{PRODUCTS.slice(0, 30).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><select aria-label={`Cell ${index + 1} worker`} value={options.cellWorkers[index] ?? "robot"} onChange={(e) => { const cellWorkers = [...options.cellWorkers]; cellWorkers[index] = e.target.value as "robot" | "human"; set({ cellWorkers }); }} className="rounded border border-white/12 bg-[#202023] px-1 py-1 text-[10px]"><option value="robot">{t("Robot")}</option><option value="human">{t("Human")}</option></select></div>)}</div></div></div>}
           <div className="flex flex-wrap gap-4 border-t border-white/10 pt-3">{([["fences", "Safety fences"], ["operators", "Operators"], ["cabinets", "Control cabinets"]] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 text-[11px] text-white/60"><input type="checkbox" checked={options[key]} onChange={(e) => set(key === "operators" ? { operators: e.target.checked, staff: e.target.checked ? Math.max(1, options.staff) : 0 } : { [key]: e.target.checked })} className="accent-[var(--app-accent)]" />{t(label)}</label>)}</div>
         </div>
-        <div className="space-y-4"><section><h3 className="mb-2 text-[10px] uppercase tracking-widest text-white/40">{t("Layout preview")}</h3><div className="aspect-[400/270] overflow-hidden rounded border border-white/10"><Preview items={items} /></div><div className="mt-2 flex justify-between font-mono text-[10px] text-white/40"><span>{items.length} {t("components")}</span><span>{items.filter((i) => !!i.program).length} {t("robots")}</span></div></section>
+        <div className="space-y-4"><section><h3 className="mb-2 text-[10px] uppercase tracking-widest text-white/40">{t("Layout preview")}</h3><div className="aspect-[400/270] overflow-hidden rounded border border-white/10"><FloorPlanView items={items} showLegend /></div><div className="mt-2 flex justify-between font-mono text-[10px] text-white/40"><span>{items.length} {t("components")}</span><span>{items.filter((i) => !!i.program).length} {t("robots")}</span></div></section>
           <section className="border-t border-white/10 pt-3"><h3 className="mb-2 text-[10px] uppercase tracking-widest text-white/40">{t("Pallet pattern")}</h3><PalletPattern compact props={{ cols: options.cols, rows: options.rows, layers: options.layers, product: output }} onChange={(p) => set({ cols: Number(p.cols ?? options.cols), rows: Number(p.rows ?? options.rows), layers: Number(p.layers ?? options.layers) })} /></section>
           <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-3"><label className="flex items-center gap-2 text-[10px] text-white/45">{t("Seed")}<input aria-label={t("Seed")} type="number" value={options.seed} onChange={(e) => set({ seed: Math.max(0, Math.round(Number(e.target.value))) })} className="w-20 rounded border border-white/15 bg-[#202023] px-2 py-1.5 font-mono text-[12px] text-white" /></label><button type="button" onClick={() => set({ seed: Math.floor(Math.random() * 999) })} title={t("Random seed")} className="rounded border border-white/15 p-2 text-white/60 hover:bg-white/10"><Dices size={15} /></button></div>
           <p className="text-[10px] leading-relaxed text-white/35">{t("Recipes include live robot workflows, product transformations and pallet patterns.")}</p>{warnings.map((warning) => <p key={warning} className="text-[11px] leading-relaxed text-[#f2b14c]">{t(warning)}</p>)}{!validTool && <p className="text-[11px] text-[#f2b14c]">{t("Magnetic tools pick metal only. Other tools handle all products within payload limits.")}</p>}

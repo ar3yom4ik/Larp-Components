@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { GraphicsSettings, ToneMapping } from '../theme';
 
@@ -17,6 +18,7 @@ export const TONE_MAPPING_BY_NAME: Record<ToneMapping, THREE.ToneMapping> = {
   neutral: THREE.NeutralToneMapping,
 };
 import { setModelRenderer } from '../utils/modelImport';
+import { isWebGPURenderer } from '../utils/gpu';
 
 /** Updates the live renderer, not merely its initial onCreated state. */
 export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
@@ -39,45 +41,82 @@ export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
   return null;
 }
 
-/** Ground-truth ambient occlusion is a screen-space approximation, not path tracing. */
-export function AmbientOcclusion({ intensity, radius, pixelRatio }: { intensity: number; radius: number; pixelRatio: number }) {
+/**
+ * Optional post-processing: screen-space occlusion and/or FXAA.
+ *
+ * One composer owns the final render whenever either effect is on; the effect list is
+ * rebuilt (never patched in place) when the set of passes changes, so switching
+ * antialiasing cannot leave a stale render target behind. With everything off, React
+ * Three Fiber renders the scene itself, as before.
+ *
+ * Antialiasing modes:
+ * - `msaa`: multisampled default framebuffer (renderer option, `Viewport.tsx`).
+ * - `fxaa`: single-sample framebuffer plus this FXAA pass.
+ * - `off`: no antialiasing.
+ */
+export function PostEffects({ gfx, pixelRatio, aoActive }: { gfx: GraphicsSettings; pixelRatio: number; aoActive: boolean }) {
   const { gl, scene, camera, size, invalidate } = useThree();
-  const effects = useRef<{ composer: EffectComposer; ao: GTAOPass; output: OutputPass } | null>(null);
+  // EffectComposer targets a WebGL framebuffer. The WebGPU path (VXGI) has its own
+  // pipeline with TRAA, so these post effects are skipped there.
+  const webgpu = isWebGPURenderer(gl);
+  const fxaa = gfx.antialias === 'fxaa' && !webgpu;
+  const ao = aoActive && !webgpu;
+  const effects = useRef<{ composer: EffectComposer; ao: GTAOPass | null; fxaa: FXAAPass | null; output: OutputPass } | null>(null);
+
   useEffect(() => {
+    if (!fxaa && !ao) return undefined;
     const composer = new EffectComposer(gl);
     composer.addPass(new RenderPass(scene, camera));
-    const ao = new GTAOPass(scene, camera, size.width, size.height);
-    ao.output = GTAOPass.OUTPUT.Default;
-    ao.updateGtaoMaterial({ radius: 0.55, thickness: 1, samples: 8 });
-    ao.updatePdMaterial({ samples: 8, rings: 2, radius: 3 });
-    composer.addPass(ao);
+    let aoPass: GTAOPass | null = null;
+    if (ao) {
+      aoPass = new GTAOPass(scene, camera, size.width, size.height);
+      aoPass.output = GTAOPass.OUTPUT.Default;
+      aoPass.updateGtaoMaterial({ radius: gfx.aoRadius, thickness: 1, samples: 8 });
+      aoPass.updatePdMaterial({ samples: 8, rings: 2, radius: 3 });
+      aoPass.blendIntensity = gfx.aoIntensity;
+      composer.addPass(aoPass);
+    }
+    let fxaaPass: FXAAPass | null = null;
+    if (fxaa) {
+      fxaaPass = new FXAAPass();
+      composer.addPass(fxaaPass);
+    }
     const output = new OutputPass();
     composer.addPass(output);
     composer.setPixelRatio(gl.getPixelRatio());
     composer.setSize(size.width, size.height);
-    effects.current = { composer, ao, output };
+    effects.current = { composer, ao: aoPass, fxaa: fxaaPass, output };
     invalidate();
     return () => {
       effects.current = null;
-      ao.dispose(); output.dispose(); composer.dispose();
+      aoPass?.dispose();
+      fxaaPass?.dispose();
+      output.dispose();
+      composer.dispose();
+      invalidate();
     };
-    // Size and settings are updated without recreating the GPU pipeline below.
+    // `gfx.aoRadius` / `gfx.aoIntensity` are applied by the effect below without a rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gl, scene, camera, invalidate]);
+  }, [gl, scene, camera, fxaa, ao]);
+
   useEffect(() => {
     const fx = effects.current;
-    if (!fx) return;
-    fx.ao.blendIntensity = intensity;
-    fx.ao.updateGtaoMaterial({ radius, thickness: 1.0, distanceFallOff: 1.0 });
+    if (!fx?.ao) return;
+    fx.ao.blendIntensity = gfx.aoIntensity;
+    fx.ao.updateGtaoMaterial({ radius: gfx.aoRadius, thickness: 1.0, distanceFallOff: 1.0 });
     invalidate();
-  }, [intensity, radius, invalidate]);
+  }, [gfx.aoIntensity, gfx.aoRadius, ao, invalidate]);
+
   useEffect(() => {
     const fx = effects.current;
     if (!fx) return;
+    // Composer pixel ratio and FXAA both scale with the 3D resolution setting.
     fx.composer.setPixelRatio(gl.getPixelRatio());
     fx.composer.setSize(size.width, size.height);
+    fx.fxaa?.setSize(size.width * gl.getPixelRatio(), size.height * gl.getPixelRatio());
     invalidate();
-  }, [gl, size.width, size.height, pixelRatio, invalidate]);
+  }, [gl, size.width, size.height, pixelRatio, fxaa, invalidate]);
+
   // A positive priority takes over the single final scene render from R3F.
   useFrame((_, delta) => {
     if (effects.current) effects.current.composer.render(delta);

@@ -70,6 +70,10 @@ function cloneModel(root: THREE.Object3D, clips: THREE.AnimationClip[]) {
   object.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
     node.castShadow = true; node.receiveShadow = true;
+    // An animated skinned mesh can leave the bind-pose bounding sphere, and Three does
+    // not update it per frame, so frustum culling can make it vanish (for example after
+    // changing graphics settings recreates the renderer). Never cull skinned meshes.
+    if ((node as THREE.SkinnedMesh).isSkinnedMesh) node.frustumCulled = false;
     node.material = Array.isArray(node.material) ? node.material.map((m) => lookup.get(m) || m) : lookup.get(node.material) || node.material;
   });
   return {object, pbrMaterials, originalMaterials, clips};

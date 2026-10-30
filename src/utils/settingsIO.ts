@@ -1,4 +1,4 @@
-import { getAppearance, sanitizeGfx, setAppearance, SKINS, QUALITY_PRESETS, type GraphicsQuality, type SkinId } from '../theme';
+import { getAppearance, sanitizeGfx, sanitizeScheme, setAppearance, SKINS, QUALITY_PRESETS, type ColorScheme, type GraphicsQuality, type SkinId } from '../theme';
 import { allBindings, importBindings } from '../keybinds';
 
 export const SETTINGS_FORMAT = 'larp-settings';
@@ -13,6 +13,7 @@ export interface SettingsFile {
     graphics: GraphicsQuality;
     gfx: Record<string, unknown>;
     accent: string | null;
+    scheme: ColorScheme;
   };
   keybinds: Record<string, string>;
   language: 'en' | 'ru';
@@ -25,7 +26,7 @@ export function buildSettingsFile(language: 'en' | 'ru'): SettingsFile {
     format: SETTINGS_FORMAT,
     version: SETTINGS_VERSION,
     exportedAt: new Date().toISOString(),
-    appearance: { skin: appearance.skin, graphics: appearance.graphics, gfx: { ...appearance.gfx }, accent: appearance.accent ?? null },
+    appearance: { skin: appearance.skin, graphics: appearance.graphics, gfx: { ...appearance.gfx }, accent: appearance.accent ?? null, scheme: { ...appearance.scheme } },
     keybinds: allBindings(),
     language,
   };
@@ -44,7 +45,7 @@ export function applySettingsFile(input: unknown): ImportResult {
   const graphics = QUALITY_PRESETS.includes(appearance.graphics as GraphicsQuality) ? (appearance.graphics as GraphicsQuality) : 'standard';
   const skin = Object.keys(SKINS).includes(appearance.skin as string) ? (appearance.skin as SkinId) : 'larp';
   const accent = typeof appearance.accent === 'string' && /^#[0-9a-f]{6}$/i.test(appearance.accent) ? appearance.accent : undefined;
-  setAppearance({ skin, graphics, gfx: sanitizeGfx(graphics, appearance.gfx as Record<string, unknown>), accent });
+  setAppearance({ skin, graphics, gfx: sanitizeGfx(graphics, appearance.gfx as Record<string, unknown>), accent, scheme: sanitizeScheme(appearance.scheme) });
   const keybinds = file.keybinds ? importBindings(file.keybinds) : 0;
   return { ok: true, keybinds };
 }

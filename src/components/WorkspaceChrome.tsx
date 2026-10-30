@@ -40,6 +40,9 @@ import {
   Cog,
   Package,
   Settings2,
+  LayoutGrid,
+  Columns3,
+  PanelBottom,
 } from "lucide-react";
 import { BrandMark } from "./PartIcon";
 import { cn } from "../utils/cn";
@@ -48,6 +51,8 @@ import { getLanguage, setLanguage, t } from "../i18n";
 import { useAppearance, SKINS } from "../theme";
 import { openSettings } from "../settingsWindow";
 import { isRobotKind } from "../utils/kinds";
+import { resetLayout, setPanel, useLayout } from "../layout";
+import { PanelToggles } from "./PanelShell";
 
 export interface ChromeProps {
   onSettings: () => void;
@@ -172,6 +177,37 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
 
 function Stack({ children }: { children: ReactNode }) {
   return <div className="flex flex-col justify-center">{children}</div>;
+}
+
+/**
+ * Window commands: show or hide each dock panel, detach it, and reset the whole
+ * arrangement. The same panel states drive the resize/detach handles on the panels.
+ */
+function LayoutGroup() {
+  const layout = useLayout();
+  const entries: { id: "catalog" | "inspector" | "dock"; label: string; icon: ReactNode }[] = [
+    { id: "catalog", label: "Catalog", icon: <Columns3 size={22} className="text-[var(--app-accent-bright)]" /> },
+    { id: "inspector", label: "Properties", icon: <Settings2 size={22} className="text-[#96b7d1]" /> },
+    { id: "dock", label: "Output", icon: <PanelBottom size={22} className="text-[var(--teal)]" /> },
+  ];
+  return (
+    <>
+      <Stack>
+        {entries.map((entry) => (
+          <SmallButton
+            key={entry.id}
+            icon={entry.icon}
+            label={t(layout[entry.id].open ? `Hide ${entry.label}` : `Show ${entry.label}`)}
+            onClick={() => setPanel(entry.id, { open: !layout[entry.id].open })}
+          />
+        ))}
+      </Stack>
+      <Stack>
+        <SmallButton icon={<LayoutGrid size={13} />} label={t("Reset layout")} onClick={resetLayout} title={t("Restore the default panel arrangement")} />
+        <div className="px-1 py-0.5"><PanelToggles /></div>
+      </Stack>
+    </>
+  );
 }
 
 export function AppChrome(props: ChromeProps) {
@@ -380,6 +416,9 @@ export function AppChrome(props: ChromeProps) {
             <Group label={t("Configuration")}>
               <RibbonButton icon={<Factory size={22} className="text-[#f2a33a]" />} label={t("AI Factory")} onClick={props.onOpenGenerator} title={t("Procedural factory generator")} />
               <RibbonButton icon={<Braces size={22} className="text-[#c99bff]" />} label={t("Program")} onClick={props.onEditProgram} disabled={!isRobot} title={t("Edit the selected robot's program")} />
+            </Group>
+            <Group label={t("Windows")}>
+              <LayoutGroup />
             </Group>
           </>
         )}

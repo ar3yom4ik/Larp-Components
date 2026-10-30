@@ -28,6 +28,7 @@ import { cn } from "../utils/cn";
 import { ProductPicker } from "./ProductPicker";
 import { ModelMaterialEditor } from "./ModelMaterialEditor";
 import { WorkerEditor } from "./WorkerEditor";
+import { workerShirtColor } from "./RiggedHuman";
 import { PalletPattern } from "./PalletPattern";
 import { MACHINE_KINDS } from "../data/products";
 import { t, useLanguage } from "../i18n";
@@ -104,7 +105,7 @@ const label = (key: string) => t(LABELS[key] ?? key.replace(/([A-Z])/g, " $1").r
 export function PropertiesPanel(props: PropertiesPanelProps) {
   const [tab, setTab] = useState<InspectorTab>("properties");
   return (
-    <aside className="app-panel app-properties flex min-h-0 w-full shrink-0 flex-col border-l border-white/[0.12] bg-[#2d2d30] xl:w-[300px]">
+    <aside className="app-panel app-properties flex min-h-0 w-full min-w-0 flex-1 flex-col border-l border-white/[0.12] bg-[#2d2d30]">
       <div className="app-panel-head flex h-[34px] shrink-0 items-center justify-between border-b border-white/10 bg-[#2b2b2d] px-3">
         <span className="text-[15px] text-[#ececec]">{t("Properties")}</span>
         <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-white/30">{t("Parametric")}</span>
@@ -383,6 +384,17 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
           <CosmeticSelect label="Head accessory" value={selected.props.ears === true ? "ears" : selected.props.headphones === true ? "headphones" : "none"} options={[["none", "None"], ["ears", "Cat ears"], ["headphones", "Headphones"]]} onChange={(value) => onUpdate(selected.id, { props: { ...selected.props, ears: value === "ears", headphones: value === "headphones" } })} />
           <CosmeticSelect label="Face" value={selected.props.glasses === true ? "glasses" : "none"} options={[["none", "None"], ["glasses", "Safety glasses"]]} onChange={(value) => onUpdate(selected.id, { props: { ...selected.props, glasses: value === "glasses" } })} />
           <CosmeticSelect label="Ears" value={selected.props.earrings === true ? "earrings" : "none"} options={[["none", "None"], ["earrings", "Earrings"]]} onChange={(value) => onUpdate(selected.id, { props: { ...selected.props, earrings: value === "earrings" } })} />
+          <label className="flex items-center justify-between gap-2 text-[10px] text-white/55">
+            {t("T-shirt colour")}
+            <input aria-label={t("T-shirt colour")} type="color" value={workerShirtColor(selected)} onChange={(e) => onUpdate(selected.id, { color: e.target.value })} className="h-7 w-12 rounded border border-white/15 bg-transparent" />
+          </label>
+          {String(selected.props.hat || "none") !== "none" && (
+            <label className="flex items-center justify-between gap-2 text-[10px] text-white/55">
+              {t("Hat colour")}
+              <input aria-label={t("Hat colour")} type="color" value={String(selected.props.hatColor ?? (String(selected.props.hat) === "cap" ? workerShirtColor(selected) : "#f7b51e"))} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, hatColor: e.target.value } })} className="h-7 w-12 rounded border border-white/15 bg-transparent" />
+            </label>
+          )}
+          <p className="text-[9.5px] leading-relaxed text-white/35">{t("The worker colour sets the T-shirt. Hats and caps follow the hat colour; the hi-vis default is yellow.")}</p>
         </div>}
         <p className="mt-2 text-[10px] text-white/40">{t("Completed tasks")}: {sim.humans.get(selected.id)?.completed ?? 0}</p></div></Section>}
 
@@ -405,6 +417,7 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
               />
             ))}
           </div>
+          {selected.kind === "operator" && <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("For a worker this colour is the T-shirt colour.")}</p>}
         </Section>}
 
         {selected.kind !== "imported-model" && <Section title={t("Behaviour")}>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Database, Download, FolderOpen, HelpCircle, Gauge, Keyboard, Monitor, Palette, RotateCcw, Save, Sun, Upload, X } from "lucide-react";
-import { useAppearance, applyPreset, isCustomGraphics, setAccent, setAppearance, setGfx, SKINS, GI_MODES, TONE_MAPPINGS, type GiMode, type GraphicsSettings, type SkinId, type ToneMapping, type GraphicsQuality } from "../theme";
+import { useAppearance, applyPreset, isCustomGraphics, setAccent, setAppearance, setGfx, setScheme, resetScheme, SKINS, GI_MODES, TONE_MAPPINGS, ANTIALIAS_MODES, RESOLUTION_STEPS, SCHEME_FIELDS, type AntialiasMode, type ColorScheme, type GiMode, type GraphicsSettings, type SkinId, type ToneMapping, type GraphicsQuality } from "../theme";
+import { resetLayout, setPanel, useLayout } from "../layout";
 import { getLanguage, setLanguage, t, useLanguage } from "../i18n";
 import { KEY_ACTIONS, bindingFor, bindingFromEvent, isValidBinding, resetAllBindings, resetBinding, setBinding, setCapturing, useKeybindVersion } from "../keybinds";
 import { applySettingsFile, buildSettingsFile } from "../utils/settingsIO";
@@ -55,7 +56,7 @@ const GI_STEPS: { id: GiMode; label: string; note: string }[] = [
   { id: "approx", label: "Approximate", note: "Bounce lights plus screen-space occlusion. An approximation, not path tracing." },
   { id: "vxgi", label: "VXGI", note: "Real-time voxel cone-traced indirect light (three.js r187 VXGI). Needs WebGPU; otherwise falls back to Approximate." },
 ];
-const RESOLUTION_STEPS = [1, 1.25, 1.5, 2];
+const ANTIALIAS_LABEL: Record<AntialiasMode, string> = { off: "Off", fxaa: "FXAA (fast)", msaa: "MSAA (smooth)" };
 const VIEW_STEPS = [
   { label: "Near", value: 90 },
   { label: "Medium", value: 130 },
@@ -184,7 +185,8 @@ export function SettingsWindow(props: SettingsWindowProps) {
           <>
             <Section title="Display">
               <ToggleRowUi label="Show frame rate" help="Shows a live frames-per-second counter in the top-left corner of the 3D view. Useful when tuning graphics." checked={gfx.showFps} onChange={(value) => setGfx({ showFps: value })} onHelp={sectionHelp} />
-              <StepRow label="3D resolution" help="Renders the 3D view at a fraction of the screen pixels. Lower values are faster but softer." steps={RESOLUTION_STEPS.map((step) => `${Math.round(step * 100)}%`)} value={Math.max(0, nearest(RESOLUTION_STEPS, gfx.pixelRatio))} onChange={(index) => setGfx({ pixelRatio: RESOLUTION_STEPS[index] })} onHelp={sectionHelp} />
+              <StepRow label="3D resolution" help="Renders the 3D view at a fraction of the screen pixels. Values below 100% are faster and softer; values above 100% supersample. 50% is useful on slow GPUs or large scenes." steps={RESOLUTION_STEPS.map((step) => `${Math.round(step * 100)}%`)} value={Math.max(0, nearest(RESOLUTION_STEPS, gfx.pixelRatio))} onChange={(index) => setGfx({ pixelRatio: RESOLUTION_STEPS[index] })} onHelp={sectionHelp} />
+              <StepRow label="Antialiasing" help="Smooths jagged edges. MSAA is the sharpest for thin geometry, FXAA is cheaper and works at any resolution, Off is fastest." steps={ANTIALIAS_MODES.map((mode) => ANTIALIAS_LABEL[mode])} value={Math.max(0, ANTIALIAS_MODES.indexOf(gfx.antialias))} onChange={(index) => setGfx({ antialias: ANTIALIAS_MODES[index] })} onHelp={sectionHelp} />
               <ToggleRowUi label="Adaptive resolution" help="Lowers the resolution automatically while the frame rate drops, then restores it." checked={gfx.adaptive} onChange={(value) => setGfx({ adaptive: value })} onHelp={sectionHelp} />
               <ToggleRowUi label="Floor grid" help="Shows the reference grid on the factory floor." checked={gfx.grid} onChange={(value) => setGfx({ grid: value })} onHelp={sectionHelp} />
               <ToggleRowUi label="Distance fog" help="Fades distant geometry into the background colour." checked={gfx.fog} onChange={(value) => setGfx({ fog: value })} onHelp={sectionHelp} />
@@ -261,25 +263,64 @@ export function SettingsWindow(props: SettingsWindowProps) {
         return (
           <>
             <Section title="Colours">
-              <div className="space-y-2 px-3 py-2" onMouseEnter={() => sectionHelp("The accent colour is used for selection, buttons, the play control and highlights. It is saved with your settings.")}>
+              <div className="space-y-2 px-3 py-2" onMouseEnter={() => sectionHelp(appearance.skin === "custom" ? "The Custom skin uses the full palette below. Pick any colour for each surface; the 3D viewport colour, ribbon, panels and accent all update immediately." : "The accent colour is used for selection, buttons, the play control and highlights. Pick the Custom skin for a full colour scheme.")}>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {ACCENT_SWATCHES.map((color) => (
-                    <button key={color} type="button" aria-label={`${t("Accent")} ${color}`} onClick={() => setAccent(color)} className={cn("h-6 w-6 rounded-full border", appearance.accent === color ? "ring-2 ring-white/70" : "border-white/20")} style={{ background: color }} />
+                    <button
+                      key={color}
+                      type="button"
+                      aria-label={`${t("Accent")} ${color}`}
+                      onClick={() => (appearance.skin === "custom" ? setScheme({ accent: color }) : setAccent(color))}
+                      className={cn("h-6 w-6 rounded-full border", (appearance.skin === "custom" ? appearance.scheme.accent : appearance.accent) === color ? "ring-2 ring-white/70" : "border-white/20")}
+                      style={{ background: color }}
+                    />
                   ))}
                   <label className="flex items-center gap-1.5 text-[11px] text-white/60">
-                    {t("Custom")}
-                    <input type="color" aria-label={t("Custom accent colour")} value={appearance.accent ?? SKINS[appearance.skin].accent} onChange={(event) => setAccent(event.target.value)} className="h-6 w-8 cursor-pointer rounded border border-white/15 bg-transparent p-0.5" />
+                    {t("Accent")}
+                    <input
+                      type="color"
+                      aria-label={t("Custom accent colour")}
+                      value={appearance.skin === "custom" ? appearance.scheme.accent : appearance.accent ?? SKINS[appearance.skin].accent}
+                      onChange={(event) => (appearance.skin === "custom" ? setScheme({ accent: event.target.value }) : setAccent(event.target.value))}
+                      className="h-6 w-8 cursor-pointer rounded border border-white/15 bg-transparent p-0.5"
+                    />
                   </label>
-                  <button type="button" onClick={() => setAccent(undefined)} className="rounded px-2 py-1 text-[11px] text-white/55 hover:bg-white/10 hover:text-white">{t("Use skin colour")}</button>
+                  {appearance.skin !== "custom" && <button type="button" onClick={() => setAccent(undefined)} className="rounded px-2 py-1 text-[11px] text-white/55 hover:bg-white/10 hover:text-white">{t("Use skin colour")}</button>}
                 </div>
               </div>
+              {appearance.skin === "custom" && (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-3 py-2" data-custom-scheme>
+                  {SCHEME_FIELDS.filter((field) => field.key !== "accent").map((field) => (
+                    <label key={field.key} className="flex items-center justify-between gap-2 text-[11px] text-white/70">
+                      <span className="truncate">{t(field.label)}</span>
+                      <input
+                        type="color"
+                        aria-label={t(field.label)}
+                        value={appearance.scheme[field.key]}
+                        onChange={(event) => setScheme({ [field.key]: event.target.value } as Partial<ColorScheme>)}
+                        className="h-6 w-9 shrink-0 cursor-pointer rounded border border-white/15 bg-transparent p-0.5"
+                      />
+                    </label>
+                  ))}
+                  <button type="button" onClick={() => resetScheme()} className="col-span-2 mt-1 flex items-center justify-center gap-1.5 rounded border border-white/15 py-1.5 text-[11px] text-white/65 hover:bg-white/10">
+                    <RotateCcw size={11} /> {t("Reset colours")}
+                  </button>
+                </div>
+              )}
             </Section>
             <Section title="Layout style">
-              <div className="grid grid-cols-3 gap-1.5 px-1">
+              <div className="grid grid-cols-2 gap-1.5 px-1 sm:grid-cols-4">
                 {(Object.keys(SKINS) as SkinId[]).map((id) => (
-                  <button key={id} type="button" data-skin-preview={id} onMouseEnter={() => sectionHelp(SKINS[id].note)} onClick={() => setAppearance({ skin: id })} className={cn("skin-card rounded border p-2 text-left text-[11px] text-white/70", appearance.skin === id && "active")}>
-                    <span className="block font-medium text-white/85">{SKINS[id].name}</span>
-                    <span className="block text-[10px] text-white/40">{SKINS[id].note}</span>
+                  <button
+                    key={id}
+                    type="button"
+                    data-skin-preview={id}
+                    onMouseEnter={() => sectionHelp(id === "custom" ? "A skin with a fully customizable colour scheme: every surface, the accent and the selection colour are yours to set." : SKINS[id].note)}
+                    onClick={() => setAppearance({ skin: id })}
+                    className={cn("skin-card rounded border p-2 text-left text-[11px] text-white/70", appearance.skin === id && "active")}
+                  >
+                    <span className="block font-medium text-white/85">{t(SKINS[id].name)}</span>
+                    <span className="block text-[10px] text-white/40">{id === "custom" ? t("Fully customizable colours") : t(SKINS[id].note)}</span>
                   </button>
                 ))}
               </div>
@@ -297,7 +338,17 @@ export function SettingsWindow(props: SettingsWindowProps) {
               </div>
             </Section>
             <Section title="Panels">
-              <div className="px-3 py-2 text-[11px] text-white/45">{t("Panel resizing, detaching and layout reset are not available yet.")}</div>
+              <div className="space-y-1.5 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <PanelRow id="catalog" label="Catalog" />
+                  <PanelRow id="inspector" label="Properties" />
+                  <PanelRow id="dock" label="Output dock" />
+                </div>
+                <button type="button" onClick={() => { resetLayout(); flash(t("Layout reset")); }} className="mt-1 flex w-full items-center justify-center gap-1.5 rounded border border-white/15 py-2 text-[12px] text-white/70 hover:bg-white/10">
+                  <RotateCcw size={12} /> {t("Reset layout")}
+                </button>
+                <p className="text-[10.5px] leading-relaxed text-white/40">{t("Drag a panel's inner edge to resize it. The button in each panel header detaches it into a movable window; the same button docks it again.")}</p>
+              </div>
             </Section>
             {import.meta.env.DEV && <Section title="Developer">
               <ToggleRowUi label="Cornell benchmark room (DEV)" help="Replaces the factory with a Cornell box for GI debugging. Development builds only." checked={cornell} onChange={(value) => { setCornellRoom(value); }} onHelp={sectionHelp} />
@@ -324,7 +375,7 @@ export function SettingsWindow(props: SettingsWindowProps) {
             </div>
             <div>
               <h3 className="mb-1 text-[13px] font-semibold text-white">{t("Panels")}</h3>
-              <p>{t("Panels currently have a fixed layout. Resizing, collapsing, detaching and resetting panels are planned and not available yet.")}</p>
+              <p>{t("Drag a panel's inner edge to resize it, use the header button to detach it into a movable window, and the X to close it. Settings → Interface → Panels re-opens closed panels and resets the whole layout.")}</p>
             </div>
             <div>
               <h3 className="mb-1 text-[13px] font-semibold text-white">{t("Shortcuts")}</h3>
@@ -392,6 +443,18 @@ export function SettingsWindow(props: SettingsWindowProps) {
       </div>
       {props.onClose && !props.inline && <button type="button" onClick={props.onClose} aria-label={t("Close")} className="absolute right-3 top-3 z-10 rounded p-2 text-white/50 hover:bg-white/10"><X size={17} /></button>}
     </div>
+  );
+}
+
+/** One line of the Panels section: show/hide and detach for a dock panel. */
+function PanelRow({ id, label }: { id: "catalog" | "inspector" | "dock"; label: string }) {
+  const layout = useLayout();
+  const panel = layout[id];
+  return (
+    <span className="flex items-center gap-1 rounded border border-white/12 px-1.5 py-1 text-[11px] text-white/70">
+      <button type="button" onClick={() => setPanel(id, { open: !panel.open })} aria-pressed={panel.open} className={cn("rounded px-1 py-0.5", panel.open ? "bg-[var(--app-accent)]/20 text-white" : "text-white/45 hover:bg-white/10")}>{t(label)}</button>
+      <button type="button" onClick={() => setPanel(id, { floating: !panel.floating, open: true })} title={t(panel.floating ? "Dock panel" : "Detach panel")} aria-label={`${t(panel.floating ? "Dock panel" : "Detach panel")} ${t(label)}`} className="rounded px-1 py-0.5 text-white/45 hover:bg-white/10 hover:text-white">{t(panel.floating ? "Docked" : "Float")}</button>
+    </span>
   );
 }
 

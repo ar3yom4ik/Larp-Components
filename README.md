@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml/badge.svg)](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml)
 
-A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2** of *Larp Components 5.1*.
+A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.1** of *Larp Components 5.1*.
 
 > Not affiliated with Visual Components. The simulator and safety guarding are illustrative only; they are **not** certified industrial, safety or robot-control tools.
 
@@ -14,7 +14,10 @@ A browser-based 3D **factory layout editor and discrete-time simulator**, built 
 - **3D model import** — GLB/glTF, FBX, OBJ+MTL, STL, PLY, DAE, 3MF, 3DS, USD, VRML, VTK, AMF, STEP/IGES/BREP, with Draco, Meshopt and KTX2 support where the browser allows.
 - **Materials** — per-instance material editing and texture replacement for imported models.
 - **Animated workers** — a bundled CC0 rigged human (idle / walk / work clips), custom rigged characters, and per-role animation uploads.
-- **Graphics** — shadows, the **Max** preset: WebGPU voxel global illumination (three.js r187 VXGI) with a WebGL approximation fallback (bounce lights + screen-space GTAO), skins, and adaptive quality.
+- **Graphics** — shadows, the **Max** preset: WebGPU voxel global illumination (three.js r187 VXGI) with a WebGL approximation fallback (bounce lights + screen-space GTAO), selectable antialiasing (Off / FXAA / MSAA), 3D resolution from 50 % to 200 %, and adaptive quality.
+- **Skins** — Larp UI, Visual Components-inspired, R-pro, and a **Custom** skin whose colour scheme (accent, window, title bar, tabs, ribbon, panels, dock, viewport, status bar, chrome text) is fully editable.
+- **Dockable workspace** — resize, detach, move, close and reset the catalog, properties and output panels; the floor map opens as its own window.
+- **Worker cosmetics** — hard hat, cap, safety glasses, ear defenders and accessories modelled individually; the worker colour sets the T-shirt colour.
 - **Projects** — export/import as UTF-8 `.txt`, IndexedDB autosave, and optional File System Access saving.
 - **Responsive UI** — desktop layout and a touch-first phone/tablet layout with feature parity.
 - **Bilingual UI** — English and Russian (`src/i18n.ts`).
@@ -37,7 +40,7 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | --- | --- |
 | `npm run dev` | Start the Vite dev server (port 5173 by default; the docs and tests use 4173). |
 | `npm run typecheck` | TypeScript type check with `tsc --noEmit`. |
-| `npm run test:unit` | Browser-free simulation, prompt, navigation and project-size regression tests. |
+| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt and server-rendered UI tests (8 suites). |
 | `npm run build` | Production build **plus** the asset embedder; writes `dist/index.html` (standalone, ~10 MB). |
 | `npm run preview` | Serve the production build locally. |
 

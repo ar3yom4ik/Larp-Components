@@ -23,6 +23,9 @@ import { ModelImportDialog } from "./components/ModelImportDialog";
 import { DEFAULT_WORKER_SETTINGS } from "./components/RiggedHuman";
 import { eventMatches, isCapturing } from "./keybinds";
 import { closeSettings, openSettings, useSettingsWindow } from "./settingsWindow";
+import { PanelShell } from "./components/PanelShell";
+import { FloorMapWindow } from "./components/FloorMapWindow";
+import { setPanel, useLayout } from "./layout";
 import { loadAutosave, saveAutosave } from "./utils/projectStore";
 import { programToCode } from "./sim/programCode";
 import type { ComponentKind, ImportedModelData, LayoutPreset, SceneItem, ToolMode, Vec3 } from "./types";
@@ -126,6 +129,8 @@ export default function App() {
   const [dockExpanded, setDockExpanded] = useState(false);
   const [showApi, setShowApi] = useState(0);
   const [genOpen, setGenOpen] = useState(false);
+  const [floorMapOpen, setFloorMapOpen] = useState(false);
+  const layout = useLayout();
   const [genOptions, setGenOptions] = useState<GenOptions>(DEFAULT_GEN);
   const [running, setRunning] = useState(true);
   const [simSpeed, setSimSpeed] = useState(1);
@@ -701,6 +706,19 @@ export default function App() {
   );
 
   const dock = (fullHeight = false) => <BottomDock tab={dockTab} setTab={setDockTab} expanded={dockExpanded} setExpanded={setDockExpanded} items={items} selectedId={selectedId} onSelect={setSelectedId} onUpdateItem={updateItem} onTemplate={applyTemplate} showApi={showApi} fullHeight={fullHeight} />;
+  // The dock fills its panel, so the panel's own height replaces the fixed 175/350 px
+  // sizes. The chevron button still expands and shrinks it.
+  const dockPanelBody = (
+    <BottomDock
+      tab={dockTab} setTab={setDockTab}
+      expanded={layout.dock.size > 260}
+      setExpanded={(expanded) => setPanel("dock", { size: expanded ? 420 : 175 })}
+      items={items} selectedId={selectedId} onSelect={setSelectedId} onUpdateItem={updateItem}
+      onTemplate={applyTemplate} showApi={showApi} fullHeight
+    />
+  );
+  // Docked panels own their size; a detached panel renders as a floating window instead.
+  const dockNode = !mobile && layout.dock.open && !layout.dock.floating ? <PanelShell id="dock" title="Output">{dockPanelBody}</PanelShell> : null;
   const projectSettings = <ProjectSettings inline={mobile} project={projectName} rename={setProjectName} save={() => void saveProject()} exportFile={downloadProject} importFile={importProject} newProject={newProject} mode={interfaceMode} setMode={setInterfaceMode} onClose={() => setSettingsOpen(false)} />;
   const mobileTools = <MobileTools selected={selected} selectedPoint={selectedPoint} snap={snap}
     onSnap={() => setSnap((v) => !v)} onCopy={copySelected} onPaste={paste}
@@ -761,15 +779,23 @@ export default function App() {
       />
       )}
       <main className="relative flex min-h-0 flex-1">
-        {!mobile && <div className="hidden min-h-0 lg:flex">{libraryPanel}</div>}
+        {!mobile && layout.catalog.open && !layout.catalog.floating && (
+          <PanelShell id="catalog" title="Catalog" hiddenBelow="lg">
+            {libraryPanel}
+          </PanelShell>
+        )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1">
-            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} selectedId={selectedId} onSelect={setSelectedId} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onImportFiles={(files) => openModelImport(files)} onUpdateItem={updateItem} onBeginEdit={beginEdit} onDeleteItem={deleteItem} onDuplicateItem={duplicateItem} />
+            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} selectedId={selectedId} onSelect={setSelectedId} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onImportFiles={(files) => openModelImport(files)} onUpdateItem={updateItem} onBeginEdit={beginEdit} onDeleteItem={deleteItem} onDuplicateItem={duplicateItem} onShowFloorMap={() => setFloorMapOpen(true)} />
             {!mobile && <div className="absolute bottom-3 left-[110px] z-20 flex gap-1.5 xl:hidden"><button type="button" onClick={() => setMobilePanel("inspector")} className="flex items-center gap-1.5 rounded border border-white/15 bg-[#2a2a2c]/95 px-2.5 py-1.5 text-[10px] text-white/80"><SlidersHorizontal size={12} className="text-[var(--teal)]" />{t("Properties")}</button></div>}
           </div>
-          {!mobile && dock()}
+          {dockNode}
         </div>
-        {!mobile && <div className="hidden min-h-0 xl:flex">{inspector}</div>}
+        {!mobile && layout.inspector.open && !layout.inspector.floating && (
+          <PanelShell id="inspector" title="Properties" hiddenBelow="xl">
+            {inspector}
+          </PanelShell>
+        )}
         {mobilePanel && (mobile || mobilePanel === "inspector") && <div className="absolute inset-0 z-30 flex flex-col justify-end">
           <button type="button" aria-label={t("Close panel")} onClick={() => setMobilePanel(null)} className="absolute inset-0 bg-black/40" />
           <section role="dialog" aria-modal="true" aria-label={t(mobilePanel === "library" ? "Catalog" : mobilePanel === "inspector" ? "Properties" : mobilePanel === "program" ? "Program" : mobilePanel === "tools" ? "Tools" : "Project")} className={cn("app-panel relative flex min-h-0 flex-col overflow-hidden border-t border-white/15 bg-[#2d2d30] shadow-[0_-20px_60px_rgba(0,0,0,.5)] animate-[sheet-in_.22s_ease-out]", mobile ? "h-[94%] rounded-t-2xl" : "ml-auto h-full w-[350px]")}>
@@ -779,6 +805,11 @@ export default function App() {
         </div>}
       </main>
       {mobile ? <MobileNav panel={mobilePanel} setPanel={(panel) => { if (panel === "program") setDockTab("program"); setMobilePanel(panel); }} onFactory={() => setGenOpen(true)} /> : <StatusBar selectedName={selected?.name} tool={tool} snap={snap} count={items.length} running={running} />}
+      {/* Detached panels float above the workspace and keep their own content. */}
+      {!mobile && layout.catalog.floating && <PanelShell id="catalog" title="Catalog">{libraryPanel}</PanelShell>}
+      {!mobile && layout.inspector.floating && <PanelShell id="inspector" title="Properties">{inspector}</PanelShell>}
+      {!mobile && layout.dock.floating && <PanelShell id="dock" title="Output">{dockPanelBody}</PanelShell>}
+      <FloorMapWindow open={floorMapOpen} onClose={() => setFloorMapOpen(false)} items={items} selectedId={selectedId} onSelect={setSelectedId} building={appearance.building} />
       <ModelImportDialog open={modelOpen} initialFiles={modelFiles} requireRig={!!modelTarget} onClose={() => { setModelOpen(false); setModelFiles(null); setModelTarget(null); }} onImported={addImportedModel} />
       {!storageReady && <div role="status" className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-4 bg-[#1e1e1e]/95 text-sm text-white/75">
         <span>{t("Restoring project…")}</span>

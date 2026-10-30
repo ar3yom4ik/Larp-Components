@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "settings"];
+const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "settings", "ui-layout", "floor-plan-and-shirt", "ui-render"];
 const outDir = await mkdtemp(path.join(tmpdir(), "larp-unit-"));
 let failed = 0;
 
@@ -23,6 +23,7 @@ try {
       format: "esm",
       outfile,
       logLevel: "warning",
+      define: { "import.meta.env": "{}" },
     });
     const run = spawnSync(process.execPath, [outfile], { stdio: "inherit", cwd: root });
     const ok = run.status === 0;

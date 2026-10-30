@@ -54,7 +54,7 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
   const machines = filtered.filter((item) => item.category === "Machines").length;
 
   return (
-    <aside className="app-panel app-catalog flex min-h-0 w-full shrink-0 flex-col border-r border-white/[0.12] bg-[#2d2d30] lg:w-[268px]">
+    <aside className="app-panel app-catalog flex min-h-0 w-full min-w-0 flex-1 flex-col border-r border-white/[0.12] bg-[#2d2d30]">
       <div className="flex h-[42px] shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
         <div className="flex items-center gap-2">
           <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)]/10 text-[var(--app-accent)]">

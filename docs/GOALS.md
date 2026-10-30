@@ -1,39 +1,65 @@
 # Goals and hand-off
 
-Branch: `arena/9a08dd02-larp-components` (PR #1). Last commit: `9a77fe6`.
+Branch: `arena/bb17885b-larp-components`. Release **V2.1** (see `CHANGELOG.md`).
 
 This issue is the hand-off list. Each item says what was done, how it was checked, and what remains.
 
-## Done (code in branch, unit tests pass, `npm run build` passes)
+## Done in V2.1
 
-- [x] **Settings window** (`src/components/SettingsWindow.tsx`, replaces the old project settings modal). Sections: Video, Graphics quality, Lighting, Interface & colours, Keybinds, Help, Settings backup, Project. Verified visually in WebGL.
-- [x] **Presets plus individual parameters.** Low / Standard / Enhanced / Max set the parameters. Changing one parameter shows "Custom". "Reset to preset" restores it. Verified visually.
-- [x] **Global illumination as a parameter**: Off / Occlusion / Approximate / VXGI. VXGI falls back to Approximate when WebGPU is unavailable. Verified visually for the UI only; the WebGPU path was not re-run this session (see open items).
-- [x] **Seven tone mappers**: none, linear, reinhard, cineon, ACES filmic, AgX, neutral (`TONE_MAPPING_BY_NAME` in `GraphicsEffects.tsx`). Not yet checked visually.
-- [x] **Show frame rate** option (live FPS overlay in the 3D view). Not yet checked visually.
-- [x] **Keybinds**: every shortcut is listed in `src/keybinds.ts`, can be rebound (conflicts are resolved by clearing the other action), and can be reset individually or all at once. App.tsx dispatches on these ids. Unit-tested.
-- [x] **Settings export / import** as `larp-settings.json` (graphics, colours, layout style, keybinds, language). Invalid files are rejected without changes. Unit-tested (`src/utils/settingsIO.ts`).
-- [x] **UI colours**: accent colour with swatches and a custom picker. The three layouts (Larp, Visual Components, R-pro) stay as layout styles, so the Visual Components look does not regress.
-- [x] **Help** (HELP ribbon) opens the Help section or Keybinds in the settings window, instead of a toast.
-- [x] **Cosmetics dropdown** cleaned up: one select per slot (Head, Head accessory, Face, Ears) instead of toggle switches.
-- [x] **Cosmetics attach to the head bone** (`RiggedHuman.tsx`, holder group under the head bone). Verified at rest: the hard hat and safety glasses sit on the head. Not yet verified during animation.
-- [x] **Simulation settings menu** opens upward (`Viewport.tsx`, `SimPlayer`). Code change only; not yet verified with a screenshot.
-- [x] **GI voxel refresh** every 3 s instead of 1.5 s while the simulation runs (`GpuGlobalIllumination.tsx`). Not measured on a GPU.
+- [x] **Dockable panels.** `src/layout.ts` stores one state per panel (open, floating, docked
+  size, floating geometry) in `localStorage`. `src/components/PanelShell.tsx` draws the resize
+  edge and the detach/close commands for the catalogue, properties and output panels. Detached
+  panels are real windows: drag the title strip to move, drag the bottom-right corner to resize,
+  press the same button to dock again. Ribbon → **Home → Windows** has per-panel toggles and
+  **Reset layout**; the same controls are in Settings → Interface → Panels. Unit-tested
+  (`tests/ui-layout.ts`) and server-rendered (`tests/ui-render.ts`).
+- [x] **Custom skin with a fully customizable colour scheme.** Fourth skin `custom`
+  (`theme.ts`). Eleven colour fields (accent, window, title bar, tab bar, ribbon, panels, dock,
+  3D viewport, status bar, chrome text) plus reset. Values are validated as `#rrggbb`, written as
+  CSS custom properties on the document root and removed again when switching to a built-in
+  skin. The 3D viewport colour and its light/dark helper palette follow the scheme. Included in
+  settings export/import. Unit-tested (sanitisation, injection rejection, settings round-trip).
+- [x] **Antialiasing next to 3D resolution**: Off / FXAA (fast) / MSAA (smooth). MSAA is the
+  renderer context attribute (canvas is recreated when it changes); FXAA is a post pass in the
+  same composer as the occlusion pass (`GraphicsEffects.tsx`, `PostEffects`). Post effects are
+  skipped on the WebGPU/VXGI path, which has its own TRAA pipeline.
+- [x] **3D resolution below 100 %**: 50/65/75/90/100/125/150/200 %. Values survive save/load and
+  are clamped to 0.35–3.
+- [x] **Floor map rebuilt.** `src/utils/floorPlan.ts` produces one plan geometry (footprints,
+  rotated rectangles, circles for robots/workers, conveyor polylines, dashed fences) used by the
+  AI Factory preview, the corner mini-map and the new movable/resizable floor-map window
+  (`FloorMapWindow.tsx`) with a legend and click-to-select. Unit-tested.
+- [x] **Worker cosmetics** rebuilt from photographic PPE references
+  (`WorkerCosmetics.tsx`): hard hat (brim, peak, ridge, vents, ratchet, chin strap), panelled
+  cap, wraparound safety glasses, ear defenders with cups and cushions, cat ears, hoop earrings.
+  Hat colour is selectable; the cap panels follow the shirt colour.
+- [x] **Worker colour changes the T-shirt.** `src/utils/workerShirt.ts` injects a mask into the
+  character material that replaces only the warm, saturated clothing band of the palette
+  texture, so face, hands and boots are untouched. The classic mannequin uses the same colour.
+  Unit-tested (uniform binding and shader injection).
+- [x] **Worker no longer disappears after a graphics change.** Defensive fixes: animated skinned
+  meshes are never frustum-culled; saved worker settings are normalised (NaN height, unknown
+  forward axis, zero item scale, degenerate bounding boxes); a non-finite ground correction is
+  discarded instead of being stored in the model transform; an error boundary swaps a broken rig
+  for the mannequin; post-processing state is rebuilt (not patched) when the effect set changes.
 
-## Not done
+## Open items inherited from V2.0
 
-- [ ] **Skinned worker disappears in Standard and Enhanced (reported).** Not reproduced. The built-in worker renders in Standard and Max (WebGL) in headless Chromium. The report probably involves an imported rigged character, which we do not have. Needed: the model file and the steps to reproduce.
-- [ ] **WebGPU / VXGI not re-verified this session.** The earlier session verified it on Chromium 153 with SwiftShader. The sandbox now runs Chromium 138, which has no WebGPU context. Re-run the WebGPU screenshots on a machine with a GPU.
-- [ ] **Frame rate limit** (30 to Unlimited) is not implemented. It needs a render-loop cap. Vsync is controlled by the browser and cannot be set from the page.
-- [ ] **Panels**: drag an edge to resize, collapse, detach into a floating window, close, and a "Reset layout" button. Not started. The Help page says so.
-- [ ] **Floor map** should look like the factory preview in the AI Factory generator. Not started.
-- [ ] **Translations**: new strings were added in English, and Russian translations for the main labels. A full audit is still needed (`RU` in `src/i18n.ts`).
-- [ ] **Settings window on touch**: the mobile inline layout is written but not screenshot-checked.
-- [ ] **Visual checks** of tone mappers, FPS overlay, the simulation menu, and the cosmetics during animation.
-- [ ] **GI optimisation** beyond the refresh rate: lower voxel resolution option, and skipping voxelisation while idle. Needs GPU measurements first.
+- [ ] **WebGPU / VXGI re-verification on a real GPU.** The sandbox has no browser with a GPU, so
+  the VXGI path was only reviewed in code this session. It must be re-run before relying on it.
+- [ ] **Frame-rate limit** (30 to Unlimited) is still not implemented; a render-loop cap is needed.
+- [ ] **Visual re-checks in a real browser.** The sandbox for V2.1 had no Playwright browser
+  available (download blocked, no NSS libraries), so the visual verification this time is limited
+  to server-rendered markup and WebGL-free unit tests.
+- [ ] **Translations**: new V2.1 strings are in English and Russian; a full audit of older strings
+  is still worthwhile (`RU` in `src/i18n.ts`).
+- [ ] **GI optimisation** beyond the refresh rate (lower voxel resolution, idle skip). Needs GPU
+  measurements.
 
 ## How to continue
 
 1. `npm ci`, then `npm run dev -- --host 0.0.0.0 --port 4173 --strictPort`.
-2. `npm run test:unit` (5 suites). Then `npm run build`.
-3. Screenshot harnesses used in this session live in the sandbox only. The DEV hooks `window.__larpTheme`, `window.__larpProject` (`getItems`, `setItems`, `select`) and `window.__larpCornell` make scripted checks easy.
+2. `npm run typecheck`, `npm run test:unit` (8 suites), `npm run build`.
+3. Dev hooks used by scripted checks: `window.__larpProject`, `window.__larpTheme`
+   (`setGfx`, `setSkin`, `setAccent`, `setScheme`), `window.__larpLayout` (`setPanel`,
+   `resetLayout`, `floatPanel`), `window.__larpRenderer`, `window.__larpCornell`.

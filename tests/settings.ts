@@ -1,7 +1,7 @@
 // Browser-free checks for keybinds, graphics migration and settings import/export.
 import assert from "node:assert/strict";
 import { bindingFor, bindingFromEvent, eventMatches, importBindings, isValidBinding, resetAllBindings, setBinding } from "../src/keybinds";
-import { sanitizeGfx, TONE_MAPPINGS, GI_MODES } from "../src/theme";
+import { ANTIALIAS_MODES, DEFAULT_SCHEME, RESOLUTION_STEPS, sanitizeGfx, sanitizeScheme, TONE_MAPPINGS, GI_MODES } from "../src/theme";
 import { applySettingsFile, buildSettingsFile } from "../src/utils/settingsIO";
 
 const ev = (key: string, mods: { ctrl?: boolean; shift?: boolean } = {}) =>
@@ -57,3 +57,22 @@ assert.equal(applySettingsFile({ format: "larp-settings", version: 1 }).ok, fals
 assert.equal(applySettingsFile(null).ok, false);
 
 console.log("settings: keybinds, graphics migration and settings files OK");
+
+// Custom skin colour scheme and the new render options.
+assert.equal(sanitizeScheme({ appBg: "#123456", accent: "not-a-colour", panelBg: "#abc" }).appBg, "#123456");
+assert.equal(sanitizeScheme({ accent: "not-a-colour" }).accent, DEFAULT_SCHEME.accent, "invalid colours fall back to the default");
+assert.equal(sanitizeScheme({ statusBg: "red; background:url(x)" }).statusBg, DEFAULT_SCHEME.statusBg, "CSS injection is rejected");
+assert.equal(sanitizeScheme(null).ribbonBg, DEFAULT_SCHEME.ribbonBg);
+assert.ok(RESOLUTION_STEPS.some((step) => step < 1), "the 3D resolution offers values below 100%");
+assert.ok(RESOLUTION_STEPS.every((step) => step > 0));
+assert.deepEqual([...ANTIALIAS_MODES], ["off", "fxaa", "msaa"]);
+assert.equal(sanitizeGfx("standard", { antialias: "bogus" }).antialias, "msaa", "unknown antialiasing falls back to the preset");
+assert.equal(sanitizeGfx("low", {}).antialias, "fxaa");
+assert.equal(sanitizeGfx("standard", { antialias: "off" }).antialias, "off");
+assert.equal(sanitizeGfx("standard", { pixelRatio: 0.5 }).pixelRatio, 0.5, "sub-1 render scales survive a save");
+assert.equal(sanitizeGfx("standard", { pixelRatio: 0 }).pixelRatio, 1.25, "zero is rejected");
+assert.equal(sanitizeGfx("standard", { pixelRatio: 99 }).pixelRatio, 3);
+
+// Settings files carry the colour scheme.
+const schemeFile = buildSettingsFile("en");
+assert.equal(schemeFile.appearance.scheme.appBg, DEFAULT_SCHEME.appBg);

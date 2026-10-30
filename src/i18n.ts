@@ -12,7 +12,7 @@ export function setLanguage(value: Language) {
 }
 export const getLanguage = () => language;
 export function useLanguage() {
-  return useSyncExternalStore((fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; }, getLanguage);
+  return useSyncExternalStore((fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; }, getLanguage, getLanguage);
 }
 
 // Program identifiers, code and user-authored names remain unchanged in both languages.
@@ -793,6 +793,53 @@ export const RU: Record<string, string> = {
   
   "Larp Components 5.1 - physics engine ready (60 Hz fixed step)": "Larp Components 5.1 — физический движок готов (шаг 60 Гц)",
   "Larp Components 5.1 - browser factory simulation": "Larp Components 5.1 — браузерная симуляция фабрики",
+  "Antialiasing": "Сглаживание",
+  "Off": "Выкл.",
+  "FXAA (fast)": "FXAA (быстро)",
+  "MSAA (smooth)": "MSAA (гладко)",
+  "Fully customizable colours": "Полностью настраиваемые цвета",
+  "Reset colours": "Сбросить цвета",
+  "Window background": "Фон окна",
+  "Title bar": "Строка заголовка",
+  "Tab bar": "Полоса вкладок",
+  "Ribbon": "Лента",
+  "Panels": "Панели",
+  "Bottom dock": "Нижняя панель",
+  "3D viewport": "3D-вид",
+  "Status bar": "Строка состояния",
+  "Chrome text": "Текст интерфейса",
+  "Accent": "Акцент",
+  "Dock panel": "Прикрепить панель",
+  "Detach panel": "Отсоединить панель",
+  "Output dock": "Панель вывода",
+  "Reset layout": "Сбросить раскладку",
+  "Drag a panel's inner edge to resize it. The button in each panel header detaches it into a movable window; the same button docks it again.": "Потяните внутренний край панели, чтобы изменить размер. Кнопка в заголовке панели отсоединяет ее в перемещаемое окно; та же кнопка возвращает ее на место.",
+  "Resize panel": "Изменить размер панели",
+  "Drag to resize": "Потяните, чтобы изменить размер",
+  "Resize window": "Изменить размер окна",
+  "Windows": "Окна",
+  "Show Catalog": "Показать каталог",
+  "Hide Catalog": "Скрыть каталог",
+  "Show Properties": "Показать свойства",
+  "Hide Properties": "Скрыть свойства",
+  "Show Output": "Показать вывод",
+  "Hide Output": "Скрыть вывод",
+  "Open floor map": "Открыть план цеха",
+  "Click an object to select it": "Нажмите на объект, чтобы выбрать его",
+  "workers": "рабочих",
+  "Restore the default panel arrangement": "Вернуть расположение панелей по умолчанию",
+  "T-shirt colour": "Цвет футболки",
+  "For a worker this colour is the T-shirt colour.": "Для рабочего этот цвет задает цвет футболки.",
+  "Hat colour": "Цвет каски",
+  "The worker colour sets the T-shirt. Hats and caps follow the hat colour; the hi-vis default is yellow.": "Цвет рабочего задает цвет футболки. Каска и кепка используют свой цвет; по умолчанию каска желтая.",
+  "Layout reset": "Раскладка сброшена",
+  "Float": "Отделить",
+  "Docked": "В доке",
+  "Color scheme": "Цветовая схема",
+  "Custom skin": "Своя тема",
+  "Fully customizable color scheme": "Полностью настраиваемая цветовая схема",
+  "Show frame rate": "Показывать частоту кадров",
+  "3D resolution": "Разрешение 3D",
 };
 
 let pattern: RegExp | null = null;
