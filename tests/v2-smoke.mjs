@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const browser=await chromium.launch({args:['--enable-unsafe-swiftshader','--ignore-gpu-blocklist']});
+const p=await browser.newPage({viewport:{width:1600,height:1000}});
+const errs=[]; p.on('pageerror',e=>{errs.push(e.message);console.log('PAGEERROR',e.message)});p.on('console',m=>{if(m.type()==='error'){errs.push(m.text());console.log('CONSOLE',m.text())}});
+await p.goto('http://127.0.0.1:4173',{waitUntil:'networkidle',timeout:90000});
+await p.getByRole('button',{name:'Import 3D model',exact:true}).click();
+await p.getByLabel('Choose model files').setInputFiles('tests/fixtures/cube.stl');
+await p.getByRole('button',{name:'Import model',exact:true}).last().click();
+await p.waitForTimeout(4500);
+console.log('DIALOG',await p.getByRole('dialog',{name:'Import 3D model'}).count());
+console.log('ALERTS',await p.getByRole('alert').allTextContents());
+console.log('IMPORTED',await p.evaluate(()=>window.__larpProject.getItems().filter(x=>x.kind==='imported-model').map(x=>({name:x.name,units:x.imported.units,mats:x.imported.materials.length,mesh:x.imported.meshCount}))));
+console.log('PROPERTIES', (await p.locator('aside').last().innerText()).slice(0,1200));
+await p.screenshot({path:'tests/artifacts/v2-stl.png'});
+console.log('ERRORS',errs);
+await browser.close();

@@ -1,0 +1,807 @@
+import { useSyncExternalStore } from "react";
+
+export type Language = "en" | "ru";
+let language: Language = "en";
+try { language = localStorage.getItem("larp-language") === "ru" ? "ru" : "en"; } catch { /* Optional browser storage. */ }
+const listeners = new Set<() => void>();
+export function setLanguage(value: Language) {
+  language = value;
+  try { localStorage.setItem("larp-language", value); } catch { /* Optional browser storage. */ }
+  document.documentElement.lang = value;
+  listeners.forEach((fn) => fn());
+}
+export const getLanguage = () => language;
+export function useLanguage() {
+  return useSyncExternalStore((fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; }, getLanguage);
+}
+
+// Program identifiers, code and user-authored names remain unchanged in both languages.
+export const RU: Record<string, string> = {
+  "Import 3D model": "Импорт 3D-модели",
+  "Import model": "Импорт модели",
+  "3D assets": "3D-объекты",
+  "Add local models and edit their materials in your factory.": "Добавляйте локальные модели и редактируйте их материалы.",
+  "Choose model + companion files": "Выбрать модель и сопутствующие файлы",
+  "or drop files here · ZIP supported": "или перетащите файлы сюда · поддерживается ZIP",
+  "Choose model files": "Выбрать файлы модели",
+  "Model to import": "Модель для импорта",
+  "Several models were found. Choose one; import again to add another.": "Найдено несколько моделей. Выберите одну; затем повторите импорт.",
+  "Reading and preparing model…": "Чтение и подготовка модели…",
+  "Supported": "Поддерживается",
+  "For glTF, OBJ, FBX or DAE, select the model together with its textures, .bin and .mtl files. Use a ZIP to preserve folders.": "Для glTF, OBJ, FBX и DAE выберите модель вместе с текстурами и файлами .bin и .mtl. Для сохранения папок используйте ZIP.",
+  "Files stay on this device. External model URLs are blocked. Up to 80 MB and 1,000 files per import.": "Файлы остаются на этом устройстве. Внешние ссылки заблокированы. До 80 МБ и 1000 файлов за импорт.",
+  "Release to place component or import files": "Отпустите, чтобы разместить компонент или импортировать файлы",
+  "Imported model": "Импортированная модель",
+  "Imported model settings": "Настройки импортированной модели",
+  "Model units": "Единицы модели",
+  "Auto (large models → mm)": "Авто (крупные модели → мм)",
+  "Meters": "Метры",
+  "Millimeters": "Миллиметры",
+  "Centimeters": "Сантиметры",
+  "Inches": "Дюймы",
+  "Feet": "Футы",
+  "Up axis": "Вертикальная ось",
+  "meshes": "сеток",
+  "triangles": "треугольников",
+  "embedded files": "встроенных файлов",
+  "The model is placed on the floor. Imported geometry is visual only; it does not automatically become a robot, conveyor or collision obstacle.": "Модель размещается на полу. Импортированная геометрия только визуальная: она не становится роботом, конвейером или препятствием для движения.",
+  "Materials & textures": "Материалы и текстуры",
+  "Materials and textures": "Материалы и текстуры",
+  "Restore source material": "Восстановить исходный материал",
+  "Material": "Материал",
+  "Base color": "Основной цвет",
+  "Emissive color": "Цвет свечения",
+  "Roughness": "Шероховатость",
+  "Metalness": "Металличность",
+  "Opacity": "Непрозрачность",
+  "Emissive intensity": "Интенсивность свечения",
+  "Double-sided": "Двусторонний материал",
+  "Select a texture to replace a source map. Roughness uses green, metalness uses blue, and AO uses red (standard glTF/PBR packing). Models need UV coordinates.": "Выберите текстуру для замены карты. Шероховатость использует зелёный канал, металличность — синий, AO — красный (стандарт glTF/PBR). Нужна UV-развёртка.",
+  "Base color map": "Карта цвета",
+  "Normal map": "Карта нормалей",
+  "Roughness map": "Карта шероховатости",
+  "Metalness map": "Карта металличности",
+  "Ambient occlusion map": "Карта затенения AO",
+  "Emissive map": "Карта свечения",
+  "Opacity map": "Карта прозрачности",
+  "Bump map": "Карта рельефа",
+  "Displacement map": "Карта смещения",
+  "Removed": "Удалена",
+  "Choose texture": "Выбрать текстуру",
+  "Restore source map": "Восстановить исходную карту",
+  "Remove map": "Удалить карту",
+  "Continue without restoring or autosave — export a copy": "Продолжить без восстановления и автосохранения — экспортируйте копию",
+  "A project can contain at most 500 components.": "Проект может содержать не более 500 компонентов.",
+  "Project would exceed the 180 MB limit. Remove assets or start a new project.": "Проект превысит ограничение 180 МБ. Удалите ресурсы или создайте новый проект.",
+  "Keep feet near floor": "Удерживать ноги у пола",
+  "Animated worker settings": "Настройки анимированного работника",
+  "Animated worker": "Анимированный работник",
+  "Character appearance": "Внешность персонажа",
+  "Built-in rigged worker": "Встроенный персонаж со скелетом",
+  "Classic mannequin": "Классический манекен",
+  "Custom character": "Свой персонаж",
+  "Import rigged character": "Импортировать персонажа со скелетом",
+  "Height (m)": "Рост (м)",
+  "Worker height": "Рост работника",
+  "Model forward": "Направление модели",
+  "The built-in worker has a Mixamo-compatible humanoid rig. Choose an imported skinned character, or import one directly. Appearance is copied into this worker.": "Встроенный персонаж использует совместимый с Mixamo скелет. Выберите импортированного персонажа или импортируйте его прямо сюда. Внешность копируется в работника.",
+  "Animation clips": "Клипы анимации",
+  "Idle, walk and work crossfade automatically. Optional: import Mixamo FBX clips (Without Skin; use In Place for walking). Matching humanoid bones are required.": "Ожидание, ходьба и работа плавно переключаются. Можно импортировать клипы Mixamo FBX (Without Skin; для ходьбы — In Place). Нужны совместимые кости.",
+  "Import animation": "Импортировать анимацию",
+  "Reset animation": "Сбросить анимацию",
+  "Clip": "Клип",
+  "walk": "ходьба",
+  "work": "работа",
+  "Loading…": "Загрузка…",
+  "Rigged character assigned to worker": "Персонаж со скелетом назначен работнику",
+  "Restoring project…": "Восстановление проекта…",
+  "Browser autosave is unavailable. Export a project copy to keep your work.": "Автосохранение в браузере недоступно. Экспортируйте копию проекта, чтобы сохранить работу.",
+  "Base color map strength": "Сила: карта цвета",
+  "Normal map strength": "Сила: карта нормалей",
+  "Roughness map strength": "Сила: карта шероховатости",
+  "Metalness map strength": "Сила: карта металличности",
+  "Ambient occlusion map strength": "Сила: карта затенения ao",
+  "Emissive map strength": "Сила: карта свечения",
+  "Opacity map strength": "Сила: карта прозрачности",
+  "Bump map strength": "Сила: карта рельефа",
+  "Displacement map strength": "Сила: карта смещения",
+  "Restore source map strength": "Сила: восстановить исходную карту",
+  "Remove map strength": "Сила: удалить карту",
+  "Larp Components": "Larp Components",
+  "Local rule-based interpretation · review the recognized controls and process sequence before building. Text is also applied when you leave this field.": "Локальный разбор по правилам: перед построением проверьте параметры и последовательность операций. Текст также разбирается при выходе из поля.",
+  "Staff is the total number of people across all parallel lines, not per line.": "Персонал — общее число людей на всех параллельных линиях, а не на каждой линии.",
+  "Staff": "Персонал",
+  "Quality inspection": "Контроль качества",
+  "inspection": "контроль качества",
+  "cutter": "резка",
+  "Tools": "Инструменты",
+  "Selected component": "Выбранный компонент",
+  "Edit & arrange": "Редактирование и размещение",
+  "Path editing": "Редактирование траектории",
+  "Project & simulation": "Проект и симуляция",
+  "View options": "Параметры вида",
+  "Selection panel": "Панель выбранного",
+  "Left view": "Вид слева",
+  "Back view": "Вид сзади",
+  "On": "вкл.",
+  "Clear floor shadows and balanced lighting": "Отчётливые тени на полу и сбалансированное освещение",
+  "Sharper shadows and screen-space occlusion": "Чёткие тени и экранное затенение",
+  "Approximate real-time bounce lighting, GTAO and contact shadows": "Приближённое отражённое освещение, GTAO и контактные тени",
+  "Indirect bounce light": "Отражённый свет",
+  "Sun direction": "Направление солнца",
+  "Sun elevation": "Высота солнца",
+  "Shadow strength": "Сила теней",
+  "Contact shadow strength": "Сила контактных теней",
+  "Occlusion strength": "Сила затенения",
+  "Occlusion radius": "Радиус затенения",
+  "Fog distance": "Дальность тумана",
+  "Tone mapping": "Тональная компрессия",
+  "Soft shadows": "Мягкие тени",
+  "Contact shadows": "Контактные тени",
+  "Screen-space occlusion": "Экранное затенение",
+  "Adaptive resolution": "Адаптивное разрешение",
+  "Reset graphics preset": "Сбросить настройки графики",
+  "Floor colour": "Цвет пола",
+  "Global illumination is a real-time approximation using bounce lights and screen-space occlusion, not path tracing. Advanced effects may be slower on mobile devices.": "Глобальное освещение приблизительно рассчитывается отражённым светом и экранным затенением, без трассировки путей. На мобильных устройствах расширенные эффекты могут работать медленнее.",
+
+  "FILE": "ФАЙЛ", "HOME": "ГЛАВНАЯ", "MODELING": "МОДЕЛИРОВАНИЕ", "PROGRAM": "ПРОГРАММА", "HELP": "СПРАВКА", "PROCESS": "ПРОЦЕССЫ",
+  "Factory playground": "Фабричная песочница", "Auto-saved": "Сохранено", "Save": "Сохранить", "Open": "Открыть", "Close": "Закрыть", "Cancel": "Отмена", "Apply": "Применить", "Done": "Готово", "Reset": "Сбросить", "Delete": "Удалить", "Duplicate": "Копировать", "Undo": "Отменить", "Redo": "Повторить", "Copy": "Копировать", "Clear": "Очистить",
+  "Clipboard": "Буфер обмена", "Manipulation": "Управление", "Grid Snap": "Привязка", "Spline": "Сплайн", "Simulation": "Симуляция", "Export": "Экспорт", "Configuration": "Конфигурация", "Reference": "Справка", "Help": "Помощь",
+  "Select": "Выбрать", "Move": "Двигать", "Rotate": "Повернуть", "Select (V)": "Выбрать (V)", "Move (M)": "Двигать (M)", "Rotate (R)": "Повернуть (R)", "Snap 0.25 m": "Привязка 0,25 м", "Auto-arrange": "Упорядочить", "Play": "Запуск", "Pause": "Пауза", "Play / pause (Space)": "Запуск / пауза (Пробел)",
+  "New factory": "Новая фабрика", "Browse layouts": "Готовые фабрики", "Save project": "Сохранить проект", "Export project": "Экспорт проекта", "Import project": "Импорт проекта", "Export project (.txt)": "Экспорт проекта (.txt)", "Import project (.txt / .json)": "Импорт проекта (.txt / .json)", "Copy share link": "Копировать ссылку", "Save (Ctrl+S)": "Сохранить (Ctrl+S)", "Rename project": "Переименовать проект", "Search catalog": "Поиск в каталоге", "Language": "Язык", "Interface": "Интерфейс", "Automatic": "Автоматически", "Desktop": "Компьютер", "Touch": "Сенсорный", "Russian": "Русский", "English": "Английский",
+  "AI Factory": "Генератор фабрик", "Program": "Программа", "Edit program": "Редактор программы", "Edit robot program": "Редактор программы робота", "Robot program": "Программа робота", "Palletizer": "Паллетирование", "Machine tending": "Обслуживание станка", "API reference": "Справочник API", "Robot API": "API робота", "Shortcuts": "Горячие клавиши", "About": "О программе", "Procedural factory generator": "Процедурный генератор фабрик",
+  "Add point": "Добавить точку", "Remove point": "Удалить точку", "Reverse flow": "Изменить направление", "Reverse": "Обратный ход", "Flip": "Развернуть", "Add": "Добавить", "Remove": "Удалить",
+  "Properties": "Свойства", "Parametric": "Параметры", "Scene tree": "Дерево сцены", "Filter scene tree...": "Поиск по сцене...", "Nothing selected": "Ничего не выбрано", "Overview": "Обзор", "Transform": "Положение", "Rotation": "Поворот", "Rotation °": "Поворот °", "Scale": "Масштаб", "Lock": "Закрепить", "Locked": "Закреплено", "Visible": "Видимый", "Hidden": "Скрытый", "Show/hide": "Показать / скрыть", "Appearance": "Внешний вид", "Behaviour": "Поведение", "No parameters.": "Нет параметров.",
+  "All": "Все", "Robots": "Роботы", "Conveyors": "Конвейеры", "Machines": "Станки", "Logistics": "Логистика", "Storage": "Хранение", "Safety": "Безопасность", "Building": "Здание", "Components": "Компоненты", "Layouts": "Фабрики", "eCatalog": "Каталог", "Build library": "Библиотека", "Search components...": "Поиск компонентов...", "No components found": "Компоненты не найдены", "Clear filters": "Сбросить фильтры", "Drag into scene": "Перетащите в сцену", "Catalog online": "Локальный каталог", "Browse cloud catalog": "Открыть каталог", "Import from CAD / URDF": "Импорт CAD / URDF", "Load layout": "Загрузить фабрику", "Active": "Активная", "Ready-to-run layouts": "Готовые рабочие фабрики", "Start from empty floor": "Начать с пустой сцены", "Infinite floor · Grid on": "Бесконечный пол · Сетка включена",
+  "6-Axis Industrial Robot": "Промышленный робот", "Collaborative Robot": "Коллаборативный робот", "Spline Conveyor": "Сплайновый конвейер", "Roller Conveyor": "Роликовый конвейер", "Box Feeder": "Податчик изделий", "CNC Machining Center": "Обрабатывающий центр", "Hydraulic Press": "Гидравлический пресс", "Robotic Weld Cell": "Сварочная ячейка", "Case Packer": "Упаковочный станок", "Autonomous Mobile Robot": "Мобильный робот", "Counterbalance Forklift": "Вилочный погрузчик", "Pallet Racking": "Паллетный стеллаж", "Euro Pallet": "Европаллет", "Safety Fence": "Защитное ограждение", "Control Cabinet": "Шкаф управления", "Partition Wall": "Перегородка", "Operator": "Оператор",
+  "Robot": "Робот", "Cobot": "Кобот", "Feeder": "Податчик", "Roller": "Ролики", "CNC": "ЧПУ", "Press": "Пресс", "Weld cell": "Сварка", "Case packer": "Упаковка", "Pallet": "Паллет", "Racking": "Стеллаж", "Forklift": "Погрузчик", "Fence": "Ограждение", "Cabinet": "Шкаф", "Safety & people": "Безопасность и люди", "Spline conveyor": "Сплайн-конвейер",
+  "Output": "Вывод", "Statistics": "Статистика", "Sim time": "Время", "Throughput": "Производительность", "Stacked": "Уложено", "Pallets shipped": "Отгружено паллет", "Spawned": "Создано", "Dropped": "Упало", "Quality": "Качество", "Robot utilization": "Загрузка роботов", "Machines & pallets": "Станки и паллеты", "No robots in the scene.": "В сцене нет роботов.", "No machines or pallets in the scene.": "В сцене нет станков или паллет.", "Shrink": "Свернуть", "Expand": "Развернуть", "Apply & restart": "Применить и перезапустить", "Revert": "Вернуть", "Palletizer template": "Шаблон паллетирования", "Tending template": "Шаблон обслуживания",
+  "idle": "ожидание", "moving": "движение", "waiting": "ожидание детали", "error": "ошибка", "stopped": "остановлен", "machining": "обработка", "patrol": "обход", "inspect": "контроль", "carry": "перенос", "replenish": "пополнение", "route blocked": "путь перекрыт", "Simulating": "Симуляция", "Ready": "Готово", "off": "выкл.", "No selection": "Ничего не выбрано",
+  "Layout": "Фабрика", "Floor map": "План цеха", "View cube": "Куб вида", "Iso": "Изо", "Top": "Сверху", "Front": "Спереди", "Side": "Сбоку", "Fit": "Вписать", "Focus selection": "Показать выбранное", "Reset view": "Сбросить вид", "Toggle floor grid": "Показать сетку", "Toggle factory building": "Показать здание", "Toggle selection panel": "Панель выбранного", "Fullscreen": "Полный экран", "Reset simulation": "Сбросить симуляцию", "Pause (Space)": "Пауза (Пробел)", "Play (Space)": "Запуск (Пробел)", "Simulation speed": "Скорость симуляции", "Release to place component": "Отпустите, чтобы разместить компонент", "Live": "Работает",
+  "Products": "Изделия", "Product": "Изделие", "Spawn product": "Создаваемое изделие", "Input product": "Входное изделие", "Output product": "Выходное изделие", "Any product": "Любое изделие", "Search name or tag...": "Название или тег...", "No matching products": "Изделия не найдены", "Food": "Еда", "Beverages": "Напитки", "Metal": "Металл", "Electronics": "Электроника", "Medical": "Медицина", "Packaging": "Упаковка", "Consumer": "Потребительские товары", "Automotive": "Автомобили", "Recipe": "Рецепт", "Product transformation": "Преобразование изделия", "One product in, one product out. The item keeps its physical identity.": "Одно изделие на входе, одно на выходе. Физический объект сохраняется.",
+  "Running": "Работает", "End stopper": "Концевой упор", "Cycle time": "Время цикла", "Spawn interval": "Интервал подачи", "Speed": "Скорость", "Payload": "Грузоподъемность", "Force": "Усилие", "Height": "Высота", "Length": "Длина", "Voltage": "Напряжение", "Capacity": "Вместимость", "Rate": "Темп", "Levels": "Уровни", "Bays": "Секции", "Lift": "Подъем", "Load": "Нагрузка", "Stations": "Станции", "Type": "Тип", "Format": "Формат", "Require supply": "Нужны запасы", "Walk speed": "Скорость ходьбы", "Panel width": "Ширина панели", "Gate segment": "Сегмент ворот", "Gate open": "Ворота открыты",
+  "Tool": "Инструмент", "Gripper": "Захват", "Vacuum cup": "Вакуумный", "Parallel jaws": "Параллельные губки", "Three-finger": "Трехпальцевый", "Magnetic": "Магнитный", "Soft gripper": "Мягкий захват", "Magnetic tools pick metal only. Other tools handle all products within payload limits.": "Магнитный захват берет только металл. Остальные работают в пределах грузоподъемности.",
+  "Human tasks": "Задачи персонала", "Task": "Задача", "Stand by": "Ожидание", "Patrol route": "Обход территории", "Inspect products": "Контроль изделий", "Carry products": "Перенос изделий", "Replenish feeder": "Пополнение податчика", "Hat": "Головной убор", "None": "Нет", "Hard hat": "Каска", "Cap": "Кепка", "Safety glasses": "Защитные очки", "Source station": "Исходная станция", "Destination station": "Конечная станция", "Nearest station": "Ближайшая станция", "Completed tasks": "Выполнено задач",
+  "Pallet pattern": "Схема паллетирования", "Columns": "Столбцы", "Rows": "Ряды", "Layers": "Слои", "Gap": "Зазор", "Generate pattern": "Создать схему", "Preview": "Предпросмотр", "Layer": "Слой", "Automatic pallet sizing": "Авторазмер паллета", "Pallet size follows the pattern and product dimensions.": "Размер паллета зависит от схемы и размеров изделия.",
+  "Visual builder": "Визуальный редактор", "Code": "Код", "Create a task": "Создать задачу", "Pick & palletize": "Взять и уложить", "Pick & place": "Взять и переместить", "Tend a machine": "Обслужить станок", "Source": "Источник", "Destination": "Назначение", "Processing machine": "Обрабатывающий станок", "Choose component": "Выберите компонент", "Repeat": "Повторять", "Delay": "Задержка", "Clearance": "Высота подхода", "Link task": "Связать задачу", "Task linked": "Задача связана", "Auto approach": "Автоподход", "Live targets": "Живые цели", "Waiting for product": "Ожидание изделия", "Pick": "Взять", "Process": "Обработать", "Place": "Положить", "Repeat cycle": "Повторить цикл", "Reach checked": "Досягаемость проверена", "Move target closer": "Подвиньте цель ближе", "Bindings follow moved components. Approach and release are calculated automatically.": "Связи следуют за компонентами. Подход и отпускание рассчитываются автоматически.", "Select a robot to build its workflow.": "Выберите робота для создания программы.", "Apply code": "Применить код", "Custom JavaScript": "Пользовательский JavaScript", "Use visual builder": "Визуальный редактор", "Code mode is for trusted project scripts only.": "Режим кода предназначен только для доверенных скриптов.",
+  "AI Factory - procedural line generator": "Генератор фабрик", "Describe the factory": "Опишите фабрику", "Interpret": "Разобрать", "Line shape": "Форма линии", "Straight": "Прямая", "L-shape": "Г-образная", "U-shape": "П-образная", "S-curve": "S-образная", "Machining cells": "Обрабатывающие ячейки", "Processing cells": "Обрабатывающие ячейки", "Robot type": "Тип робота", "Industrial": "Промышленный", "Feed rate": "Темп подачи", "Safety fences": "Защитные ограждения", "Operators": "Операторы", "Control cabinets": "Шкафы управления", "Seed": "Зерно", "Random seed": "Случайное зерно", "Layout preview": "План фабрики", "Reset options": "Сбросить настройки", "Build factory": "Построить фабрику", "Factory type": "Тип производства", "Metalworking": "Металлообработка", "Cookie bakery": "Производство печенья", "Bottling": "Розлив напитков", "Electronics assembly": "Сборка электроники", "Medical filling": "Фасовка лекарств", "Parcel logistics": "Логистика посылок", "Parallel lines": "Параллельные линии", "Belt speed": "Скорость ленты", "Advanced options": "Дополнительные настройки", "Staff task": "Задача персонала", "Recipe products": "Изделия рецепта", "Recipes include live robot workflows, product transformations and pallet patterns.": "Рецепты включают программы роботов, преобразование изделий и схемы паллетирования.", "Local procedural generator, no cloud or AI service required.": "Локальный процедурный генератор, облако и ИИ-сервис не требуются.",
+  "Project saved": "Проект сохранен", "Project exported": "Проект экспортирован", "Project imported": "Проект импортирован", "Could not import that project file": "Не удалось импортировать файл проекта", "Save failed - storage unavailable": "Не удалось сохранить: хранилище недоступно", "Factory generated - simulation running": "Фабрика создана, симуляция запущена", "New factory created": "Новая фабрика создана", "Select a component first": "Сначала выберите компонент", "Select a conveyor first": "Сначала выберите конвейер", "Select a path component first": "Выберите компонент с траекторией", "Program template applied": "Шаблон программы применен", "Add a robot first": "Сначала добавьте робота", "Add a conveyor next to the robot first": "Сначала добавьте конвейер рядом с роботом", "Add a pallet next to the robot first": "Сначала добавьте паллет рядом с роботом", "Tending needs a CNC and a second (output) conveyor": "Нужны станок и второй выходной конвейер", "Share link copied": "Ссылка скопирована", "Share link ready in the address bar": "Ссылка находится в адресной строке", "Nothing loose to arrange - production equipment is left where it is": "Нет свободных компонентов: оборудование линии остается на месте", "Loose components tidied into a row": "Свободные компоненты выстроены в ряд",
+  "Touch workspace": "Сенсорный интерфейс", "Scene": "Сцена", "Catalog": "Каталог", "Project": "Проект", "Factory": "Фабрика", "Settings": "Настройки", "One finger to orbit. Pinch to zoom.": "Поворот одним пальцем. Масштаб двумя пальцами.", "Tap a component, then choose Move to reposition it.": "Нажмите на компонент и выберите «Двигать».", "Close panel": "Закрыть панель", "Close sheet": "Закрыть панель", "Export TXT": "Экспорт TXT", "Import TXT": "Импорт TXT", "Saved projects": "Сохраненные проекты", "Mobile detected": "Обнаружено мобильное устройство", "Version 5.1": "Версия 5.1",
+  "About Larp Components": "О Larp Components", "Independent browser sandbox inspired by factory-simulation workflows. Not affiliated with Visual Components. No PLC connections or certified robot-controller exports.": "Независимая браузерная песочница для моделирования фабрик. Не связана с Visual Components. Подключение ПЛК и сертифицированный экспорт на роботов не поддерживаются.",
+  ".lcmx - Larp Components 5.1": ".lcmx - Larp Components 5.1",
+  "Click": "Нажмите",
+  "in the ribbon to procedurally generate a complete, working production line.": "на ленте, чтобы создать полноценную рабочую фабрику.",
+  "Select a component in the 3D view to edit its parameters, spline and robot program.": "Выберите компонент в 3D-сцене, чтобы изменить параметры, траекторию и программу робота.",
+  "Robots are programmed in JavaScript with the Larp robot API (pick, place, waitForPart, machine and pallet helpers).": "Создайте задачу визуально или напишите JavaScript с API Larp: pick, place, waitForPart и помощники станков и паллет.",
+  "Add a robot to the scene to write a program for it.": "Добавьте робота в сцену, чтобы создать его программу.",
+  "Start from an engineered line, then adapt equipment, routes and takt times.": "Выберите готовую рабочую линию и измените оборудование, маршруты и темп.",
+  "Edit the selected robot's program": "Изменить программу выбранного робота",
+  "Load the machine tending template": "Применить шаблон обслуживания станка",
+  "Load the palletizing template": "Применить шаблон паллетирования",
+  "Close menu": "Закрыть меню",
+  "machines": "станков",
+  "robots": "роботов",
+  "components": "компонентов",
+  "cycles": "циклов",
+  "parts": "деталей",
+  "stacked": "уложено",
+  "dropped": "упало",
+  "assets": "объектов",
+  "cartons in play": "изделий в сцене",
+  "boxes · shipped": "изделий · отгружено",
+  "pts ·": "точек ·",
+  "robots ·": "роботов ·",
+  "cycles ·": "циклов ·",
+  "· shipped": "· отгружено",
+  "Tool:": "Инструмент:",
+  "Snap:": "Привязка:",
+  "Selected:": "Выбрано:",
+  "slots": "ячеек",
+  "m": "м",
+  "s": "с",
+  "kg": "кг",
+  "m/s": "м/с",
+  "products / min": "изделий / мин",
+  " /min": " /мин",
+  "Category": "Категория",
+  "Supply": "Запасы",
+  "Fence path": "Траектория ограждения",
+  "Drag the posts to draw a sharp-cornered guard fence. Panels and corner posts are generated automatically.": "Перетаскивайте стойки для построения ограждения с четкими углами. Панели и угловые стойки создаются автоматически.",
+  "Drag the handles to bend the belt. Reverse flow swaps the entry and exit, including the stopper.": "Перетаскивайте точки, чтобы изогнуть ленту. Обратный ход меняет местами вход, выход и упор.",
+  "Destination is outside robot reach. Move it closer to continue.": "Цель вне досягаемости робота. Подвиньте ее ближе, чтобы продолжить.",
+  "Choose a source in the visual program": "Выберите источник в визуальной программе",
+  "unsaved": "не сохранено",
+  "Billets become precision parts.": "Заготовки превращаются в точные детали.",
+  "Bake dough into chocolate chip cookies.": "Тесто превращается в печенье с шоколадом.",
+  "Fill empty bottles and stack the finished product.": "Пустые бутылки наполняются, готовые изделия укладываются на паллет.",
+  "Turn circuit boards into assembled devices.": "Печатные платы превращаются в собранные устройства.",
+  "Fill medical vials in a collaborative cell.": "Медицинские флаконы заполняются в коллаборативной ячейке.",
+  "Direct carton transport and palletizing.": "Перемещение коробок и автоматическое паллетирование.",
+  "e.g. U-shaped cookie bakery with 2 cells": "Например: П-образная пекарня с 2 ячейками",
+  "This project contains executable JavaScript. Only open scripts from a trusted source. Continue?": "Проект содержит исполняемый JavaScript. Открывайте скрипты только из доверенных источников. Продолжить?",
+  "program started": "программа запущена",
+  "visual program started": "визуальная программа запущена",
+  "program applied": "программа применена",
+  "program finished": "программа завершена",
+  "Simulation reset": "Симуляция сброшена",
+  "pallet shipped": "паллет отгружен",
+  "OnAppInitialized": "Приложение запущено",
+  "physics engine ready (60 Hz fixed step)": "физический движок готов (шаг 60 Гц)",
+  "RoboticsAPI: robot programs are JavaScript - open the PROGRAM tab to edit them": "RoboticsAPI: программы роботов на JavaScript. Откройте вкладку «ПРОГРАММА» для редактирования.",
+  "AIFactory: ready. Describe the factory, then press 'Build factory'.": "Генератор готов. Опишите фабрику и нажмите «Построить фабрику».",
+  "Popular": "Популярное",
+  "New": "Новое",
+  "Core": "Базовое",
+  "Target": "Цель",
+  "Featured layout": "Готовая фабрика",
+  "Compact cell": "Компактная ячейка",
+  "Large layout": "Большая фабрика",
+  "Machine Tending Line": "Линия обслуживания станков",
+  "Palletizing Line": "Линия паллетирования",
+  "Cobot Machining Cell": "Ячейка с коботами",
+  "U-Shaped Plant": "П-образная фабрика",
+  "Blank Factory": "Пустая фабрика",
+  "Assembly cell": "Сборочная ячейка",
+  "Untitled factory": "Новая фабрика",
+  "Feeder, CNC tending robot and palletizer on an L-shaped spline line.": "Податчик, станок с роботом и паллетизатор на Г-образной линии.",
+  "High-rate carton feed with a robot stacking pallets.": "Поток коробок с роботом для укладки на паллеты.",
+  "Collaborative robots tending a CNC with a compact pallet.": "Коботы обслуживают станок и укладывают изделия на компактный паллет.",
+  "Two machining stages folded into a U to save floor space.": "Два этапа обработки на П-образной линии для экономии места.",
+  "width": "ширина",
+  "Width": "Ширина",
+  "reach": "досягаемость",
+  "Reach": "Досягаемость",
+  "Cycle": "Цикл",
+  "Spindle": "Шпиндель",
+  "Size": "Размер",
+  "Slots": "Ячейки",
+  "Takt": "Такт",
+  "High-payload articulated robot, programmable with the Larp robot API.": "Промышленный робот с программированием через API Larp.",
+  "Safe, compact arm for collaborative work cells.": "Компактный манипулятор для коллаборативных ячеек.",
+  "Drops cartons onto the belt at a configurable rate.": "Подает изделия на ленту с заданным темпом.",
+  "Belt conveyor defined by a spline - drag the handles to reshape it.": "Ленточный конвейер по сплайну. Изменяйте форму перетаскиванием точек.",
+  "Powered roller transport section, also spline based.": "Роликовый приводной конвейер по сплайну.",
+  "Enclosed machining cell with a load tray the robot can tend.": "Обрабатывающая ячейка с загрузочным лотком для робота.",
+  "Forming station with guarded front opening.": "Формовочная станция с защитным ограждением.",
+  "Two-station welding cell with fume extraction.": "Сварочная ячейка с двумя станциями и вытяжкой.",
+  "End-of-line carton erecting and packing machine.": "Станок для упаковки в конце производственной линии.",
+  "LiDAR-guided AMR with configurable transport loop.": "Мобильный робот с настраиваемым транспортным маршрутом.",
+  "Manual logistics vehicle for pallet handling.": "Транспорт для работы с паллетами.",
+  "Four-level selective pallet storage bay.": "Четырехуровневый паллетный стеллаж.",
+  "Pallet the robot stacks boxes onto - grid size is configurable.": "Паллет для укладки изделий роботом с настраиваемой схемой.",
+  "Modular perimeter guarding.": "Модульное защитное ограждение.",
+  "PLC and safety controller cabinet for the line.": "Шкаф управления и безопасности линии.",
+  "Floor-to-ceiling modular partition panel.": "Модульная перегородка от пола до потолка.",
+  "Human mannequin for safety and ergonomics checks.": "Оператор для рабочих задач, контроля и логистики.",
+  "Click to select · drag to orbit · scroll to zoom": "Выбор нажатием · поворот перетаскиванием · масштаб колесом",
+  "Drag a component to move it": "Перетаскивайте компонент для перемещения",
+  "Drag around a component to rotate it": "Перетаскивайте вокруг компонента для поворота",
+  " · drag the white handles to bend the spline": " · перетаскивайте белые точки для изменения траектории",
+  "Search workspace": "Поиск в проекте",
+  "Supply depleted": "Запасы закончились",
+  "Loop ran too long without `await` - add `await robot.wait(0.1)` inside the loop": "Цикл слишком долго работает без await. Добавьте await robot.wait(0.1) внутрь цикла.",
+  "Robot R-": "Робот R-",
+  "Conveyor ": "Конвейер ",
+  "Pallet P-": "Паллет P-",
+  "Feeder F-": "Податчик F-",
+  "Cell Guarding": "Ограждение ячейки",
+  "Cell Controller ": "Шкаф управления ",
+  "Operator A. Chen": "Оператор А. Чен",
+  "CNC M-": "Станок M-",
+  "Bindings follow moved components.": "Связи следуют за компонентами.",
+  "Local catalog": "Локальный каталог",
+  "Source is outside robot reach.": "Источник находится вне досягаемости робота.",
+  "Some pallet slots are outside reach. Reduce the pattern or use an industrial robot.": "Некоторые ячейки вне досягаемости. Уменьшите схему или выберите промышленного робота.",
+  "Processing machine is outside robot reach.": "Станок находится вне досягаемости робота.",
+  "select": "выбор",
+  "move": "перемещение",
+  "rotate": "поворот",
+  "food": "еда",
+  "bakery": "выпечка",
+  "raw": "сырье",
+  "cookie": "печенье",
+  "biscuit": "печенье",
+  "chocolate": "шоколад",
+  "bread": "хлеб",
+  "candy": "сладости",
+  "sweet": "сладости",
+  "fruit": "фрукты",
+  "apple": "яблоко",
+  "packaged": "упаковано",
+  "bottle": "бутылка",
+  "drink": "напиток",
+  "plastic": "пластик",
+  "empty": "пустое",
+  "water": "вода",
+  "juice": "сок",
+  "aluminium": "алюминий",
+  "can": "банка",
+  "glass": "стекло",
+  "jar": "банка",
+  "metal": "металл",
+  "steel": "сталь",
+  "part": "деталь",
+  "finished": "готовое",
+  "gear": "шестерня",
+  "automotive": "авто",
+  "press": "пресс",
+  "sheet": "лист",
+  "housing": "корпус",
+  "weld": "сварка",
+  "frame": "рама",
+  "electronics": "электроника",
+  "board": "плата",
+  "phone": "телефон",
+  "device": "устройство",
+  "battery": "аккумулятор",
+  "energy": "энергия",
+  "medical": "медицина",
+  "pharma": "фарма",
+  "vial": "флакон",
+  "medicine": "лекарство",
+  "filled": "наполненное",
+  "soap": "мыло",
+  "consumer": "товары",
+  "cosmetics": "косметика",
+  "toy": "игрушка",
+  "rubber": "резина",
+  "wheel": "колесо",
+  "parcel": "посылка",
+  "V select · M move · R rotate · G snap · Space play · Ctrl+Z undo · Del delete · Ctrl+D duplicate": "V выбор · M перемещение · R поворот · G привязка · Пробел запуск · Ctrl+Z отмена · Del удалить · Ctrl+D копировать",
+  "Help: Ctrl+K search · V/M/R tools · Space play · Ctrl+Z undo": "Ctrl+K поиск · V/M/R инструменты · Пробел запуск · Ctrl+Z отмена",
+  "added": "добавлен",
+  "removed": "удален",
+  "duplicated": "скопирован",
+  "loaded": "загружен",
+  "built": "создано",
+  "components)": "компонентов)",
+  "program template applied": "шаблон программы применен",
+  "processing cells": "обрабатывающих ячеек",
+  "Feeder F-01": "Податчик F-01",
+  "Robot R-01": "Робот R-01",
+  "Robot R-02": "Робот R-02",
+  "Conveyor 1": "Конвейер 1",
+  "Conveyor 2": "Конвейер 2",
+  "CNC M-01": "Станок M-01",
+  "Pallet P-01": "Паллет P-01",
+  "Cell Controller 1": "Шкаф управления 1",
+  "Paste": "Вставить",
+  "Copy & paste": "Копировать и вставить",
+  "Save / export project": "Сохранить / экспорт проекта",
+  "Save project (exports .txt)": "Сохранить проект (экспорт .txt)",
+  "Saved": "Сохранено",
+  "Simulation settings": "Настройки симуляции",
+  "Clock Display Mode": "Формат часов",
+  "Simulation Run Time": "Время симуляции",
+  "Warm Up Time": "Время прогрева",
+  "Simulation Level": "Уровень симуляции",
+  "Simulation Mode": "Режим симуляции",
+  "Real Time": "Реальная скорость",
+  "Virtual Time": "Виртуальное время",
+  "Custom": "Свой",
+  "Simulation speed multiplier": "Скорость симуляции (множитель)",
+  "UI skin": "Оформление интерфейса",
+  "Larp UI": "Larp UI",
+  "Visual Components": "Visual Components",
+  "R-pro": "R-pro",
+  "Standard": "Стандарт",
+  "Enhanced": "Улучшенное",
+  "Global illumination": "Глобальное освещение",
+  "Current crisp shadows": "Текущие четкие тени",
+  "Environment lighting and 4K shadows": "Окружающее освещение и тени 4K",
+  "Approximate indoor GI and stronger bounce light": "Приближенное глобальное освещение помещения",
+  "Factory building": "Здание фабрики",
+  "Walls": "Стены",
+  "Roof": "Крыша",
+  "Ceiling lights": "Потолочные светильники",
+  "Wall": "Стена",
+  "Products received": "Изделий получено",
+  "Receive box": "Приемный ящик",
+  "Signal target": "Получатель сигнала",
+  "Not connected": "Не подключено",
+  "Address": "Адрес",
+  "Press button": "Нажать кнопку",
+  "Release button": "Отпустить кнопку",
+  "Normally closed": "Нормально замкнутый",
+  "Live signal": "Текущий сигнал",
+  "Signal": "Сигнал",
+  "Automation": "Автоматизация",
+  "Connectivity": "Связи",
+  "Production flow": "Производственный поток",
+  "Operations": "Операции",
+  "Resources": "Ресурсы",
+  "Process engineering": "Проектирование процессов",
+  "Drawing": "Черчение",
+  "Layout drawing": "План цеха",
+  "Push button": "Кнопка",
+  "Laser trigger": "Лазерный датчик",
+  "Proximity sensor": "Датчик приближения",
+  "PLC control": "ПЛК",
+  "Signals & API": "Сигналы и API",
+  "Robot I/O": "Входы/выходы робота",
+  "Connected Variables": "Подключенные переменные",
+  "Connected to": "Подключено к",
+  "Beam": "Луч",
+  "Paint station": "Окрасочная станция",
+  "Laser cutter": "Лазерный резак",
+  "Assembly": "Сборка",
+  "Assembly station": "Сборочная станция",
+  "Kiln": "Печь",
+  "Industrial kiln": "Промышленная печь",
+  "Mobile robot": "Мобильный робот",
+  "KUKA Industrial Robot": "Промышленный робот KUKA",
+  "FANUC Industrial Robot": "Промышленный робот FANUC",
+  "Mobile Manipulator": "Мобильный манипулятор",
+  "Paint colour": "Цвет краски",
+  "Required parts": "Количество деталей",
+  "Multiple parts are combined into one assembly.": "Несколько деталей объединяются в одну сборку.",
+  "Paint product": "Окрасить изделие",
+  "Assemble parts": "Собрать детали",
+  "Per-cell recipe": "Рецепт каждой ячейки",
+  "Parallel columns": "Параллельные колонны",
+  "Brick factory": "Кирпичный завод",
+  "Assembly plant": "Сборочный завод",
+  "Clay brick blank": "Глиняная заготовка",
+  "Fired brick": "Обожженный кирпич",
+  "Brick pack": "Упаковка кирпича",
+  "Painted housing": "Окрашенный корпус",
+  "Cat ears": "Кошачьи ушки",
+  "Headphones": "Наушники",
+  "Earrings": "Серьги",
+  "Delivery robot task": "Задача робота-доставщика",
+  "Human": "Человек",
+  "Cell": "Ячейка",
+  "Cutter": "Резак",
+  "Lights also respond to the enhanced and global-illumination graphics modes.": "Светильники работают в улучшенном режиме и режиме глобального освещения.",
+  "Double-click to reset to 1.0": "Двойной щелчок — сброс к 1.0",
+  "Export copy": "Экспорт копии",
+  "Save project to its exported file (Ctrl+S)": "Сохранить проект в его экспортированный файл (Ctrl+S)",
+  
+  
+  
+  
+  
+  "Machines &amp; pallets": "Станки и паллеты",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "Collections": "Коллекции",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "Open layout": "Открыть компоновку",
+  
+  
+  
+  
+  
+  
+  
+  
+  "Export copy (.txt)": "Экспорт копии (.txt)",
+  
+  
+  "Graphics": "Графика",
+  "x": "x",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "Light": "Свет",
+  
+  "Light type": "Тип света",
+  "Spot": "Прожектор",
+  "Point": "Точечный",
+  "Colour": "Цвет",
+  "Light colour": "Цвет света",
+  "Cast shadows": "Отбрасывать тени",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "X": "X",
+  "· Z": "· Z",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "Collapse panels": "Свернуть панели",
+  "Slower": "Медленнее",
+  "Faster": "Быстрее",
+  "Default": "По умолчанию",
+  "Detailed": "Детальный",
+  "Fast": "Быстрый",
+  "Toggle side panels": "Боковые панели",
+  "Toggle grid": "Сетка",
+  "Exposure": "Экспозиция",
+  "Ambient light": "Окружающий свет",
+  "Sun intensity": "Яркость солнца",
+  "Fill light": "Заполняющий свет",
+  "Environment reflections": "Отражения окружения",
+  "Product brightness": "Яркость изделий",
+  "Shadow quality": "Качество теней",
+  "Resolution scale": "Масштаб разрешения",
+  "Shadows": "Тени",
+  "Distance fog": "Туман дали",
+  "Floor grid": "Сетка пола",
+  "Background": "Фон",
+  "Skin default": "По умолчанию",
+  "Balanced for everyday work": "Сбалансировано для повседневной работы",
+  
+  "Save copy": "Сохранить копию",
+  
+  "Import": "Импорт",
+  
+  
+  
+  
+  "Cell Graph": "Граф ячеек",
+  "Devices": "Устройства",
+  "Files": "Файлы",
+  "Wire": "Провод",
+  "Connect wire": "Подключить провод",
+  "Signal ON": "Сигнал ВКЛ",
+  "Signal OFF": "Сигнал ВЫКЛ",
+  "Counter": "Счётчик",
+  "Reset counter": "Сбросить счётчик",
+  "Paint process": "Процесс окраски",
+  "Paint color": "Цвет краски",
+  "Assembly inputs": "Входы сборки",
+  "Secondary product": "Вторичное изделие",
+  
+  
+  "Work target": "Рабочая цель",
+  "Completed": "Выполнено",
+  
+  "Apply program": "Применить программу",
+  "Program applied": "Программа применена",
+  
+  
+  
+  
+  
+  
+  
+  "Larp industrial": "Larp промышленный",
+  "Worker": "Рабочий",
+  "Machine": "Станок",
+  
+  "CNC lathe": "Токарный ЧПУ",
+  "5-axis mill": "5-осевой фрезерный",
+  
+  
+  "Paint booth": "Окрасочная камера",
+  "Brick press": "Кирпичный пресс",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "All stations ready": "Все станции готовы",
+  
+  
+  
+  
+  
+  
+  "Studio settings": "Настройки студии",
+  "Depth": "Глубина",
+  
+  "Roof visible": "Крыша видна",
+  "Wall color": "Цвет стен",
+  "Floor color": "Цвет пола",
+  "Magnetic tools pick metal only. Paint tools apply the program colour to an existing product.": "Магнитные захваты берут только металл. Краскопульты наносят цвет программы на существующее изделие.",
+  "Open the conveyor end stopper to drop products into this box. Every product that settles is counted once.": "Откройте концевой упор конвейера, чтобы изделия падали в этот ящик. Каждое осевшее изделие считается один раз.",
+  "Ctrl K": "Ctrl K",
+  "full - waiting for pick-up": "заполнен — ожидание вывоза",
+  "products received": "изделий получено",
+  "motion timed out": "превышено время движения",
+  "is out of reach": "вне досягаемости",
+  "place() called without a part in the gripper": "place() вызван без детали в захвате",
+  "SyntaxError": "Синтаксическая ошибка",
+  "template applied": "шаблон применён",
+  "pressed": "нажата",
+  "released": "отпущена",
+  "target (": "цель (",
+  "AIFactory: built": "Сгенерировано фабрикой ИИ:",
+  "components (": "компонентов (",
+  "robots)": "роботов)",
+  
+  
+  "Cobots": "Коботы",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "IP": "IP",
+  
+  
+  
+  "Enclosed 3-axis machining cell with a load tray the robot can tend.": "Закрытая 3-осевая ячейка с загрузочным лотком для робота.",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "KUKA": "KUKA",
+  "FANUC": "FANUC",
+  
+  
+  
+  
+  
+  "Paint sprayer": "Краскопульт",
+  
+  
+  "Precision turning": "Точная токарная обработка",
+  
+  
+  
+  
+  
+  "Turn metal blanks into a finished round part.": "Токарная обработка заготовок в готовые круглые детали.",
+  "Fire clay blanks into bricks and pack them.": "Обжиг глиняных заготовок в кирпичи и их упаковка.",
+  "Combine components into finished assemblies.": "Сборка компонентов в готовые узлы.",
+  
+  
+  
+  "Combined process detected": "Обнаружен комбинированный процесс",
+  
+  
+  
+  
+  
+  
+  
+  "Construction": "Строительство",
+  "Painted": "Окрашенные",
+  
+  
+  
+  "Beanie": "Шапка",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "Trigger": "Триггер",
+  "Start trigger": "Стартовый триггер",
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  "Larp Components 5.1 - physics engine ready (60 Hz fixed step)": "Larp Components 5.1 — физический движок готов (шаг 60 Гц)",
+  "Larp Components 5.1 - browser factory simulation": "Larp Components 5.1 — браузерная симуляция фабрики",
+};
+
+let pattern: RegExp | null = null;
+export function t(text: string | number | undefined | null): string {
+  const value = String(text ?? "");
+  if (language === "en") return value;
+  if (RU[value]) return RU[value];
+  if (!pattern) {
+    const keys = Object.keys(RU).filter((key) => key.length > 3).sort((a, b) => b.length - a.length).map((key) => key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    pattern = new RegExp(`(?<![A-Za-z])(${keys.join("|")})(?![A-Za-z])`, "g");
+  }
+  return value.replace(pattern, (match) => RU[match] ?? match).replace(/\b(m\/s|kg|rpm|ppm|min|m|s)\b/g, (unit) => ({ "m/s": "м/с", kg: "кг", rpm: "об/мин", ppm: "шт/мин", min: "мин", m: "м", s: "с" })[unit] ?? unit);
+}

@@ -1,0 +1,27 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Test output (keep the folder, ignore its contents)
+tests/artifacts/*
+!tests/artifacts/.gitkeep
+
+# Release bundles built outside the repo (the source tree is the repo)
+/Larp_Factory_V2*.html
+/Larp_Factory_V2*.zip
+
+# Logs and local env
+*.log
+npm-debug.log*
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+.vscode/*
+!.vscode/extensions.json

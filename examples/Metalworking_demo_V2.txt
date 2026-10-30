@@ -1,0 +1,1410 @@
+LARP COMPONENTS 5.1
+{
+  "items": [
+    {
+      "id": "item-mvuttf5v-1",
+      "kind": "feeder",
+      "name": "Feeder F-01 / 1",
+      "position": [
+        -6.3,
+        0,
+        -7.6
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#E0A030",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "interval": 5,
+        "active": true,
+        "product": "billet",
+        "requireSupply": false
+      }
+    },
+    {
+      "id": "item-mvuttf5v-3",
+      "kind": "conveyor",
+      "name": "Conveyor 1 / 1",
+      "position": [
+        -7.19,
+        0,
+        -7.6
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          2.91,
+          0
+        ],
+        [
+          5.83,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5v-4",
+      "kind": "robot",
+      "name": "Robot R-01 / 1",
+      "position": [
+        -1.06,
+        0,
+        -6.15
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 84,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5v-3\");\nconst output = world.conveyor(\"item-mvuttf5v-8\");\nconst machine = world.machine(\"item-mvuttf5v-5\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(machine.table());\n  await machine.process();\n  await robot.pick(machine.part());\n  await robot.place(output.at(0.48));\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "tend",
+        "sourceId": "item-mvuttf5v-3",
+        "targetId": "item-mvuttf5v-8",
+        "machineId": "item-mvuttf5v-5",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5v-5",
+      "kind": "cutter",
+      "name": "Cutting M-01 / 1",
+      "position": [
+        -1.06,
+        0,
+        -3.25
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#F5A555",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cycleTime": 6,
+        "requiredParts": 1,
+        "inputProduct": "billet",
+        "outputProduct": "billet",
+        "paintColor": "#d6534c"
+      }
+    },
+    {
+      "id": "item-mvuttf5v-6",
+      "kind": "fence",
+      "name": "Cell Guarding / 1",
+      "position": [
+        -1.06,
+        0,
+        -6.15
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          4.15
+        ],
+        [
+          2.55,
+          4.15
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5v-7",
+      "kind": "cabinet",
+      "name": "Cell Controller 1 / 1",
+      "position": [
+        -4.46,
+        0,
+        -4.85
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf5v-8",
+      "kind": "conveyor",
+      "name": "Conveyor 2 / 1",
+      "position": [
+        -0.76,
+        0,
+        -7.6
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1.25,
+          -0.15
+        ],
+        [
+          2.26,
+          -0.61
+        ],
+        [
+          2.99,
+          -1.34
+        ],
+        [
+          3.45,
+          -2.35
+        ],
+        [
+          3.6,
+          -3.6
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5v-9",
+      "kind": "robot",
+      "name": "Robot R-02 / 1",
+      "position": [
+        4.29,
+        0,
+        -11.5
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 84,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5v-8\");\nconst output = world.conveyor(\"item-mvuttf5w-13\");\nconst machine = world.machine(\"item-mvuttf5v-10\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(machine.table());\n  await machine.process();\n  await robot.pick(machine.part());\n  await robot.place(output.at(0.48));\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "tend",
+        "sourceId": "item-mvuttf5v-8",
+        "targetId": "item-mvuttf5w-13",
+        "machineId": "item-mvuttf5v-10",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5v-10",
+      "kind": "cnc",
+      "name": "Milling M-02 / 1",
+      "position": [
+        7.19,
+        0,
+        -11.5
+      ],
+      "rotation": 270,
+      "scale": 1,
+      "color": "#E8A245",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cycleTime": 6,
+        "requiredParts": 1,
+        "inputProduct": "billet",
+        "outputProduct": "machined",
+        "paintColor": "#d6534c"
+      }
+    },
+    {
+      "id": "item-mvuttf5w-11",
+      "kind": "fence",
+      "name": "Cell Guarding / 1",
+      "position": [
+        4.29,
+        0,
+        -11.5
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          4.15
+        ],
+        [
+          2.55,
+          4.15
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-12",
+      "kind": "cabinet",
+      "name": "Cell Controller 2 / 1",
+      "position": [
+        5.59,
+        0,
+        -8.1
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf5w-13",
+      "kind": "conveyor",
+      "name": "Conveyor 3 / 1",
+      "position": [
+        2.84,
+        0,
+        -11.8
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1.25,
+          -0.15
+        ],
+        [
+          2.26,
+          -0.61
+        ],
+        [
+          2.99,
+          -1.34
+        ],
+        [
+          3.45,
+          -2.35
+        ],
+        [
+          3.6,
+          -3.6
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-14",
+      "kind": "robot",
+      "name": "Robot R-03 / 1",
+      "position": [
+        -1.06,
+        0,
+        -16.85
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 84,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5w-13\");\nconst output = world.conveyor(\"item-mvuttf5w-18\");\nconst machine = world.machine(\"item-mvuttf5w-15\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(machine.table());\n  await machine.process();\n  await robot.pick(machine.part());\n  await robot.place(output.at(0.48));\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "tend",
+        "sourceId": "item-mvuttf5w-13",
+        "targetId": "item-mvuttf5w-18",
+        "machineId": "item-mvuttf5w-15",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5w-15",
+      "kind": "inspection",
+      "name": "Quality inspection M-03 / 1",
+      "position": [
+        -1.06,
+        0,
+        -19.75
+      ],
+      "rotation": 360,
+      "scale": 1,
+      "color": "#58B9DD",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cycleTime": 6,
+        "requiredParts": 1,
+        "inputProduct": "machined",
+        "outputProduct": "machined",
+        "paintColor": "#d6534c"
+      }
+    },
+    {
+      "id": "item-mvuttf5w-16",
+      "kind": "fence",
+      "name": "Cell Guarding / 1",
+      "position": [
+        -1.06,
+        0,
+        -16.85
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          4.15
+        ],
+        [
+          2.55,
+          4.15
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-17",
+      "kind": "cabinet",
+      "name": "Cell Controller 3 / 1",
+      "position": [
+        2.34,
+        0,
+        -18.15
+      ],
+      "rotation": 270,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf5w-18",
+      "kind": "conveyor",
+      "name": "Conveyor 4 / 1",
+      "position": [
+        -1.36,
+        0,
+        -15.4
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          2.11,
+          0
+        ],
+        [
+          4.23,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-19",
+      "kind": "robot",
+      "name": "Robot R-04 / 1",
+      "position": [
+        -5.89,
+        0,
+        -16.85
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 84,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5w-18\");\nconst output = world.pallet(\"item-mvuttf5w-20\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(output.nextSlot());\n  if (output.isFull()) await output.swap();\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "palletize",
+        "sourceId": "item-mvuttf5w-18",
+        "targetId": "item-mvuttf5w-20",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5w-20",
+      "kind": "crates",
+      "name": "Pallet P-01 / 1",
+      "position": [
+        -5.89,
+        0,
+        -18.3
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#B88A55",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cols": 3,
+        "rows": 2,
+        "layers": 4,
+        "gap": 0.04,
+        "product": "machined"
+      }
+    },
+    {
+      "id": "item-mvuttf5w-21",
+      "kind": "fence",
+      "name": "Cell Guarding / 1",
+      "position": [
+        -5.89,
+        0,
+        -16.85
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          2.5
+        ],
+        [
+          2.55,
+          2.5
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-22",
+      "kind": "cabinet",
+      "name": "Cell Controller 4 / 1",
+      "position": [
+        -2.49,
+        0,
+        -18.15
+      ],
+      "rotation": 270,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf5w-23",
+      "kind": "feeder",
+      "name": "Feeder F-01 / 2",
+      "position": [
+        -6.54,
+        0,
+        15.4
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#E0A030",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "interval": 5,
+        "active": true,
+        "product": "billet",
+        "requireSupply": false
+      }
+    },
+    {
+      "id": "item-mvuttf5w-25",
+      "kind": "conveyor",
+      "name": "Conveyor 1 / 2",
+      "position": [
+        -7.43,
+        0,
+        15.4
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          3.07,
+          0
+        ],
+        [
+          6.13,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-26",
+      "kind": "robot",
+      "name": "Robot R-01 / 2",
+      "position": [
+        -1,
+        0,
+        16.85
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 69,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5w-25\");\nconst output = world.conveyor(\"item-mvuttf5w-30\");\nconst machine = world.machine(\"item-mvuttf5w-27\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(machine.table());\n  await machine.process();\n  await robot.pick(machine.part());\n  await robot.place(output.at(0.48));\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "tend",
+        "sourceId": "item-mvuttf5w-25",
+        "targetId": "item-mvuttf5w-30",
+        "machineId": "item-mvuttf5w-27",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5w-27",
+      "kind": "cutter",
+      "name": "Cutting M-01 / 2",
+      "position": [
+        -1,
+        0,
+        19.75
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#F5A555",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cycleTime": 6,
+        "requiredParts": 1,
+        "inputProduct": "billet",
+        "outputProduct": "billet",
+        "paintColor": "#d6534c"
+      }
+    },
+    {
+      "id": "item-mvuttf5w-28",
+      "kind": "fence",
+      "name": "Cell Guarding / 2",
+      "position": [
+        -1,
+        0,
+        16.85
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          4.15
+        ],
+        [
+          2.55,
+          4.15
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-29",
+      "kind": "cabinet",
+      "name": "Cell Controller 1 / 2",
+      "position": [
+        -4.4,
+        0,
+        18.15
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf5w-30",
+      "kind": "conveyor",
+      "name": "Conveyor 2 / 2",
+      "position": [
+        -0.7,
+        0,
+        15.4
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1.25,
+          -0.15
+        ],
+        [
+          2.26,
+          -0.61
+        ],
+        [
+          2.99,
+          -1.34
+        ],
+        [
+          3.45,
+          -2.35
+        ],
+        [
+          3.6,
+          -3.6
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-31",
+      "kind": "robot",
+      "name": "Robot R-02 / 2",
+      "position": [
+        4.35,
+        0,
+        11.5
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 69,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5w-30\");\nconst output = world.conveyor(\"item-mvuttf5w-35\");\nconst machine = world.machine(\"item-mvuttf5w-32\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(machine.table());\n  await machine.process();\n  await robot.pick(machine.part());\n  await robot.place(output.at(0.48));\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "tend",
+        "sourceId": "item-mvuttf5w-30",
+        "targetId": "item-mvuttf5w-35",
+        "machineId": "item-mvuttf5w-32",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5w-32",
+      "kind": "cnc",
+      "name": "Milling M-02 / 2",
+      "position": [
+        7.25,
+        0,
+        11.5
+      ],
+      "rotation": 270,
+      "scale": 1,
+      "color": "#E8A245",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cycleTime": 6,
+        "requiredParts": 1,
+        "inputProduct": "billet",
+        "outputProduct": "machined",
+        "paintColor": "#d6534c"
+      }
+    },
+    {
+      "id": "item-mvuttf5w-33",
+      "kind": "fence",
+      "name": "Cell Guarding / 2",
+      "position": [
+        4.35,
+        0,
+        11.5
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          4.15
+        ],
+        [
+          2.55,
+          4.15
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-34",
+      "kind": "cabinet",
+      "name": "Cell Controller 2 / 2",
+      "position": [
+        5.65,
+        0,
+        14.9
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf5w-35",
+      "kind": "conveyor",
+      "name": "Conveyor 3 / 2",
+      "position": [
+        2.9,
+        0,
+        11.2
+      ],
+      "rotation": 90,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1.25,
+          -0.15
+        ],
+        [
+          2.26,
+          -0.61
+        ],
+        [
+          2.99,
+          -1.34
+        ],
+        [
+          3.45,
+          -2.35
+        ],
+        [
+          3.6,
+          -3.6
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-36",
+      "kind": "robot",
+      "name": "Robot R-03 / 2",
+      "position": [
+        -1,
+        0,
+        6.15
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 69,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5w-35\");\nconst output = world.conveyor(\"item-mvuttf5w-40\");\nconst machine = world.machine(\"item-mvuttf5w-37\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(machine.table());\n  await machine.process();\n  await robot.pick(machine.part());\n  await robot.place(output.at(0.48));\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "tend",
+        "sourceId": "item-mvuttf5w-35",
+        "targetId": "item-mvuttf5w-40",
+        "machineId": "item-mvuttf5w-37",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5w-37",
+      "kind": "inspection",
+      "name": "Quality inspection M-03 / 2",
+      "position": [
+        -1,
+        0,
+        3.25
+      ],
+      "rotation": 360,
+      "scale": 1,
+      "color": "#58B9DD",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cycleTime": 6,
+        "requiredParts": 1,
+        "inputProduct": "machined",
+        "outputProduct": "machined",
+        "paintColor": "#d6534c"
+      }
+    },
+    {
+      "id": "item-mvuttf5w-38",
+      "kind": "fence",
+      "name": "Cell Guarding / 2",
+      "position": [
+        -1,
+        0,
+        6.15
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          4.15
+        ],
+        [
+          2.55,
+          4.15
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-39",
+      "kind": "cabinet",
+      "name": "Cell Controller 3 / 2",
+      "position": [
+        2.4,
+        0,
+        4.85
+      ],
+      "rotation": 270,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf5w-40",
+      "kind": "conveyor",
+      "name": "Conveyor 4 / 2",
+      "position": [
+        -1.3,
+        0,
+        7.6
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#4DA3E8",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "speed": 0.6,
+        "active": true,
+        "stopper": true
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          2.17,
+          0
+        ],
+        [
+          4.35,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-41",
+      "kind": "robot",
+      "name": "Robot R-04 / 2",
+      "position": [
+        -5.95,
+        0,
+        6.15
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#6DBE45",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "payload": 12,
+        "speed": 69,
+        "gripper": "parallel"
+      },
+      "script": "// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(\"item-mvuttf5w-40\");\nconst output = world.pallet(\"item-mvuttf5w-42\");\n\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n  await robot.place(output.nextSlot());\n  if (output.isFull()) await output.swap();\n  await robot.wait(0);\n} while (true);\n",
+      "program": {
+        "mode": "palletize",
+        "sourceId": "item-mvuttf5w-40",
+        "targetId": "item-mvuttf5w-42",
+        "repeat": true,
+        "delay": 0,
+        "clearance": 0.3
+      }
+    },
+    {
+      "id": "item-mvuttf5w-42",
+      "kind": "crates",
+      "name": "Pallet P-01 / 2",
+      "position": [
+        -5.95,
+        0,
+        4.7
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#B88A55",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "cols": 3,
+        "rows": 2,
+        "layers": 4,
+        "gap": 0.04,
+        "product": "machined"
+      }
+    },
+    {
+      "id": "item-mvuttf5w-43",
+      "kind": "fence",
+      "name": "Cell Guarding / 2",
+      "position": [
+        -5.95,
+        0,
+        6.15
+      ],
+      "rotation": 180,
+      "scale": 1,
+      "color": "#F2B705",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "height": 2,
+        "panelWidth": 1.5,
+        "gateOpen": false,
+        "gateSegment": 0
+      },
+      "points": [
+        [
+          -2.55,
+          0
+        ],
+        [
+          -2.55,
+          2.5
+        ],
+        [
+          2.55,
+          2.5
+        ],
+        [
+          2.55,
+          0
+        ]
+      ]
+    },
+    {
+      "id": "item-mvuttf5w-44",
+      "kind": "cabinet",
+      "name": "Cell Controller 4 / 2",
+      "position": [
+        -2.55,
+        0,
+        4.85
+      ],
+      "rotation": 270,
+      "scale": 1,
+      "color": "#8DA2C7",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "type": "PLC-S7",
+        "voltage": 400
+      }
+    },
+    {
+      "id": "item-mvuttf6a-45",
+      "kind": "operator",
+      "name": "Operator A. Chen",
+      "position": [
+        -5.06,
+        0,
+        -22.1
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#2FB7C6",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "task": "inspect",
+        "sourceId": "item-mvuttf5v-3",
+        "targetId": "item-mvuttf5w-20",
+        "hat": "hardhat",
+        "glasses": true,
+        "walkSpeed": 1
+      }
+    },
+    {
+      "id": "item-mvuttf6a-46",
+      "kind": "operator",
+      "name": "Operator 02",
+      "position": [
+        -5.1,
+        0,
+        0.9
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#2FB7C6",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "task": "inspect",
+        "sourceId": "item-mvuttf5w-25",
+        "targetId": "item-mvuttf5w-42",
+        "hat": "hardhat",
+        "glasses": true,
+        "walkSpeed": 1
+      }
+    },
+    {
+      "id": "item-mvuttf6a-47",
+      "kind": "operator",
+      "name": "Operator 03",
+      "position": [
+        -1.69,
+        0,
+        -22.1
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#2FB7C6",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "task": "inspect",
+        "sourceId": "item-mvuttf5v-8",
+        "targetId": "item-mvuttf5w-20",
+        "hat": "hardhat",
+        "glasses": true,
+        "walkSpeed": 1
+      }
+    },
+    {
+      "id": "item-mvuttf6a-48",
+      "kind": "operator",
+      "name": "Operator 04",
+      "position": [
+        -1.7,
+        0,
+        0.9
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#2FB7C6",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "task": "inspect",
+        "sourceId": "item-mvuttf5w-30",
+        "targetId": "item-mvuttf5w-42",
+        "hat": "hardhat",
+        "glasses": true,
+        "walkSpeed": 1
+      }
+    },
+    {
+      "id": "item-mvuttf6a-49",
+      "kind": "operator",
+      "name": "Operator 05",
+      "position": [
+        1.69,
+        0,
+        -22.1
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#2FB7C6",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "task": "inspect",
+        "sourceId": "item-mvuttf5w-13",
+        "targetId": "item-mvuttf5w-20",
+        "hat": "hardhat",
+        "glasses": true,
+        "walkSpeed": 1
+      }
+    },
+    {
+      "id": "item-mvuttf6a-50",
+      "kind": "operator",
+      "name": "Operator 06",
+      "position": [
+        1.7,
+        0,
+        0.9
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#2FB7C6",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "task": "inspect",
+        "sourceId": "item-mvuttf5w-35",
+        "targetId": "item-mvuttf5w-42",
+        "hat": "hardhat",
+        "glasses": true,
+        "walkSpeed": 1
+      }
+    },
+    {
+      "id": "item-mvuttf6a-51",
+      "kind": "operator",
+      "name": "Operator 07",
+      "position": [
+        5.06,
+        0,
+        -22.1
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "color": "#2FB7C6",
+      "visible": true,
+      "locked": false,
+      "props": {
+        "task": "inspect",
+        "sourceId": "item-mvuttf5w-18",
+        "targetId": "item-mvuttf5w-20",
+        "hat": "hardhat",
+        "glasses": true,
+        "walkSpeed": 1
+      }
+    }
+  ],
+  "projectName": "Steel processing — two lines",
+  "layoutName": "Steel processing — two lines",
+  "activeLayoutId": null,
+  "version": "5.1"
+}

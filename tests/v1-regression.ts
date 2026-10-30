@@ -1,0 +1,26 @@
+import { DEFAULT_GEN, parsePrompt, generateFactory, validateFactory } from '../src/sim/generator';
+import { Engine } from '../src/sim/engine';
+const assert = (ok: unknown, message: string) => { if (!ok) throw new Error(message); };
+const description = 'Автоматизированный завод по обработке стальных заготовок. Заготовки поступают на конвейер, проходят резку, фрезеровку и контроль качества в трёх рабочих ячейках. Промышленные роботы перемещают детали между станками и укладывают готовые металлические компоненты на паллеты. Компактная планировка, чёткий поток материалов, ограждения и зоны безопасности.';
+const full = `Factory type: Metalworking\nDescribe the factory: ${description}\nLine shape: U-shape\nProcessing cells: 3\nParallel lines: 2\nParallel columns: 1\nRobot type: Industrial\nGripper: механический захват — если доступен; для металлических заготовок он подходит лучше вакуумной присоски\nFeed rate: 12 products/min\nStaff: 7\nInput product: Steel billet или ближайший вариант со стальной заготовкой\nOutput product: готовая металлическая деталь или ближайший доступный вариант\nPallet pattern: 3 columns × 2 rows × 4 layers`;
+const o=parsePrompt(full,DEFAULT_GEN);
+assert(o.recipe==='metalworking' && o.style==='U' && o.stages===3 && o.lanes===2 && o.columns===1, 'Prompt geometry/processing cells misparsed');
+assert(o.staff===7 && o.gripper==='parallel' && !o.cobot && o.rate===12, 'Prompt staffing, robot, gripper or rate misparsed');
+assert(o.cols===3 && o.rows===2 && o.layers===4, 'Pallet pattern misparsed');
+assert(o.product==='billet' && o.outputProduct==='machined', 'Products misparsed');
+assert(o.processChain.map(x=>x.machine).join(',')==='cutter,cnc,inspection', 'Ordered operations misparsed');
+console.log('PARSED',JSON.stringify(o,null,2));
+const items=generateFactory(o);console.log('COUNTS',items.reduce<Record<string,number>>((a,i)=>(a[i.kind]=(a[i.kind]||0)+1,a),{}));console.log('WARNINGS',validateFactory(items));console.log('MACHINES',items.filter(i=>['cutter','cnc','inspection'].includes(i.kind)).map(i=>({name:i.name,kind:i.kind,input:i.props.inputProduct,output:i.props.outputProduct})));console.log('STAFF',items.filter(i=>i.kind==='operator').map(i=>i.position));
+for (const kind of ['cutter','cnc','inspection']) assert(items.filter(i=>i.kind===kind).length===2, `Expected two ${kind} machines`);
+assert(items.filter(i=>i.kind==='operator').length===7, 'Staff should be plant-wide');
+assert(items.filter(i=>['robot','kuka','fanuc'].includes(i.kind)).every(i=>i.props.gripper==='parallel'), 'Robot gripper mismatch');
+assert(validateFactory(items).length===0, 'Generated factory failed validation');
+const manual=generateFactory({...o, lanes:1, cellInputs:['gear',...o.cellInputs.slice(1)], cellOutputs:['gear',...o.cellOutputs.slice(1)]});
+const firstManual=manual.find(i=>i.kind==='cutter')!;
+assert(firstManual.props.inputProduct==='gear' && firstManual.props.outputProduct==='gear', 'Per-cell user edits must override interpreted defaults');
+const e=new Engine();e.sync(items);e.setRunning(true);
+for(let i=0;i<60*230;i++){ e.step(1/60); await Promise.resolve(); await Promise.resolve(); }
+assert(e.stats.placed>0 && e.stats.lost===0, 'Generated material flow failed');
+assert([...e.machines.values()].every(m=>m.cycles>0), 'A process step did not run');
+assert([...e.robots.values()].every(r=>!r.error), 'Robot program failed');
+console.log('SIM',e.stats,'MACHINES',[...e.machines.values()].map(x=>[x.name,x.cycles]), 'ROBOTS', [...e.robots.values()].map(x=>[x.name,x.cycles,x.error]));
