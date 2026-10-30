@@ -297,7 +297,7 @@ export function SettingsWindow(props: SettingsWindowProps) {
               </div>
             </Section>
             <Section title="Panels">
-              <div className="px-3 py-2 text-[11px] text-white/45">{t("Panel layout is reset from the View ribbon.")}</div>
+              <div className="px-3 py-2 text-[11px] text-white/45">{t("Panel resizing, detaching and layout reset are not available yet.")}</div>
             </Section>
             {import.meta.env.DEV && <Section title="Developer">
               <ToggleRowUi label="Cornell benchmark room (DEV)" help="Replaces the factory with a Cornell box for GI debugging. Development builds only." checked={cornell} onChange={(value) => { setCornellRoom(value); }} onHelp={sectionHelp} />
@@ -324,7 +324,7 @@ export function SettingsWindow(props: SettingsWindowProps) {
             </div>
             <div>
               <h3 className="mb-1 text-[13px] font-semibold text-white">{t("Panels")}</h3>
-              <p>{t("Drag a panel edge to resize it, and use the View ribbon to reset the layout.")}</p>
+              <p>{t("Panels currently have a fixed layout. Resizing, collapsing, detaching and resetting panels are planned and not available yet.")}</p>
             </div>
             <div>
               <h3 className="mb-1 text-[13px] font-semibold text-white">{t("Shortcuts")}</h3>
