@@ -6,6 +6,7 @@ import { getLanguage, setLanguage, t } from "../i18n";
 import { useAppearance, SKINS, setSkin, setAppearance, setGfx, setBuilding, type GraphicsQuality, type SkinId, type GraphicsSettings } from "../theme";
 import { BrandMark } from "./PartIcon";
 import { cn } from "../utils/cn";
+import { setCornellRoom, useCornellRoom } from "../cornellRoom";
 
 export type TouchPanel = "library" | "inspector" | "program" | "project" | "tools" | null;
 export function MobileChrome({ project, tool, setTool, undo, redo, canUndo, canRedo, onProject, onFactory }: { project: string; tool: ToolMode; setTool: (tool: ToolMode) => void; undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean; onProject: () => void; onFactory: () => void }) {
@@ -27,8 +28,9 @@ export function ProjectSettings({ project, rename, save, exportFile, importFile,
   const input = useRef<HTMLInputElement>(null);
   const appearance = useAppearance();
   const skins: SkinId[] = ["larp", "vc", "rpro"];
-  const qualities: [GraphicsQuality, string, string][] = [["standard", "Standard", "Clear floor shadows and balanced lighting"], ["enhanced", "Enhanced", "Sharper shadows and screen-space occlusion"], ["gi", "Global illumination", "Approximate real-time bounce lighting, GTAO and contact shadows"]];
+  const qualities: [GraphicsQuality, string, string][] = [["standard", "Standard", "Clear floor shadows and balanced lighting"], ["enhanced", "Enhanced", "Sharper shadows and screen-space occlusion"], ["max", "Max", "WebGPU voxel global illumination (VXGI) with temporal anti-aliasing. Falls back to bounce lighting and GTAO on WebGL"]];
   const gfx = appearance.gfx;
+  const cornellRoom = useCornellRoom();
   const slider = (key: "exposure" | "ambient" | "sun" | "fill" | "env" | "productBoost" | "shadowStrength" | "sunAzimuth" | "sunElevation" | "contactOpacity" | "aoIntensity" | "aoRadius" | "bounce" | "fogFar", label: string, min: number, max: number, step: number) => (
     <label className="block text-[10px] text-white/45">{t(label)}<span className="mt-1 flex items-center gap-2"><input aria-label={t(label)} type="range" min={min} max={max} step={step} value={gfx[key]} onChange={(e) => setGfx({ [key]: Number(e.target.value) })} className="accent-range min-w-0 flex-1" /><span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/70">{gfx[key].toFixed(2)}</span></span></label>
   );
@@ -64,7 +66,8 @@ export function ProjectSettings({ project, rename, save, exportFile, importFile,
         </div>
         <label className="block text-[10px] text-white/45">{t("Tone mapping")}<select aria-label={t("Tone mapping")} value={gfx.toneMapping} onChange={(e) => setGfx({ toneMapping: e.target.value as GraphicsSettings["toneMapping"] })} className="mt-1 w-full rounded border border-white/10 bg-[#1e1e20] p-1.5 text-[11px]"><option value="neutral">Neutral</option><option value="aces">ACES filmic</option><option value="linear">Linear</option></select></label>
         <div className="space-y-2 pt-1">{toggle("shadows", "Shadows")}{toggle("softShadows", "Soft shadows")}{toggle("contactShadows", "Contact shadows")}{toggle("ao", "Screen-space occlusion")}{toggle("fog", "Distance fog")}{toggle("grid", "Floor grid")}{toggle("adaptive", "Adaptive resolution")}</div>
-        <p className="text-[10px] leading-relaxed text-white/40">{t("Global illumination is a real-time approximation using bounce lights and screen-space occlusion, not path tracing. Advanced effects may be slower on mobile devices.")}</p>
+        <p className="text-[10px] leading-relaxed text-white/40">{t("Max uses WebGPU voxel global illumination when the browser supports WebGPU, with bounce lights disabled to avoid double counting. Otherwise it uses an approximation with bounce lights and screen-space occlusion. Neither mode is path tracing, and advanced effects may be slower on mobile devices.")}</p>
+        {import.meta.env.DEV && <label className="flex items-center justify-between gap-2 rounded border border-dashed border-white/15 px-2 py-1.5 text-[10px] text-white/55"><span>{t("Cornell benchmark room (DEV)")}</span><input type="checkbox" checked={cornellRoom} onChange={(e) => setCornellRoom(e.target.checked)} className="h-4 w-4 accent-[var(--app-accent)]" /></label>}
         <button type="button" onClick={() => setAppearance({ graphics: appearance.graphics })} className="rounded border border-white/15 px-2 py-1.5 text-[10px] text-white/60 hover:bg-white/10">{t("Reset graphics preset")}</button>
         <label className="flex items-center gap-2 pt-1 text-[10px] text-white/45"><span className="w-16 shrink-0">{t("Background")}</span><input type="color" value={gfx.useSkinBackground ? "#e3e6e9" : gfx.background} onChange={(e) => setGfx({ background: e.target.value, useSkinBackground: false })} className="h-7 w-10 cursor-pointer rounded border border-white/15 bg-transparent p-0.5" /><button type="button" onClick={() => setGfx({ useSkinBackground: true })} className="rounded border border-white/10 px-2 py-1 text-[10px] text-white/55 hover:bg-white/10">{t("Skin default")}</button></label>
       </div></section>

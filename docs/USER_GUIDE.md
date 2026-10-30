@@ -34,7 +34,7 @@ Imported projects embed the original model/animation files and any replacement m
 
 ## Graphics, privacy and safety
 
-- Graphics settings change real lighting, directional/contact shadows, exposure, resolution and AO. The GI mode is an approximation using bounce lights and screen-space occlusion, **not** path tracing. Use Standard or lower settings on slower/mobile devices.
+- Graphics settings change real lighting, directional/contact shadows, exposure, resolution and AO. The **Max** mode uses WebGPU voxel global illumination (VXGI) when the browser supports WebGPU, with bounce lights disabled to avoid double counting. Otherwise it uses an approximation with bounce lights and screen-space occlusion. Neither is path tracing. Imported-model per-map strength controls require the WebGL renderer.
 - Imported project files may contain executable robot JavaScript. Only open and run scripts from people you trust. The confirmation is not a security sandbox. Some V1-generated projects may show this warning because they include older illustrative scripts; confirm only if you trust the file.
 - This is an approximate simulator, not a safety-certified engineering, controller-export, or industrial validation system.
 

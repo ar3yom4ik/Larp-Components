@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { WebGPURenderer } from "three/webgpu";
 import { gunzipSync, unzipSync } from "fflate";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
@@ -33,8 +34,9 @@ export const MAX_RESOURCES = 1000;
 export const TEXTURE_SLOTS: TextureSlot[] = ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap", "bumpMap", "displacementMap"];
 const CAD = new Set(["step", "stp", "iges", "igs", "brep", "brp"]);
 const mime: Record<string, string> = { png:"image/png", jpg:"image/jpeg", jpeg:"image/jpeg", webp:"image/webp", gif:"image/gif", bmp:"image/bmp", avif:"image/avif", svg:"image/svg+xml", ktx2:"image/ktx2", bin:"application/octet-stream", tga:"application/octet-stream", dds:"application/octet-stream" };
-let renderer: THREE.WebGLRenderer | null = null;
-export function setModelRenderer(value: THREE.WebGLRenderer | null) { renderer = value; }
+// KTX2Loader.detectSupport accepts both WebGLRenderer and WebGPURenderer (r187).
+let renderer: THREE.WebGLRenderer | WebGPURenderer | null = null;
+export function setModelRenderer(value: THREE.WebGLRenderer | WebGPURenderer | null) { renderer = value; }
 export function extension(path: string) { return path.split(/[?#]/)[0].split(".").pop()?.toLowerCase() ?? ""; }
 export function isModelPath(path: string) { return (MODEL_EXTENSIONS as readonly string[]).includes(extension(path)); }
 const entryDir = (path: string) => path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";

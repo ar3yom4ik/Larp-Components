@@ -14,7 +14,7 @@ A browser-based 3D **factory layout editor and discrete-time simulator**, built 
 - **3D model import** — GLB/glTF, FBX, OBJ+MTL, STL, PLY, DAE, 3MF, 3DS, USD, VRML, VTK, AMF, STEP/IGES/BREP, with Draco, Meshopt and KTX2 support where the browser allows.
 - **Materials** — per-instance material editing and texture replacement for imported models.
 - **Animated workers** — a bundled CC0 rigged human (idle / walk / work clips), custom rigged characters, and per-role animation uploads.
-- **Graphics** — shadows, approximate global illumination (bounce lights + screen-space GTAO), skins, and adaptive quality.
+- **Graphics** — shadows, the **Max** preset: WebGPU voxel global illumination (three.js r187 VXGI) with a WebGL approximation fallback (bounce lights + screen-space GTAO), skins, and adaptive quality.
 - **Projects** — export/import as UTF-8 `.txt`, IndexedDB autosave, and optional File System Access saving.
 - **Responsive UI** — desktop layout and a touch-first phone/tablet layout with feature parity.
 - **Bilingual UI** — English and Russian (`src/i18n.ts`).
@@ -85,7 +85,7 @@ Screenshots are written to `tests/artifacts/` (git-ignored). Some tests need an 
 
 - Imported meshes are **visual only**: they do not become machines, colliders or navigation obstacles automatically.
 - Robot JavaScript runs as trusted code. It is **not** a security sandbox; only open scripts you trust.
-- GI is an approximation (bounce lights + GTAO), not physical path tracing.
+- Max GI is WebGPU VXGI voxel cone tracing when WebGPU is available, otherwise an approximation (bounce lights + GTAO). Neither is path tracing.
 - Native `.blend`, DWG, IFC and many proprietary CAD formats are not supported; convert to GLB or STEP.
 
 ## Licensing

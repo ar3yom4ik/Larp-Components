@@ -28,6 +28,10 @@ import { WireLayer } from "./WireLayer";
 import { Environment, Lightformer } from "@react-three/drei";
 import { BoxesLayer } from "./ProductModels";
 import { AmbientOcclusion, RendererSettings } from "./GraphicsEffects";
+import { GlobalIlluminationPipeline } from "./GpuGlobalIllumination";
+import { CornellBenchmark } from "./CornellBenchmark";
+import { useCornellRoom } from "../cornellRoom";
+import { createGpuRenderer, probeWebGPU, type GLFactoryProps } from "../utils/gpu";
 import { BELT_Y } from "./ModelKit";
 import { sim } from "../sim/engine";
 import { formatClock, useSimSnapshot } from "../sim/hooks";
@@ -75,6 +79,8 @@ const VIEWS: Record<CameraPreset, { position: Vec3; target: Vec3 }> = {
   back: { position: [0, 8, -30], target: [0, 1, 0] },
   left: { position: [-30, 8, 0], target: [0, 1, 0] },
   right: { position: [30, 8, 0], target: [0, 1, 0] },
+  // Frames the DEV Cornell benchmark room (20 x 15 x 20) from its open side.
+  room: { position: [0, 8.5, 34], target: [0, 7, 0] },
 };
 
 function CameraRig({
@@ -622,6 +628,21 @@ export const Viewport = memo(function Viewport({
   const [viewNonce, setViewNonce] = useState(0);
   const [viewMenu, setViewMenu] = useState(false);
   const [shell, setShell] = useState(false);
+  // Max preset uses WebGPU VXGI when the browser has an adapter and the renderer starts.
+  // `gpuFailed` latches after a failed start so the app falls back to WebGL for the session.
+  const [gpuSupported, setGpuSupported] = useState<boolean | null>(null);
+  const [gpuFailed, setGpuFailed] = useState(false);
+  const cornellRoom = useCornellRoom();
+  const benchmark = import.meta.env.DEV && cornellRoom;
+  const gpuMode = quality === "max" && gpuSupported === true && !gpuFailed;
+  const makeRenderer = useCallback((defaults: GLFactoryProps) => createGpuRenderer(defaults, () => setGpuFailed(true)), []);
+  useEffect(() => {
+    let alive = true;
+    void probeWebGPU().then((ok) => { if (alive) setGpuSupported(ok); });
+    return () => { alive = false; };
+  }, []);
+  // Voxel GI must rebuild when the geometry changes, not on every render.
+  const voxelKey = useMemo(() => ({}), [items, shell, buildingSettings.width, buildingSettings.depth]);
 
     const xs = items.map((i) => i.position[0]), zs = items.map((i) => i.position[2]);
   const building: BuildingStyle = { ...buildingSettings };
@@ -642,6 +663,7 @@ export const Viewport = memo(function Viewport({
   const shadowExtent = Math.max(18, Math.ceil(Math.max(building.width, building.depth) * 0.7));
   const renderDpr = gfx.adaptive && low ? 1 : gfx.pixelRatio;
   useEffect(() => { setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1); }, [layoutName]);
+  useEffect(() => { setFitNonce(0); setView(benchmark ? "room" : "iso"); setViewNonce((n) => n + 1); }, [benchmark]);
   useEffect(() => { document.documentElement.dataset.panels = panelsOpen ? "open" : "closed"; }, [panelsOpen]);
 
   const pickView = (next: CameraPreset) => {
@@ -677,10 +699,12 @@ export const Viewport = memo(function Viewport({
       onDrop={(event) => { setDragActive(false); const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); onImportFiles(files); } }}
     >
       <Canvas
+        key={gpuMode ? "renderer-webgpu" : "renderer-webgl"}
         shadows={gfx.shadows ? (gfx.softShadows ? "percentage" : "basic") : false}
-        frameloop={running ? "always" : "demand"}
+        // The WebGPU VXGI pipeline accumulates TRAA samples across frames, so it must keep rendering.
+        frameloop={running || gpuMode ? "always" : "demand"}
         dpr={renderDpr}
-        gl={{ antialias: true, powerPreference: "high-performance", stencil: false }}
+        gl={gpuMode ? makeRenderer : { antialias: true, powerPreference: "high-performance", stencil: false }}
         camera={{ position: VIEWS.iso.position, fov: 36, near: 0.1, far: 220 }}
         onPointerMissed={() => {
           onSelect(null);
@@ -688,19 +712,21 @@ export const Viewport = memo(function Viewport({
         }}
 
       >
-        <Environment key={`env-${quality}-${gfx.env}`} resolution={quality === "standard" ? 32 : 64} background={false}>
+        {!benchmark && <Environment key={`env-${quality}-${gfx.env}`} resolution={quality === "standard" ? 32 : 64} background={false}>
           <Lightformer intensity={2.2 * gfx.env} position={[0, 8, 0]} scale={[16, 16, 1]} color="#fff5e6" />
           <Lightformer intensity={1.1 * gfx.env} position={[-8, 4, -6]} scale={[8, 8, 1]} color="#b9dcff" />
           <Lightformer intensity={0.9 * gfx.env} position={[9, 3, 5]} scale={[7, 7, 1]} color="#ffe7b8" />
-          {quality === "gi" && <Lightformer intensity={0.8 * gfx.env} position={[0, 2, 10]} scale={[14, 4, 1]} color="#ffe2c4" />}
-        </Environment>
+          {quality === "max" && <Lightformer intensity={0.8 * gfx.env} position={[0, 2, 10]} scale={[14, 4, 1]} color="#ffe2c4" />}
+        </Environment>}
         <RendererSettings gfx={gfx} />
-        <ambientLight intensity={gfx.ambient} color={dark ? "#ffd9d9" : "#ffffff"} />
+        <ambientLight intensity={benchmark ? 0 : gfx.ambient} color={dark ? "#ffd9d9" : "#ffffff"} />
         {gfx.adaptive && <PerformanceMonitor onDecline={() => setLow(true)} onIncline={() => setLow(false)} flipflops={4} />}
         <color attach="background" args={[sceneBg]} />
         {gfx.fog && <fog attach="fog" args={[sceneBg, gfx.fogFar * 0.45, gfx.fogFar]} />}
-        <hemisphereLight args={dark ? ["#ffc9cf", "#4a3036", 0.32] : ["#e8f2ff", "#778391", 0.38]} />
-        {gfx.bounce > 0 && <>
+        {!benchmark && <hemisphereLight args={dark ? ["#ffc9cf", "#4a3036", 0.32] : ["#e8f2ff", "#778391", 0.38]} />}
+        {/* Bounce lights stand in for indirect light. In WebGPU VXGI mode the GI pipeline
+            computes indirect light, so keeping them would double-count it. */}
+        {gfx.bounce > 0 && !gpuMode && !benchmark && <>
           <hemisphereLight args={["#dcecff", "#c0a27c", gfx.bounce * 0.5]} />
           <directionalLight position={[-12, 8, -9]} intensity={gfx.bounce * 0.42} color="#c7dfff" />
           <directionalLight position={[10, 5, -12]} intensity={gfx.bounce * 0.32} color="#ffe4c2" />
@@ -709,7 +735,7 @@ export const Viewport = memo(function Viewport({
         <directionalLight
           key={`sun-${gfx.shadowSize}-${gfx.shadows}`}
           position={lightPosition}
-          intensity={gfx.sun}
+          intensity={benchmark ? 0 : gfx.sun}
           color="#fffaf0"
           castShadow={gfx.shadows}
           shadow-mapSize-width={gfx.shadowSize}
@@ -724,28 +750,31 @@ export const Viewport = memo(function Viewport({
           shadow-bias={-0.00015}
           shadow-normalBias={0.025}
         />
-        <directionalLight position={[-14, 10, -10]} intensity={gfx.fill} color="#dbe8ff" />
+        <directionalLight position={[-14, 10, -10]} intensity={benchmark ? 0 : gfx.fill} color="#dbe8ff" />
 
         <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} />
-        <DropTarget onAddAt={onAddAt} />
-        <SimDriver items={items} shell={shell} low={low || gfx.shadowSize === 1024} />
-        <SceneContent
-          items={items}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          selectedPoint={selectedPoint}
-          onSelectPoint={onSelectPoint}
-          tool={tool}
-          snap={snap}
-          controlsRef={controlsRef}
-          onUpdateItem={onUpdateItem}
-          onBeginEdit={onBeginEdit}
-          shell={shell}
-          building={building}
-        />
-        {gridVisible && gfx.grid && <gridHelper args={[80, 80, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
-        {gfx.shadows && gfx.contactShadows && <ContactShadows position={[0, 0.015, 0]} scale={[Math.max(24, building.width + 8), Math.max(24, building.depth + 8)]} opacity={gfx.contactOpacity} far={5} blur={1.5} resolution={256} smooth={false} frames={running ? Infinity : 1} />}
-        {gfx.ao && <AmbientOcclusion intensity={gfx.aoIntensity} radius={gfx.aoRadius} pixelRatio={renderDpr} />}
+        {gpuMode && <GlobalIlluminationPipeline voxelKey={voxelKey} running={running} />}
+        {benchmark ? <CornellBenchmark /> : <>
+          <DropTarget onAddAt={onAddAt} />
+          <SimDriver items={items} shell={shell} low={low || gfx.shadowSize === 1024} />
+          <SceneContent
+            items={items}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            selectedPoint={selectedPoint}
+            onSelectPoint={onSelectPoint}
+            tool={tool}
+            snap={snap}
+            controlsRef={controlsRef}
+            onUpdateItem={onUpdateItem}
+            onBeginEdit={onBeginEdit}
+            shell={shell}
+            building={building}
+          />
+        </>}
+        {gridVisible && gfx.grid && !benchmark && <gridHelper args={[80, 80, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
+        {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows position={[0, 0.015, 0]} scale={[Math.max(24, building.width + 8), Math.max(24, building.depth + 8)]} opacity={gfx.contactOpacity} far={5} blur={1.5} resolution={256} smooth={false} frames={running ? Infinity : 1} />}
+        {gfx.ao && !gpuMode && <AmbientOcclusion intensity={gfx.aoIntensity} radius={gfx.aoRadius} pixelRatio={renderDpr} />}
       </Canvas>
 
       {/* Floating simulation player (top centre) */}

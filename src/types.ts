@@ -146,5 +146,5 @@ export interface LayoutPreset {
   items: SceneItem[];
 }
 
-export type CameraPreset = "iso" | "top" | "front" | "back" | "left" | "right";
+export type CameraPreset = "iso" | "top" | "front" | "back" | "left" | "right" | "room";
 export type ToolMode = "select" | "move" | "rotate";
