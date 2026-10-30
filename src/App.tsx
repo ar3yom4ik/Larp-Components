@@ -21,6 +21,8 @@ import { MobileChrome, MobileNav, ProjectSettings, type TouchPanel } from "./com
 import { MobileTools } from "./components/MobileTools";
 import { ModelImportDialog } from "./components/ModelImportDialog";
 import { DEFAULT_WORKER_SETTINGS } from "./components/RiggedHuman";
+import { eventMatches, isCapturing } from "./keybinds";
+import { closeSettings, openSettings, useSettingsWindow } from "./settingsWindow";
 import { loadAutosave, saveAutosave } from "./utils/projectStore";
 import { programToCode } from "./sim/programCode";
 import type { ComponentKind, ImportedModelData, LayoutPreset, SceneItem, ToolMode, Vec3 } from "./types";
@@ -90,7 +92,8 @@ export default function App() {
   const language = useLanguage();
   const { mobile, mode: interfaceMode, setMode: setInterfaceMode } = useDevice();
   const appearance = useAppearance();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpen = useSettingsWindow().open;
+  const setSettingsOpen = (open: boolean) => (open ? openSettings() : closeSettings());
   const [storageReady, setStorageReady] = useState(false);
   const [storageFailed, setStorageFailed] = useState(false);
   const [restoreSlow, setRestoreSlow] = useState(false);
@@ -482,7 +485,7 @@ export default function App() {
     return true;
   }, [applyItems, fitsProject, mobile, modelTarget, notify, remember, syncHistory, updateItem]);
 
-  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getText: projectText};
+  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getText: projectText, setItems: applyItems, select: setSelectedId};
 
   /* ----- spline editing ----- */
 
@@ -619,7 +622,7 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!storageReady) return;
+      if (!storageReady || isCapturing()) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
         if (event.key === "Escape") target.blur();
@@ -627,34 +630,23 @@ export default function App() {
       }
       if (modelOpen) { if (event.key === "Escape") setModelOpen(false); return; }
       if (genOpen && event.key !== "Escape") return;
-      const meta = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-      if (meta && key === "k") {
-        event.preventDefault();
-        openSearch();
-        return;
-      }
-      if (meta && key === "z") {
-        event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
-        return;
-      }
-      if (meta && key === "s") { event.preventDefault(); void saveProject(); return; }
-      if (meta && key === "c") { event.preventDefault(); copySelected(); return; }
-      if (meta && key === "v") { event.preventDefault(); paste(); return; }
-      if (meta && key === "d") {
-        event.preventDefault();
-        if (selectedId) duplicateItem(selectedId);
-        return;
-      }
-      if (meta) return;
-      if (event.key === "Escape") {
+      const is = (id: string) => eventMatches(event, id);
+      if (is("settings")) { event.preventDefault(); openSettings(); return; }
+      if (is("help")) { event.preventDefault(); openSettings("help"); return; }
+      if (is("search")) { event.preventDefault(); openSearch(); return; }
+      if (is("redo")) { event.preventDefault(); redo(); return; }
+      if (is("undo")) { event.preventDefault(); undo(); return; }
+      if (is("save")) { event.preventDefault(); void saveProject(); return; }
+      if (is("copy")) { event.preventDefault(); copySelected(); return; }
+      if (is("paste")) { event.preventDefault(); paste(); return; }
+      if (is("duplicate")) { event.preventDefault(); if (selectedId) duplicateItem(selectedId); return; }
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (is("deselect")) {
         setSelectedId(null);
         setGenOpen(false);
         return;
       }
-      if (event.key === "Delete" || event.key === "Backspace") {
+      if (is("delete") || event.key === "Backspace") {
         if (selectedId) {
           event.preventDefault();
           if (selectedPoint !== null) removePoint();
@@ -662,15 +654,15 @@ export default function App() {
         }
         return;
       }
-      if (event.key === " ") {
+      if (is("playPause")) {
         event.preventDefault();
         toggleRun();
         return;
       }
-      if (key === "v") setTool("select");
-      if (key === "m") setTool("move");
-      if (key === "r") setTool("rotate");
-      if (key === "g") setSnap((value) => !value);
+      if (is("toolSelect")) setTool("select");
+      if (is("toolMove")) setTool("move");
+      if (is("toolRotate")) setTool("rotate");
+      if (is("snap")) setSnap((value) => !value);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -709,7 +701,7 @@ export default function App() {
   );
 
   const dock = (fullHeight = false) => <BottomDock tab={dockTab} setTab={setDockTab} expanded={dockExpanded} setExpanded={setDockExpanded} items={items} selectedId={selectedId} onSelect={setSelectedId} onUpdateItem={updateItem} onTemplate={applyTemplate} showApi={showApi} fullHeight={fullHeight} />;
-  const projectSettings = <ProjectSettings project={projectName} rename={setProjectName} save={() => void saveProject()} exportFile={downloadProject} importFile={importProject} newProject={newProject} mode={interfaceMode} setMode={setInterfaceMode} onClose={() => setSettingsOpen(false)} />;
+  const projectSettings = <ProjectSettings inline={mobile} project={projectName} rename={setProjectName} save={() => void saveProject()} exportFile={downloadProject} importFile={importProject} newProject={newProject} mode={interfaceMode} setMode={setInterfaceMode} onClose={() => setSettingsOpen(false)} />;
   const mobileTools = <MobileTools selected={selected} selectedPoint={selectedPoint} snap={snap}
     onSnap={() => setSnap((v) => !v)} onCopy={copySelected} onPaste={paste}
     onDuplicate={() => selectedId && duplicateItem(selectedId)} onDelete={() => selectedId && deleteItem(selectedId)}
@@ -798,7 +790,7 @@ export default function App() {
       </div>}
       {storageFailed && <div role="alert" className="fixed bottom-8 right-4 z-[105] max-w-[300px] rounded border border-amber-400/40 bg-[#382c1b] p-3 text-[11px] text-amber-100">{t("Browser autosave is unavailable. Export a project copy to keep your work.")}</div>}
       <GeneratorDialog open={genOpen} initial={genOptions} onClose={() => setGenOpen(false)} onBuild={buildGenerated} />
-      {settingsOpen && <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4" onPointerDown={(e) => e.target === e.currentTarget && setSettingsOpen(false)}><div className="relative flex max-h-[90dvh] w-full max-w-[440px] flex-col overflow-hidden rounded-lg border border-white/15 bg-[#2b2b2e]"><button type="button" onClick={() => setSettingsOpen(false)} aria-label={t("Close")} className="absolute right-3 top-3 z-10 rounded p-2 text-white/50"><X size={17} /></button>{projectSettings}</div></div>}
+      {settingsOpen && <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4" onPointerDown={(e) => e.target === e.currentTarget && setSettingsOpen(false)}><div className="relative flex h-[min(700px,90dvh)] w-full max-w-[min(980px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-white/15 bg-[#2b2b2e]"><button type="button" onClick={() => setSettingsOpen(false)} aria-label={t("Close")} className="absolute right-3 top-3 z-10 rounded p-2 text-white/50"><X size={17} /></button>{projectSettings}</div></div>}
       <div className={cn("pointer-events-none fixed left-1/2 z-[100] flex w-full max-w-[420px] -translate-x-1/2 flex-col items-center gap-1.5 px-4", mobile ? "bottom-[78px]" : "top-[158px]")}>
         {toasts.map((toast) => <div key={toast.id} className={cn("pointer-events-auto flex w-full items-center gap-2.5 rounded border bg-[#2b2b2d]/97 px-3 py-2 shadow-xl", toast.tone === "success" ? "border-[var(--green)]/40" : "border-[var(--app-accent)]/35", "animate-[toast-in_.2s_ease-out]")}>{toast.tone === "success" ? <CheckCircle2 size={13} className="shrink-0 text-[var(--green)]" /> : <Info size={13} className="shrink-0 text-[var(--app-accent-bright)]" />}<span className="flex-1 text-[11px] leading-snug text-white/80">{t(toast.message)}</span><button type="button" aria-label={t("Close")} onClick={() => setToasts((cur) => cur.filter((entry) => entry.id !== toast.id))} className="shrink-0 rounded p-0.5 text-white/30"><X size={10} /></button></div>)}
       </div>

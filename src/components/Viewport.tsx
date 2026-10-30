@@ -523,6 +523,23 @@ function ViewCube({ view, onPick }: { view: CameraPreset; onPick: (view: CameraP
   );
 }
 
+/** Live frames-per-second readout, measured from requestAnimationFrame callbacks. */
+function FpsBadge() {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    let frames = 0, start = performance.now(), raf = 0, alive = true;
+    const tick = (now: number) => {
+      if (!alive) return;
+      frames += 1;
+      if (now - start >= 500) { setFps(Math.round((frames * 1000) / (now - start))); frames = 0; start = now; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { alive = false; cancelAnimationFrame(raf); };
+  }, []);
+  return <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded bg-black/55 px-2 py-0.5 font-mono text-[11px] text-white/85" aria-label="Frames per second">{fps} FPS</div>;
+}
+
 function SimPlayer({ running, onToggleRun, onReset, speed, onSpeed, onToggleFullscreen, onToggleViewExtras, onToggleGrid }: { running: boolean; onToggleRun: () => void; onReset: () => void; speed: number; onSpeed: (speed: number) => void; onToggleFullscreen: () => void; onToggleViewExtras: () => void; onToggleGrid: () => void }) {
   const snap = useSimSnapshot(250);
   const [menu, setMenu] = useState(false);
@@ -543,7 +560,7 @@ function SimPlayer({ running, onToggleRun, onReset, speed, onSpeed, onToggleFull
         <button type="button" aria-label={t("Faster")} title={t("Faster")} onClick={() => onSpeed(Math.round((speed + 0.25) * 100) / 100)} className="player-step rounded px-1 font-mono text-[12px] text-white/60 hover:bg-white/10 hover:text-white">+</button>
         <div className="player-viewbtns ml-1 flex items-center gap-0.5 border-l border-white/10 pl-1.5"><button type="button" aria-label={t("Fullscreen")} title={t("Fullscreen")} onClick={onToggleFullscreen} className="rounded p-1 text-white/60 hover:bg-white/10 hover:text-white"><Maximize2 size={13} /></button><button type="button" aria-label={t("Toggle side panels")} title={t("Toggle side panels")} onClick={onToggleViewExtras} className="rounded p-1 text-white/45 hover:bg-white/10 hover:text-white"><Eye size={13} /></button><button type="button" aria-label={t("Toggle grid")} title={t("Toggle grid")} onClick={onToggleGrid} className="rounded p-1 text-white/35 hover:bg-white/10 hover:text-white"><Grid3X3 size={13} /></button></div>
       </div>
-      {menu && <div className="simulation-settings-menu absolute left-0 top-[calc(100%+5px)] z-40 w-[330px] rounded-sm border border-[#ffffff1f] bg-[#2b2b2d] p-3 text-[11px] text-white/75 shadow-[0_14px_38px_rgba(0,0,0,.55)]">
+      {menu && <div className="simulation-settings-menu absolute bottom-[calc(100%+8px)] left-0 z-40 max-h-[60dvh] w-[330px] overflow-y-auto rounded-sm border border-[#ffffff1f] bg-[#2b2b2d] p-3 text-[11px] text-white/75 shadow-[0_14px_38px_rgba(0,0,0,.55)]">
         <div className="mb-3 flex items-center justify-between"><span className="text-[12px]">{t("Simulation settings")}</span><button type="button" onClick={() => setMenu(false)} aria-label={t("Close")} className="text-white/40">✕</button></div>
         <label className="mb-2 flex items-center justify-between gap-3">{t("Clock Display Mode")}<select value={clockMode} onChange={(e) => setClockMode(e.target.value)} className="w-[165px] rounded-sm border border-white/10 bg-[#1e1e20] p-1"><option value="hms">Hours : Minutes : Seconds</option><option value="seconds">Seconds</option></select></label>
         <label className="mb-2 flex items-center justify-between gap-3">{t("Simulation Run Time")}<span className="flex w-[165px] gap-1"><input value={runTime} onChange={(e) => setRunTime(e.target.value)} className="min-w-0 flex-1 rounded-sm border border-white/10 bg-[#1e1e20] px-2 py-1" /><button type="button" className="rounded-sm border border-white/15 bg-[#3b3b3e] px-2">Custom</button></span></label>
@@ -634,7 +651,9 @@ export const Viewport = memo(function Viewport({
   const [gpuFailed, setGpuFailed] = useState(false);
   const cornellRoom = useCornellRoom();
   const benchmark = import.meta.env.DEV && cornellRoom;
-  const gpuMode = quality === "max" && gpuSupported === true && !gpuFailed;
+  const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed;
+  // VXGI falls back to the approximation whenever WebGPU is missing or failed to start.
+  const effectiveGi = gfx.gi === "vxgi" && !gpuMode ? "approx" : gfx.gi;
   const makeRenderer = useCallback((defaults: GLFactoryProps) => createGpuRenderer(defaults, () => setGpuFailed(true)), []);
   useEffect(() => {
     let alive = true;
@@ -726,7 +745,7 @@ export const Viewport = memo(function Viewport({
         {!benchmark && <hemisphereLight args={dark ? ["#ffc9cf", "#4a3036", 0.32] : ["#e8f2ff", "#778391", 0.38]} />}
         {/* Bounce lights stand in for indirect light. In WebGPU VXGI mode the GI pipeline
             computes indirect light, so keeping them would double-count it. */}
-        {gfx.bounce > 0 && !gpuMode && !benchmark && <>
+        {effectiveGi === "approx" && gfx.bounce > 0 && !benchmark && <>
           <hemisphereLight args={["#dcecff", "#c0a27c", gfx.bounce * 0.5]} />
           <directionalLight position={[-12, 8, -9]} intensity={gfx.bounce * 0.42} color="#c7dfff" />
           <directionalLight position={[10, 5, -12]} intensity={gfx.bounce * 0.32} color="#ffe4c2" />
@@ -774,9 +793,10 @@ export const Viewport = memo(function Viewport({
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[80, 80, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
         {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows position={[0, 0.015, 0]} scale={[Math.max(24, building.width + 8), Math.max(24, building.depth + 8)]} opacity={gfx.contactOpacity} far={5} blur={1.5} resolution={256} smooth={false} frames={running ? Infinity : 1} />}
-        {gfx.ao && !gpuMode && <AmbientOcclusion intensity={gfx.aoIntensity} radius={gfx.aoRadius} pixelRatio={renderDpr} />}
+        {(effectiveGi === "ao" || effectiveGi === "approx") && <AmbientOcclusion intensity={gfx.aoIntensity} radius={gfx.aoRadius} pixelRatio={renderDpr} />}
       </Canvas>
 
+      {gfx.showFps && <FpsBadge />}
       {/* Floating simulation player (top centre) */}
       <div className="sim-player-wrap pointer-events-none absolute inset-x-0 top-3 flex justify-center">
         <SimPlayer running={running} onToggleRun={onToggleRun} onReset={onResetSim} speed={simSpeed} onSpeed={onSimSpeed} onToggleFullscreen={toggleFullscreen} onToggleViewExtras={() => setPanelsOpen((v) => !v)} onToggleGrid={() => setGridVisible((v) => !v)} />

@@ -1,25 +1,40 @@
 import { useSyncExternalStore } from 'react';
 
 export type SkinId = 'larp' | 'vc' | 'rpro';
-/** `max` uses WebGPU voxel GI (VXGI) + TRAA when available, otherwise the WebGL approximation. */
-export type GraphicsQuality = 'standard' | 'enhanced' | 'max';
+/** Named presets. `standard`, `enhanced` and `max` keep their earlier meaning. */
+export type GraphicsQuality = 'low' | 'standard' | 'enhanced' | 'max';
+/**
+ * Global illumination mode, shown in the settings as Off / Ambient occlusion / Approximate / VXGI.
+ * `vxgi` needs WebGPU and falls back to `approx` when the browser cannot start WebGPU.
+ */
+export type GiMode = 'off' | 'ao' | 'approx' | 'vxgi';
+export type ToneMapping = 'none' | 'linear' | 'reinhard' | 'cineon' | 'aces' | 'agx' | 'neutral';
+export const TONE_MAPPINGS: ToneMapping[] = ['none', 'linear', 'reinhard', 'cineon', 'aces', 'agx', 'neutral'];
+export const GI_MODES: GiMode[] = ['off', 'ao', 'approx', 'vxgi'];
+export const QUALITY_PRESETS: GraphicsQuality[] = ['low', 'standard', 'enhanced', 'max'];
+
 export interface GraphicsSettings {
   preset: GraphicsQuality;
   exposure: number; ambient: number; sun: number; fill: number; env: number;
   shadows: boolean; shadowSize: 1024 | 2048 | 4096; shadowStrength: number; softShadows: boolean;
-  sunAzimuth: number; sunElevation: number; toneMapping: 'neutral' | 'aces' | 'linear';
+  sunAzimuth: number; sunElevation: number; toneMapping: ToneMapping;
   pixelRatio: number; adaptive: boolean; fog: boolean; fogFar: number; grid: boolean;
   productBoost: number; background: string; useSkinBackground: boolean;
   contactShadows: boolean; contactOpacity: number;
-  ao: boolean; aoIntensity: number; aoRadius: number; bounce: number;
+  gi: GiMode; aoIntensity: number; aoRadius: number; bounce: number;
+  showFps: boolean;
 }
 export interface BuildingSettings { width: number; depth: number; height: number; walls: boolean; roof: boolean; lights: boolean; floorColor: string; wallColor: string }
-export interface Appearance { skin: SkinId; graphics: GraphicsQuality; gfx: GraphicsSettings; building: BuildingSettings }
+export interface Appearance {
+  skin: SkinId; graphics: GraphicsQuality; gfx: GraphicsSettings; building: BuildingSettings;
+  /** Custom UI accent colour (#rrggbb). Undefined means the skin's own accent. */
+  accent?: string;
+}
 
 export const SKINS: Record<SkinId, { name: string; appName: string; accent: string; note: string }> = {
-  larp: { name: 'Larp UI', appName: 'Larp Components 5.1', accent: '#2a8be0', note: 'Default balanced studio theme' },
-  vc: { name: 'Visual Components', appName: 'Visual Components-inspired 5.1', accent: '#f5a623', note: 'Industrial ribbon workspace, independently developed' },
-  rpro: { name: 'R-pro', appName: 'R-pro 5.1', accent: '#d83a45', note: 'Dark graphite with red robot-programming accents' },
+  larp: { name: 'Larp UI', appName: 'Larp Components 5.1', accent: '#2a8be0', note: 'Default balanced studio layout' },
+  vc: { name: 'Visual Components', appName: 'Visual Components-inspired 5.1', accent: '#f5a623', note: 'Industrial ribbon layout, independently developed' },
+  rpro: { name: 'R-pro', appName: 'R-pro 5.1', accent: '#d83a45', note: 'Dark graphite layout with robot-programming accents' },
 };
 
 export const defaultGfx = (preset: GraphicsQuality): GraphicsSettings => {
@@ -30,42 +45,89 @@ export const defaultGfx = (preset: GraphicsQuality): GraphicsSettings => {
     pixelRatio: 1.25, adaptive: false, fog: true, fogFar: 160, grid: true,
     productBoost: 0.15, background: '#e3e6e9', useSkinBackground: true,
     contactShadows: true, contactOpacity: 0.50,
-    ao: false, aoIntensity: 1.0, aoRadius: 0.55, bounce: 0,
+    gi: 'off', aoIntensity: 1.0, aoRadius: 0.55, bounce: 0, showFps: false,
   };
-  if (preset === 'enhanced') return { ...common, exposure: 1.02, shadowSize: 2048, pixelRatio: 1.25, env: 0.55, bounce: 0.3, contactOpacity: 0.55, ao: true, aoIntensity: 0.8, aoRadius: 0.42 };
+  if (preset === 'low') return { ...common, shadowSize: 1024, softShadows: false, contactShadows: false, pixelRatio: 1, fog: false, toneMapping: 'linear', adaptive: true };
+  if (preset === 'enhanced') return { ...common, exposure: 1.02, shadowSize: 2048, pixelRatio: 1.25, env: 0.55, gi: 'approx', bounce: 0.3, contactOpacity: 0.55, aoIntensity: 0.8, aoRadius: 0.42 };
   // Max: WebGPU voxel cone-traced GI (r187 VXGI) with TRAA. The WebGL fallback is an
   // explicit approximation (bounce lights + screen-space GTAO + contact shadows), not path tracing.
-  if (preset === 'max') return { ...common, exposure: 1.0, ambient: 0.22, sun: 2.5, fill: 0.22, shadowSize: 2048, pixelRatio: 1.25, env: 0.35, bounce: 0.65, contactOpacity: 0.7, ao: true, aoIntensity: 1.5, aoRadius: 0.8 };
+  if (preset === 'max') return { ...common, exposure: 1.0, ambient: 0.22, sun: 2.5, fill: 0.22, shadowSize: 2048, pixelRatio: 1.25, env: 0.35, gi: 'vxgi', bounce: 0.65, contactOpacity: 0.7, aoIntensity: 1.5, aoRadius: 0.8 };
   return common;
 };
+
 const defaults: Appearance = {
   skin: 'larp', graphics: 'standard', gfx: defaultGfx('standard'),
   building: { width: 28, depth: 20, height: 7, walls: true, roof: true, lights: true, floorColor: '#e4e7e9', wallColor: '#d5dbe0' },
 };
+
+/** Fills in fields that older saves do not have and rejects values that are no longer valid. */
+export function sanitizeGfx(quality: GraphicsQuality, saved: Partial<Record<string, unknown>> | null | undefined): GraphicsSettings {
+  const base = defaultGfx(quality);
+  const raw = { ...base, ...(saved || {}) } as GraphicsSettings & { ao?: boolean };
+  if (!(saved && 'gi' in saved)) {
+    // Revision 3 and older stored `ao` + `bounce` instead of a GI mode.
+    raw.gi = quality === 'max' ? 'vxgi' : raw.ao ? 'approx' : 'off';
+  }
+  delete raw.ao;
+  if (!GI_MODES.includes(raw.gi)) raw.gi = base.gi;
+  if (!TONE_MAPPINGS.includes(raw.toneMapping)) raw.toneMapping = base.toneMapping;
+  return { ...raw, preset: quality };
+}
+
 let state: Appearance = defaults;
 try {
   const saved = JSON.parse(localStorage.getItem('larp-appearance') || 'null');
   if (saved) {
     // 'gi' was the previous name of the max preset.
     const stored = saved.graphics === 'gi' ? 'max' : saved.graphics;
-    const quality: GraphicsQuality = ['standard', 'enhanced', 'max'].includes(stored) ? stored : 'standard';
-    // Revision 3 retuned the max preset (WebGPU VXGI). Earlier saved graphics values are
-    // reset once; settings saved from revision 3 onward survive subsequent loads.
-    const gfx = saved.graphicsRevision === 3 ? { ...defaultGfx(quality), ...(saved.gfx || {}) } : defaultGfx(quality);
-    state = { ...defaults, ...saved, graphics: quality, gfx, building: { ...defaults.building, ...(saved.building || {}) } };
+    const quality: GraphicsQuality = QUALITY_PRESETS.includes(stored) ? stored : 'standard';
+    state = {
+      ...defaults, ...saved, graphics: quality,
+      gfx: sanitizeGfx(quality, saved.gfx),
+      building: { ...defaults.building, ...(saved.building || {}) },
+      accent: typeof saved.accent === 'string' && /^#[0-9a-f]{6}$/i.test(saved.accent) ? saved.accent : undefined,
+    };
   }
 } catch { /* preferences are optional */ }
+
+// ---- colour helpers for the accent customisation ----
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function mix(hex: string, target: number, amount: number): string {
+  const rgb = hexToRgb(hex).map((c) => Math.round(c + (target - c) * amount));
+  return `#${rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+export const lighten = (hex: string, amount: number) => mix(hex, 255, amount);
+export const darken = (hex: string, amount: number) => mix(hex, 0, amount);
+
+function applyDocument() {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.dataset.skin = state.skin;
+  if (state.accent) {
+    root.style.setProperty('--app-accent', state.accent);
+    root.style.setProperty('--app-accent-bright', lighten(state.accent, 0.35));
+    root.style.setProperty('--app-accent-deep', darken(state.accent, 0.3));
+    root.style.setProperty('--app-accent-soft', `${state.accent}24`);
+  } else {
+    ['--app-accent', '--app-accent-bright', '--app-accent-deep', '--app-accent-soft'].forEach((name) => root.style.removeProperty(name));
+  }
+}
+
 const listeners = new Set<() => void>();
 const emit = () => {
   try {
-    if (typeof document !== 'undefined') document.documentElement.dataset.skin = state.skin;
-    localStorage.setItem('larp-appearance', JSON.stringify({ ...state, graphicsRevision: 3 }));
+    applyDocument();
+    localStorage.setItem('larp-appearance', JSON.stringify({ ...state, graphicsRevision: 4 }));
     localStorage.setItem('larp-graphics', state.graphics);
     localStorage.setItem('larp-building', JSON.stringify(state.building));
   } catch { /* storage can be unavailable in private browsing */ }
   listeners.forEach((fn) => fn());
 };
-if (typeof document !== 'undefined') document.documentElement.dataset.skin = state.skin;
+applyDocument();
+
 export function setAppearance(patch: Partial<Appearance>) {
   const next = { ...state, ...patch, building: { ...state.building, ...(patch.building || {}) } };
   if (patch.graphics && !patch.gfx) next.gfx = defaultGfx(patch.graphics);
@@ -73,12 +135,20 @@ export function setAppearance(patch: Partial<Appearance>) {
 }
 export function setGfx(patch: Partial<GraphicsSettings>) { state = { ...state, gfx: { ...state.gfx, ...patch } }; emit(); }
 export function setSkin(skin: SkinId) { setAppearance({ skin }); }
+export function setAccent(accent: string | undefined) { setAppearance({ accent }); }
 export function setBuilding(building: Partial<BuildingSettings>) { setAppearance({ building: { ...state.building, ...building } }); }
+/** Preset applied to the individual graphics parameters (the user can change them afterwards). */
+export function applyPreset(graphics: GraphicsQuality) { setAppearance({ graphics, gfx: defaultGfx(graphics) }); }
+/** True once any parameter differs from its preset, so the UI can show "Custom". */
+export function isCustomGraphics(appearance: Appearance = state): boolean {
+  const base = defaultGfx(appearance.graphics);
+  return (Object.keys(base) as (keyof GraphicsSettings)[]).some((key) => key !== 'preset' && appearance.gfx[key] !== base[key]);
+}
 export function getAppearance() { return state; }
 export function useAppearance() { return useSyncExternalStore((fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; }, getAppearance); }
 export function appName() { return SKINS[state.skin].appName; }
 
 // Test-only access to the same reactive store used by the UI.
-if (import.meta.env.DEV && typeof window !== 'undefined') {
-  (window as unknown as { __larpTheme: { setGfx: typeof setGfx; setBuilding: typeof setBuilding; setAppearance: typeof setAppearance; getAppearance: typeof getAppearance } }).__larpTheme = { setGfx, setBuilding, setAppearance, getAppearance };
+if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV && typeof window !== "undefined") {
+  (window as unknown as { __larpTheme: Record<string, unknown> }).__larpTheme = { setGfx, setBuilding, setAppearance, getAppearance, applyPreset };
 }

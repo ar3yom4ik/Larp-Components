@@ -8,8 +8,8 @@ import { isWebGPURenderer } from '../utils/gpu';
 
 /** Voxel grid resolution per axis. 128 keeps the software-rendered debug path tractable. */
 export const GI_VOXEL_RESOLUTION = 128;
-/** While the simulation runs, the voxel grid is rebuilt at most this often (seconds). */
-export const GI_REFRESH_SECONDS = 1.5;
+/** While the simulation runs, the voxel grid is rebuilt at most this often (seconds). Rebuilding costs a full voxelization, so this is kept coarse. */
+export const GI_REFRESH_SECONDS = 3;
 
 type VXGIResult = ReturnType<typeof vxgi>;
 

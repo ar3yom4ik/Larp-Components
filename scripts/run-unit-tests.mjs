@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size"];
+const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "settings"];
 const outDir = await mkdtemp(path.join(tmpdir(), "larp-unit-"));
 let failed = 0;
 

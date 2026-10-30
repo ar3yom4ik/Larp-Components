@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { createPortal, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { ImportedModelData, SceneItem, WorkerMotionRole, WorkerSettings } from "../types";
 import { sim } from "../sim/engine";
@@ -24,13 +24,15 @@ export function RiggedHuman({item, fallback}: {item:SceneItem; fallback:React.Re
 function AnimatedRig({item, model, settings, fallback}: {item:SceneItem; model:ImportedModelData; settings:WorkerSettings; fallback:React.ReactNode}) {
   const {loaded,error} = useImportedModelInstance(model);
   const {invalidate,gl} = useThree();
-  const outer=useRef<THREE.Group>(null), visual=useRef<THREE.Group>(null), gear=useRef<THREE.Group>(null);
+  const outer=useRef<THREE.Group>(null), visual=useRef<THREE.Group>(null);
   const lastGroundFeet=useRef(settings.groundFeet !== false);
   const animation=useRef<{mixer:THREE.AnimationMixer; actions:Partial<Record<WorkerMotionRole,THREE.AnimationAction>>; current:WorkerMotionRole | null} | null>(null);
   const nodes=useMemo(() => loaded ? boneMap(loaded.object) : new Map<string,THREE.Object3D>(),[loaded]);
   const head=nodes.get("head");
   const feet=useMemo(() => ["leftfoot","lefttoebase","rightfoot","righttoebase"].map((name)=>nodes.get(name)).filter((bone): bone is THREE.Object3D => !!bone),[nodes]);
-  const headPosition=useMemo(()=>new THREE.Vector3(),[]), footPosition=useMemo(()=>new THREE.Vector3(),[]);
+  const footPosition=useMemo(()=>new THREE.Vector3(),[]);
+  // Cosmetics are parented to this holder, which sits under the head bone so they follow the head.
+  const gearHolder=useMemo(()=>new THREE.Group(),[]);
   const transform=useMemo(() => {
     if (!loaded) return {scale:1,offset:[0,0,0] as [number,number,number],footRest:null as number | null};
     const temp=new THREE.Group(), axis=new THREE.Group(); temp.rotation.y=forwardAngle[settings.forward]; axis.rotation.x=model.axis === "z" ? -Math.PI/2 : 0;temp.add(axis);axis.add(loaded.object.clone(true));temp.updateMatrixWorld(true);
@@ -40,6 +42,20 @@ function AnimatedRig({item, model, settings, fallback}: {item:SceneItem; model:I
     const footRest=restHeights.length && !box.isEmpty() ? (Math.min(...restHeights)-box.min.y)*scale : null;
     return {scale,footRest,offset:box.isEmpty() ? [0,0,0] as [number,number,number] : [-((box.min.x+box.max.x)/2)*scale,-box.min.y*scale,-((box.min.z+box.max.z)/2)*scale] as [number,number,number]};
   },[loaded,model.axis,settings.forward,settings.height]);
+
+  // Attach cosmetics to the head bone. The holder is scaled so that its contents keep their
+  // authored size in item units, whatever the bone scale is.
+  useEffect(() => {
+    if (!head || !outer.current) return undefined;
+    outer.current.updateWorldMatrix(true,true);
+    const headScale=head.getWorldScale(new THREE.Vector3()).x, rootScale=outer.current.getWorldScale(new THREE.Vector3()).x;
+    const ratio=headScale > 1e-6 && rootScale > 1e-6 ? headScale/rootScale : 1;
+    gearHolder.position.set(0,0,0);
+    gearHolder.quaternion.identity();
+    gearHolder.scale.setScalar((settings.height/1.78)/ratio);
+    head.add(gearHolder);
+    return () => { head.remove(gearHolder); };
+  },[head,gearHolder,settings.height]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -110,8 +126,6 @@ function AnimatedRig({item, model, settings, fallback}: {item:SceneItem; model:I
         visual.current.position.y += (transform.offset[1]-visual.current.position.y)*blend;
       }
     }
-    // Update attachments after the mixer so they track the current pose, not the previous frame.
-    if (head && gear.current) {head.getWorldPosition(headPosition);node.worldToLocal(headPosition);gear.current.position.copy(headPosition);}
     if (state && import.meta.env.DEV) {
       node.userData.mixerTime=state.mixer.time;
       node.userData.weights=Object.fromEntries(Object.entries(state.actions).map(([name,action]) => [name,action?.isRunning() ? action.getEffectiveWeight() : 0]));
@@ -120,9 +134,7 @@ function AnimatedRig({item, model, settings, fallback}: {item:SceneItem; model:I
   if (error) { console.warn("Rigged character failed to load",error); return <>{fallback}</>; }
   if (!loaded) return <>{fallback}</>;
   const hat=String(item.props.hat ?? "hardhat"), hasGear=hat !== "none" || item.props.glasses === true || item.props.ears === true || item.props.headphones === true || item.props.earrings === true;
-  return <group ref={outer} userData={{isRiggedWorker:true,itemId:item.id,activeRole:"loading"}}>
-    <group ref={visual} userData={{isWorkerVisual:true}} position={transform.offset} scale={transform.scale} rotation={[0,forwardAngle[settings.forward],0]}><group rotation={[model.axis === "z" ? -Math.PI/2 : 0,0,0]}><primitive object={loaded.object}/></group></group>
-    {hasGear && <group ref={gear} position={[0,1.5,0]} scale={settings.height / 1.78} userData={{isWorkerAccessory:true}}>
+  const gearContent=<group userData={{isWorkerAccessory:true}}>
       {hat !== "none" && <group position={[0,.23,0]}>
         <mesh material={getMaterial(hat === "cap" ? "blue" : "yellow")} castShadow><sphereGeometry args={[.19,16,10,0,Math.PI*2,0,Math.PI/2]}/></mesh>
         <mesh position={[0,0,hat === "cap" ? .12 : 0]} material={getMaterial(hat === "cap" ? "blue" : "yellow")} castShadow><boxGeometry args={[.39,.035,hat === "cap" ? .28 : .4]}/></mesh>
@@ -131,6 +143,9 @@ function AnimatedRig({item, model, settings, fallback}: {item:SceneItem; model:I
       {item.props.ears === true && [-1,1].map(s=><mesh key={s} position={[s*.11,.37,0]} rotation={[0,0,s*-.25]} material={getMaterial("hair")} castShadow><coneGeometry args={[.065,.17,3]}/></mesh>)}
       {item.props.headphones === true && <group position={[0,.19,0]}><mesh><torusGeometry args={[.19,.025,6,18,Math.PI]}/><meshStandardMaterial color="#28343c"/></mesh>{[-1,1].map(s=><mesh key={s} position={[s*.18,-.12,0]}><cylinderGeometry args={[.06,.06,.08,12]}/><meshStandardMaterial color="#3b4f5c"/></mesh>)}</group>}
       {item.props.earrings === true && [-1,1].map(s=><mesh key={s} position={[s*.18,-.01,0]}><torusGeometry args={[.025,.006,5,10]}/><meshStandardMaterial color="#e9c34d" metalness={.7}/></mesh>)}
-    </group>}
+    </group>;
+  return <group ref={outer} userData={{isRiggedWorker:true,itemId:item.id,activeRole:"loading"}}>
+    <group ref={visual} userData={{isWorkerVisual:true}} position={transform.offset} scale={transform.scale} rotation={[0,forwardAngle[settings.forward],0]}><group rotation={[model.axis === "z" ? -Math.PI/2 : 0,0,0]}><primitive object={loaded.object}/></group></group>
+    {hasGear && (head ? createPortal(gearContent, gearHolder) : gearContent)}
   </group>;
 }

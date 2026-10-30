@@ -5,7 +5,17 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import type { GraphicsSettings } from '../theme';
+import type { GraphicsSettings, ToneMapping } from '../theme';
+
+export const TONE_MAPPING_BY_NAME: Record<ToneMapping, THREE.ToneMapping> = {
+  none: THREE.NoToneMapping,
+  linear: THREE.LinearToneMapping,
+  reinhard: THREE.ReinhardToneMapping,
+  cineon: THREE.CineonToneMapping,
+  aces: THREE.ACESFilmicToneMapping,
+  agx: THREE.AgXToneMapping,
+  neutral: THREE.NeutralToneMapping,
+};
 import { setModelRenderer } from '../utils/modelImport';
 
 /** Updates the live renderer, not merely its initial onCreated state. */
@@ -17,7 +27,7 @@ export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
     return () => setModelRenderer(null);
   }, [gl, scene, camera]);
   useEffect(() => {
-    gl.toneMapping = gfx.toneMapping === 'aces' ? THREE.ACESFilmicToneMapping : gfx.toneMapping === 'linear' ? THREE.LinearToneMapping : THREE.NeutralToneMapping;
+    gl.toneMapping = TONE_MAPPING_BY_NAME[gfx.toneMapping] ?? THREE.NeutralToneMapping;
     gl.toneMappingExposure = gfx.exposure;
     gl.shadowMap.enabled = gfx.shadows;
     gl.shadowMap.type = gfx.softShadows ? THREE.PCFShadowMap : THREE.BasicShadowMap;

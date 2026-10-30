@@ -12,6 +12,7 @@ import {
   FolderOpen,
   HelpCircle,
   Keyboard,
+  Palette,
   Minus,
   Move3D,
   MousePointer2,
@@ -44,7 +45,8 @@ import { BrandMark } from "./PartIcon";
 import { cn } from "../utils/cn";
 import type { ComponentKind, SceneItem, ToolMode } from "../types";
 import { getLanguage, setLanguage, t } from "../i18n";
-import { useAppearance, SKINS, setSkin, type SkinId } from "../theme";
+import { useAppearance, SKINS } from "../theme";
+import { openSettings } from "../settingsWindow";
 import { isRobotKind } from "../utils/kinds";
 
 export interface ChromeProps {
@@ -173,7 +175,8 @@ function Stack({ children }: { children: ReactNode }) {
 }
 
 export function AppChrome(props: ChromeProps) {
-  const { skin } = useAppearance();
+  const { skin, accent } = useAppearance();
+  const accentColor = accent ?? SKINS[skin].accent;
   const [tab, setTab] = useState<TabId>("home");
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -237,7 +240,7 @@ export function AppChrome(props: ChromeProps) {
           <span className="hidden items-center gap-1 text-[10px] text-[#8f8f93] sm:flex">
             <Check size={10} className="text-[var(--green)]" /> {props.exportedName ? `${t("Saved")} · ${props.exportedName}` : t("Auto-saved")} </span>
           <span className="h-px w-3 bg-current" />
-          <span className="flex items-center gap-1">{(Object.keys(SKINS) as SkinId[]).map((id) => <button key={id} type="button" onClick={() => setSkin(id)} title={`UI skin: ${SKINS[id].name}`} aria-label={`UI skin ${SKINS[id].name}`} className={cn("h-2.5 w-2.5 rounded-full border", skin === id ? "border-white ring-1 ring-white/40" : "border-white/25")} style={{ background: SKINS[id].accent }} />)}</span>
+          <button type="button" onClick={() => openSettings("interface")} title={t("Colours and layout")} aria-label={t("Colours and layout")} className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[10px] text-white/60 hover:bg-white/10 hover:text-white"><span className="h-2.5 w-2.5 rounded-full border border-white/30" style={{ background: accentColor }} /><Palette size={12} /></button>
           <span className="text-[13px] leading-none">✕</span>
         </div>
       </div>
@@ -488,9 +491,9 @@ export function AppChrome(props: ChromeProps) {
         {tab === "help" && (
           <>
             <Group label={t("Help")}>
-              <RibbonButton icon={<Keyboard size={22} />} label={t("Shortcuts")} onClick={() => props.onToast("V select · M move · R rotate · G snap · Space play · Ctrl+Z undo · Del delete · Ctrl+D duplicate", "info")} />
+              <RibbonButton icon={<Keyboard size={22} />} label={t("Shortcuts")} onClick={() => openSettings("keybinds")} />
               <RibbonButton icon={<BookOpen size={22} className="text-[var(--app-accent)]" />} label={t("Robot API")} onClick={props.onShowApi} />
-              <RibbonButton icon={<HelpCircle size={22} />} label={t("About")} onClick={props.onSettings} />
+              <RibbonButton icon={<HelpCircle size={22} />} label={t("Help")} onClick={() => openSettings("help")} />
             </Group>
           </>
         )}
