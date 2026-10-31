@@ -1,6 +1,6 @@
 # Larp Factory V2 — independent AI/developer handoff
 
-**Release date:** 2026-10-30 (V2.1)  
+**Release date:** 2026-10-31 (V2.2)  
 **Audience:** a developer or another AI starting without any prior conversation.  
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V2 is the numbered release of this work.
 
@@ -91,6 +91,31 @@ skin, hands and boots keep their own colours (not applied on the WebGPU path, wh
 NaN transforms and ground corrections, relies on the uncullable skinned meshes
 (`ImportedModel.cloneModel` sets `frustumCulled = false`) and wraps the rig in an error boundary
 that falls back to the mannequin.
+
+### Simulation performance (V2.2)
+
+`Engine.sync()` builds every lookup the substep loop needs once per scene change:
+`itemById`, `logicItems` (buttons/lasers/sensors/PLCs), `triggers` (target id → trigger list),
+`walkSources`, the pallet fallback and the worker station cache. `src/sim/spatial.ts` is a small
+uniform spatial hash (buckets reused, results written into caller-owned arrays, a numeric stamp
+on each value instead of a `WeakMap`) used for three indices: static supports (conveyors and
+machine/collector rectangles), walk barriers plus walking obstacles, and the moving products.
+The product index is rebuilt at the start of every substep; `ConveyorRT` additionally indexes its
+own sampled segments per metre so `query()` only inspects the belt under the product.
+
+`Engine.stepBudgetMs` is the wall-clock budget for one `step()` call. `SimDriver` in
+`Viewport.tsx` derives it from an exponential average of the real frame time (8 / 5 / 2.5 / 1.2
+ms) so the simulation yields to rendering instead of eating a fixed 12 ms slice; the accumulator
+is unchanged, so a slow device simulates fewer seconds per frame but never drops or reorders
+events. The same driver refreshes the shadow map every second frame (third on low quality), and
+the drei `ContactShadows` are remounted a few times per second (`frames={1}`, key includes a
+tick) rather than re-rendering the whole scene into an extra target on every frame.
+
+`tests/performance.ts` asserts that the indexed support lookup matches a brute-force scan for
+every product in a running plant, that conveyor cell lookups agree with a full segment scan, and
+that the budget bounds the work done in one frame. When changing this code, keep the `sync()`
+caches in sync with item edits — `structureVersion` is bumped there and the worker station cache
+is keyed on it.
 
 ### Factory, graphics and touch
 

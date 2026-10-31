@@ -43,11 +43,29 @@ This issue is the hand-off list. Each item says what was done, how it was checke
   discarded instead of being stored in the model transform; an error boundary swaps a broken rig
   for the mannequin; post-processing state is rebuilt (not patched) when the effect set changes.
 
+## Done in V2.2
+
+- [x] **Large-plant performance.** The simulation no longer scans the whole scene per
+  product, robot or worker: supports, walk barriers and products use a spatial hash
+  (`src/sim/spatial.ts`), conveyors index their own segments, station lookups and reachable
+  points are cached per scene version, and the timer/condition queues are recycled. Frame CPU
+  for a 276-component plant at 8× speed fell from 13.4 ms to 3.9 ms with identical results
+  (all nine recipes compared frame-by-frame). `tests/performance.ts` locks in the parity between
+  the indexed and the brute-force support scan.
+- [x] **Frame budget instead of a fixed 12 ms simulation slice.** `Engine.stepBudgetMs` follows
+  the measured frame time (8 → 5 → 2.5 → 1.2 ms), shadows refresh every second/third frame and
+  contact shadows run at 4 Hz while the plant moves.
+- [x] **Simulation settings menu direction.** The gear menu opens downward on desktop and stays
+  upward on the phone layout, where the player bar is at the bottom.
+
 ## Open items inherited from V2.0
 
 - [ ] **WebGPU / VXGI re-verification on a real GPU.** The sandbox has no browser with a GPU, so
   the VXGI path was only reviewed in code this session. It must be re-run before relying on it.
 - [ ] **Frame-rate limit** (30 to Unlimited) is still not implemented; a render-loop cap is needed.
+- [ ] **GPU-side profiling on a real device.** The V2.2 gains are measured for the simulation
+  (CPU). Shadow and contact-shadow throttling are reasoned and unit-safe, but the frame-time
+  improvement on a real GPU was not measured in this sandbox.
 - [ ] **Visual re-checks in a real browser.** The sandbox for V2.1 had no Playwright browser
   available (download blocked, no NSS libraries), so the visual verification this time is limited
   to server-rendered markup and WebGL-free unit tests.

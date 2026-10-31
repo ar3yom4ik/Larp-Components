@@ -196,10 +196,18 @@ function DropTarget({ onAddAt }: { onAddAt: (kind: ComponentKind, position: Vec3
   return null;
 }
 
-/** Steps the physics/robot simulation and keeps static shadows cheap. */
+/**
+ * Steps the physics/robot simulation and keeps static shadows cheap.
+ *
+ * The simulation budget follows the frame time: while frames are comfortable the
+ * simulation may use up to 6 ms per frame, and as soon as frames slip it is cut back
+ * so the 3D view keeps its share of the frame. That is what keeps large factories
+ * responsive instead of letting the (still correct) simulation eat the render budget.
+ */
 function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; low: boolean }) {
   const { gl, invalidate } = useThree();
   const frame = useRef(0);
+  const frameMs = useRef(16);
 
   useEffect(() => {
     gl.shadowMap.autoUpdate = false;
@@ -211,9 +219,14 @@ function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; 
 
   useFrame((_, delta) => {
     if (!sim.running) return;
+    // Exponential average of the real frame time, including the last simulation step.
+    const ms = Math.min(200, delta * 1000);
+    frameMs.current = frameMs.current * 0.85 + ms * 0.15;
+    sim.stepBudgetMs = frameMs.current < 15 ? 8 : frameMs.current < 19 ? 5 : frameMs.current < 26 ? 2.5 : 1.2;
     sim.step(delta);
     frame.current += 1;
-    if (!low || frame.current % 2 === 0) gl.shadowMap.needsUpdate = true;
+    // Shadows of a moving plant only need refreshing every other frame at most.
+    if (!low ? frame.current % 2 === 0 : frame.current % 3 === 0) gl.shadowMap.needsUpdate = true;
   });
   return null;
 }
@@ -563,7 +576,7 @@ function SimPlayer({ running, onToggleRun, onReset, speed, onSpeed, onToggleFull
         <button type="button" aria-label={t("Faster")} title={t("Faster")} onClick={() => onSpeed(Math.round((speed + 0.25) * 100) / 100)} className="player-step rounded px-1 font-mono text-[12px] text-white/60 hover:bg-white/10 hover:text-white">+</button>
         <div className="player-viewbtns ml-1 flex items-center gap-0.5 border-l border-white/10 pl-1.5"><button type="button" aria-label={t("Fullscreen")} title={t("Fullscreen")} onClick={onToggleFullscreen} className="rounded p-1 text-white/60 hover:bg-white/10 hover:text-white"><Maximize2 size={13} /></button><button type="button" aria-label={t("Toggle side panels")} title={t("Toggle side panels")} onClick={onToggleViewExtras} className="rounded p-1 text-white/45 hover:bg-white/10 hover:text-white"><Eye size={13} /></button><button type="button" aria-label={t("Toggle grid")} title={t("Toggle grid")} onClick={onToggleGrid} className="rounded p-1 text-white/35 hover:bg-white/10 hover:text-white"><Grid3X3 size={13} /></button></div>
       </div>
-      {menu && <div className="simulation-settings-menu absolute bottom-[calc(100%+8px)] left-0 z-40 max-h-[60dvh] w-[330px] overflow-y-auto rounded-sm border border-[#ffffff1f] bg-[#2b2b2d] p-3 text-[11px] text-white/75 shadow-[0_14px_38px_rgba(0,0,0,.55)]">
+      {menu && <div data-sim-menu className="simulation-settings-menu absolute left-0 top-[calc(100%+8px)] z-40 max-h-[min(70dvh,calc(100dvh-140px))] w-[330px] overflow-y-auto rounded-sm border border-[#ffffff1f] bg-[#2b2b2d] p-3 text-[11px] text-white/75 shadow-[0_14px_38px_rgba(0,0,0,.55)]">
         <div className="mb-3 flex items-center justify-between"><span className="text-[12px]">{t("Simulation settings")}</span><button type="button" onClick={() => setMenu(false)} aria-label={t("Close")} className="text-white/40">✕</button></div>
         <label className="mb-2 flex items-center justify-between gap-3">{t("Clock Display Mode")}<select value={clockMode} onChange={(e) => setClockMode(e.target.value)} className="w-[165px] rounded-sm border border-white/10 bg-[#1e1e20] p-1"><option value="hms">Hours : Minutes : Seconds</option><option value="seconds">Seconds</option></select></label>
         <label className="mb-2 flex items-center justify-between gap-3">{t("Simulation Run Time")}<span className="flex w-[165px] gap-1"><input value={runTime} onChange={(e) => setRunTime(e.target.value)} className="min-w-0 flex-1 rounded-sm border border-white/10 bg-[#1e1e20] px-2 py-1" /><button type="button" className="rounded-sm border border-white/15 bg-[#3b3b3e] px-2">Custom</button></span></label>
@@ -658,6 +671,14 @@ export const Viewport = memo(function Viewport({
   const layout = useLayout();
   const panelsOpen = layout.catalog.open || layout.inspector.open;
   const setPanelsOpen = (open: boolean) => { setPanel("catalog", { open }); setPanel("inspector", { open }); };
+  // Contact shadows render the whole scene into their own target. While the plant is
+  // moving they are refreshed a few times per second instead of on every frame.
+  const [contactTick, setContactTick] = useState(0);
+  useEffect(() => {
+    if (!running || !gfx.contactShadows) return;
+    const id = window.setInterval(() => setContactTick((n) => (n + 1) % 100000), 250);
+    return () => window.clearInterval(id);
+  }, [running, gfx.contactShadows]);
   const wrapper = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
@@ -787,7 +808,17 @@ export const Viewport = memo(function Viewport({
           />
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[80, 80, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
-        {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows position={[0, 0.015, 0]} scale={[Math.max(24, building.width + 8), Math.max(24, building.depth + 8)]} opacity={gfx.contactOpacity} far={5} blur={1.5} resolution={256} smooth={false} frames={running ? Infinity : 1} />}
+        {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows
+          key={`contact-${running ? contactTick : "still"}`}
+          position={[0, 0.015, 0]}
+          scale={[Math.max(24, building.width + 8), Math.max(24, building.depth + 8)]}
+          opacity={gfx.contactOpacity}
+          far={5}
+          blur={1.5}
+          resolution={160}
+          smooth={false}
+          frames={1}
+        />}
         <PostEffects gfx={gfx} pixelRatio={renderDpr} aoActive={aoActive} />
       </Canvas>
 

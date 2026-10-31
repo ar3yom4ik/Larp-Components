@@ -2,14 +2,14 @@
 
 [![CI](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml/badge.svg)](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml)
 
-A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.1** of *Larp Components 5.1*.
+A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.2** of *Larp Components 5.1*.
 
 > Not affiliated with Visual Components. The simulator and safety guarding are illustrative only; they are **not** certified industrial, safety or robot-control tools.
 
 ## Features
 
 - **3D factory editor** — drag-and-drop components, snapping, selection with move/rotate tools, conveyor spline editing, undo/redo, and floor-map navigation.
-- **Simulation** — discrete-time engine (fixed 60 Hz physics step) with product flow, machine cycles, robot pick-and-place, feeders, pallets and pedestrian navigation around obstacles.
+- **Simulation** — discrete-time engine (fixed 60 Hz physics step) with product flow, machine cycles, robot pick-and-place, feeders, pallets and pedestrian navigation around obstacles. Spatial indexing and a frame-aware time budget keep large plants (hundreds of components) smooth.
 - **AI Factory generator (local)** — interprets English and Russian descriptions with deterministic rules (no online AI service) and builds a factory layout you can review before generation.
 - **3D model import** — GLB/glTF, FBX, OBJ+MTL, STL, PLY, DAE, 3MF, 3DS, USD, VRML, VTK, AMF, STEP/IGES/BREP, with Draco, Meshopt and KTX2 support where the browser allows.
 - **Materials** — per-instance material editing and texture replacement for imported models.
@@ -40,7 +40,7 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | --- | --- |
 | `npm run dev` | Start the Vite dev server (port 5173 by default; the docs and tests use 4173). |
 | `npm run typecheck` | TypeScript type check with `tsc --noEmit`. |
-| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt and server-rendered UI tests (8 suites). |
+| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance and server-rendered UI tests (9 suites). |
 | `npm run build` | Production build **plus** the asset embedder; writes `dist/index.html` (standalone, ~10 MB). |
 | `npm run preview` | Serve the production build locally. |
 

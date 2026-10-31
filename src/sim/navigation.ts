@@ -10,13 +10,28 @@ export function distanceToSegment(x: number, z: number, a: Point, b: Point) {
   return { distance: Math.hypot(x - qx, z - qz), x: qx, z: qz };
 }
 
+/** Squared distance from a point to a segment; allocation-free for the hot walk test. */
+export function distanceSqToSegment(x: number, z: number, a: Point, b: Point) {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const len2 = dx * dx + dz * dz || 1;
+  let u = ((x - a[0]) * dx + (z - a[1]) * dz) / len2;
+  u = u < 0 ? 0 : u > 1 ? 1 : u;
+  const qx = a[0] + u * dx, qz = a[1] + u * dz;
+  const ex = x - qx, ez = z - qz;
+  return ex * ex + ez * ez;
+}
+
 export function pointIsFree(x: number, z: number, barriers: Barrier[], obstacles: WalkObstacle[], tolerance = 0) {
   for (const b of barriers) {
     const r = Math.max(0, (b.clearance ?? 0.34) - tolerance);
     if (x < Math.min(b.a[0], b.b[0]) - r || x > Math.max(b.a[0], b.b[0]) + r || z < Math.min(b.a[1], b.b[1]) - r || z > Math.max(b.a[1], b.b[1]) + r) continue;
-    if (distanceToSegment(x, z, b.a, b.b).distance < r) return false;
+    if (distanceSqToSegment(x, z, b.a, b.b) < r * r) return false;
   }
-  for (const o of obstacles) if (Math.hypot(x - o.x, z - o.z) < o.radius - tolerance) return false;
+  for (const o of obstacles) {
+    const radius = o.radius - tolerance;
+    const dx = x - o.x, dz = z - o.z;
+    if (dx * dx + dz * dz < radius * radius) return false;
+  }
   return true;
 }
 

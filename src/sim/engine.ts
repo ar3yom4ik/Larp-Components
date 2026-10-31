@@ -2,6 +2,7 @@ import type { GripperKind, RobotProgram, SceneItem } from "../types";
 import { samplePath, type P2 } from "./spline";
 import { getProduct, MACHINE_KINDS, palletSize } from "../data/products";
 import { distanceToSegment, navigate, pointIsFree, projectToFree, type Barrier, type WalkObstacle } from "./navigation";
+import { SpatialHash } from "./spatial";
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                               */
@@ -158,16 +159,39 @@ export class ConveyorRT {
     this.maxX = Math.max(...this.x) + 0.6;
     this.minZ = Math.min(...this.z) - 0.6;
     this.maxZ = Math.max(...this.z) + 0.6;
+    // A 20 m belt is sampled into two hundred segments; looking up the few segments
+    // under a product instead of all of them keeps `findSupport` cheap.
+    const cell = 1;
+    for (let i = 0; i < this.x.length - 1; i += 1) {
+      const pad = this.half + 0.08;
+      const x0 = Math.floor((Math.min(this.x[i], this.x[i + 1]) - pad) / cell);
+      const x1 = Math.floor((Math.max(this.x[i], this.x[i + 1]) + pad) / cell);
+      const z0 = Math.floor((Math.min(this.z[i], this.z[i + 1]) - pad) / cell);
+      const z1 = Math.floor((Math.max(this.z[i], this.z[i + 1]) + pad) / cell);
+      for (let cx = x0; cx <= x1; cx += 1) for (let cz = z0; cz <= z1; cz += 1) {
+        const key = (cx + 4096) * 8192 + (cz + 4096);
+        const list = this.segments.get(key);
+        if (list) list.push(i); else this.segments.set(key, [i]);
+      }
+    }
   }
+
+  /** Segment indices per one-metre cell; see the constructor. */
+  private segments = new Map<number, number[]>();
 
   query(px: number, pz: number): Query | null {
     if (px < this.minX || px > this.maxX || pz < this.minZ || pz > this.maxZ) return null;
+    const cell = 1;
+    const local = this.segments.get((Math.floor(px / cell) + 4096) * 8192 + (Math.floor(pz / cell) + 4096));
+    if (!local) return null;
     const n = this.x.length;
     let best = Infinity;
     let bi = 0;
     let bu = 0;
     let braw = 0;
-    for (let i = 0; i < n - 1; i += 1) {
+    for (let k = 0; k < local.length; k += 1) {
+      const i = local[k];
+      if (i >= n - 1) continue;
       const sx = this.x[i + 1] - this.x[i];
       const sz = this.z[i + 1] - this.z[i];
       const len2 = sx * sx + sz * sz || 1e-9;
@@ -183,6 +207,7 @@ export class ConveyorRT {
         braw = raw;
       }
     }
+    if (best === Infinity) return null;
     const segLen = this.s[bi + 1] - this.s[bi];
     const s = this.s[bi] + bu * segLen;
     const tx = this.tx[bi] + (this.tx[bi + 1] - this.tx[bi]) * bu;
@@ -358,6 +383,9 @@ export class HumanRT {
   held: Box | null = null;
   claim: number;
   stuck = 0;
+  /** Cached reachable version of the requested station point (see `walkHuman`). */
+  projectionKey = "";
+  projection: [number, number] | null = null;
   constructor(item: SceneItem, claim: number) {
     this.id = item.id; this.x = item.position[0]; this.z = item.position[2];
     this.origin = [this.x, this.z]; this.yaw = item.rotation * DEG; this.claim = -claim;
@@ -659,6 +687,9 @@ export class Engine {
   rects: Rect[] = [];
   timers: Timer[] = [];
   conds: { pred: () => boolean; fn: () => void; owner: RobotRT | null; runId: number }[] = [];
+  private condBuffer: typeof this.conds = [];
+  private timerBuffer: Timer[] = [];
+  private dueBuffer: Timer[] = [];
 
   stats = { spawned: 0, placed: 0, pallets: 0, lost: 0, collected: 0, events: [] as number[] };
   logs: LogLine[] = [];
@@ -667,6 +698,34 @@ export class Engine {
   private listeners = new Set<Listener>();
   structureVersion = 0;
   private conveyorSignatures = new Map<string, string>();
+
+  /* ----- derived lookup tables, rebuilt by `sync` -----
+     The stepping code runs up to sixty times per second, so every list scan it used to
+     do per robot or per worker is replaced by a map or a spatial hash here. */
+
+  /** Wall-clock budget for one `step` call; the renderer lowers it when frames slip. */
+  stepBudgetMs = 6;
+  /** CPU time of the last `step`, for diagnostics. */
+  lastStepMs = 0;
+  private itemById = new Map<string, SceneItem>();
+  private logicItems: SceneItem[] = [];
+  private triggers = new Map<string, SceneItem[]>();
+  private walkSources: SceneItem[] = [];
+  private cratesItem: SceneItem | undefined;
+  private humanStations = new Map<string, { version: number; task: string; speed: number; source: SceneItem | undefined; dest: SceneItem | undefined }>();
+  private supportIndex = new SpatialHash<{ conv: ConveyorRT | null; rect: Rect | null }>(4);
+  private barrierIndex = new SpatialHash<Barrier>(2);
+  private boxIndex = new SpatialHash<Box>(2);
+  private supportScratch: { conv: ConveyorRT | null; rect: Rect | null }[] = [];
+  private boxScratch: Box[] = [];
+  private boxScratchContact: Box[] = [];
+  private grabScratch: Box[] = [];
+  private pickupScratch: Box[] = [];
+  private walkScratch: Barrier[] = [];
+  private obstacleScratch: WalkObstacle[] = [];
+  private obstacleIndex = new SpatialHash<WalkObstacle>(2);
+  private barrierScratch: Barrier[] = [];
+  private otherScratch: HumanRT[] = [];
 
   /* ----- logging ----- */
 
@@ -865,7 +924,63 @@ export class Engine {
     // of one another. Also performed after reset, which restores the origins.
     this.placeHumansSafely();
     this.rects = rects;
+    this.rebuildIndices(conveyors, rects, barriers);
     if (this.running) this.startPrograms();
+  }
+
+  /**
+   * Rebuild every lookup the substep loop uses: id map, logic items, trigger lists,
+   * worker source candidates and the spatial hashes for supports and barriers.
+   * Called once per scene change rather than once per frame.
+   */
+  private rebuildIndices(conveyors: Map<string, ConveyorRT>, rects: Rect[], barriers: Barrier[]) {
+    this.itemById = new Map();
+    for (const item of this.items) this.itemById.set(item.id, item);
+    const logic: SceneItem[] = [];
+    const triggers = new Map<string, SceneItem[]>();
+    for (const item of this.items) {
+      if (item.visible === false) continue;
+      if (item.kind === "button" || item.kind === "laser" || item.kind === "sensor" || item.kind === "plc") {
+        logic.push(item);
+        const target = typeof item.props.connectedTo === "string" ? item.props.connectedTo : "";
+        if (target) {
+          const list = triggers.get(target);
+          if (list) list.push(item); else triggers.set(target, [item]);
+        }
+      }
+    }
+    this.logicItems = logic;
+    this.triggers = triggers;
+    this.walkSources = this.items.filter((i) => i.visible !== false && ["feeder", "conveyor", "roller", "cnc", "press", "weld", "packaging"].includes(i.kind));
+    this.cratesItem = this.items.find((i) => i.visible !== false && i.kind === "crates");
+    this.humanStations.clear();
+
+    this.supportIndex.clear();
+    conveyors.forEach((conv) => {
+      this.supportIndex.insert({ conv, rect: null }, conv.minX, conv.minZ, conv.maxX, conv.maxZ);
+    });
+    for (const rect of rects) {
+      const c = Math.abs(Math.cos(rect.yaw)), s = Math.abs(Math.sin(rect.yaw));
+      const extentX = rect.hw * c + rect.hd * s, extentZ = rect.hw * s + rect.hd * c;
+      this.supportIndex.insert({ conv: null, rect }, rect.cx - extentX, rect.cz - extentZ, rect.cx + extentX, rect.cz + extentZ);
+    }
+
+    this.obstacleIndex.clear();
+    for (const obstacle of this.walkObstacles) {
+      this.obstacleIndex.insert(obstacle, obstacle.x - obstacle.radius, obstacle.z - obstacle.radius, obstacle.x + obstacle.radius, obstacle.z + obstacle.radius);
+    }
+
+    this.barrierIndex.clear();
+    for (const barrier of barriers) {
+      const pad = (barrier.clearance ?? 0.34) + 0.5;
+      this.barrierIndex.insert(
+        barrier,
+        Math.min(barrier.a[0], barrier.b[0]) - pad,
+        Math.min(barrier.a[1], barrier.b[1]) - pad,
+        Math.max(barrier.a[0], barrier.b[0]) + pad,
+        Math.max(barrier.a[1], barrier.b[1]) + pad,
+      );
+    }
   }
 
   /** Keep initial and reset positions out of equipment and other people. */
@@ -1222,9 +1337,29 @@ export class Engine {
     return point;
   }
 
+  /** Closest unclaimed product within `radius`, using the substep index. */
+  private findFreeNear(x: number, z: number, radius: number, uninspectedOnly = false): Box | null {
+    const nearby = this.boxIndex.query(x, z, this.pickupScratch, radius);
+    let best: Box | null = null;
+    let bestD = Infinity;
+    for (let i = 0; i < nearby.length; i += 1) {
+      const b = nearby[i];
+      if (b.state !== "free" || b.claim !== 0) continue;
+      if (uninspectedOnly && b.inspected) continue;
+      const d = Math.hypot(b.x - x, b.z - z);
+      if (d < radius && d < bestD) { best = b; bestD = d; }
+    }
+    return best;
+  }
+
   private machinePart(machine: MachineRT) {
     const t = machine.table();
-    return this.boxes.find((b) => b.state === "free" && Math.hypot(b.x - t.x, b.z - t.z) < 0.45 && Math.abs(b.y - b.hy - TABLE_TOP) < 0.09) ?? null;
+    const nearby = this.boxIndex.query(t.x, t.z, this.grabScratch, 0.45);
+    for (let i = 0; i < nearby.length; i += 1) {
+      const b = nearby[i];
+      if (b.state === "free" && Math.hypot(b.x - t.x, b.z - t.z) < 0.45 && Math.abs(b.y - b.hy - TABLE_TOP) < 0.09) return b;
+    }
+    return null;
   }
 
   process(machine: MachineRT, box: Box, seconds?: number) {
@@ -1380,13 +1515,25 @@ export class Engine {
   private walkHuman(human: HumanRT, x: number, z: number, speed: number, dt: number) {
     // After a conflict, project the destination as well as the route around
     // other people; otherwise a permanently occupied station causes deadlock.
-    const dynamic = human.stuck > 0.7 ? [...this.humans.values()].filter((other) => other !== human).map((other) => ({ x: other.x, z: other.z, radius: 0.6 })) : [];
-    const target = projectToFree([x, z], [human.x, human.z], this.walkBarriers, [...this.walkObstacles, ...dynamic]);
+    const stuck = human.stuck > 0.7;
+    const others = this.otherHumans(human);
+    // Projecting a station point scans every belt and fence edge, and the requested
+    // point is the same for seconds on end, so the result is cached per station and
+    // scene version instead of being recomputed on all sixty substeps per second.
+    const projectionKey = `${this.structureVersion}|${stuck ? 1 : 0}|${x.toFixed(2)}|${z.toFixed(2)}`;
+    let target = human.projection;
+    if (human.projectionKey !== projectionKey || !target) {
+      const dynamic: WalkObstacle[] = stuck ? others.map((other) => ({ x: other.x, z: other.z, radius: 0.6 })) : [];
+      target = projectToFree([x, z], [human.x, human.z], this.walkBarriers, dynamic.length ? [...this.walkObstacles, ...dynamic] : this.walkObstacles);
+      human.projectionKey = projectionKey;
+      human.projection = target;
+    }
     if (Math.hypot(target[0] - human.x, target[1] - human.z) < 0.2) { human.walking = false; human.stuck = 0; return true; }
     const key = `${target[0].toFixed(1)},${target[1].toFixed(1)},${this.structureVersion}`;
     if (human.targetKey !== key) {
       human.targetKey = key;
-      human.route = navigate([human.x, human.z], target, this.walkBarriers, [...this.walkObstacles, ...dynamic]);
+      const dynamic: WalkObstacle[] = stuck ? others.map((other) => ({ x: other.x, z: other.z, radius: 0.6 })) : [];
+      human.route = navigate([human.x, human.z], target, this.walkBarriers, dynamic.length ? [...this.walkObstacles, ...dynamic] : this.walkObstacles);
     }
     const p = human.route[0];
     if (!p) {
@@ -1398,9 +1545,12 @@ export class Engine {
     const dx = p[0] - human.x, dz = p[1] - human.z, d = Math.hypot(dx, dz);
     if (d < 0.11) { human.route.shift(); return false; }
     const step = Math.min(Math.max(0, speed) * dt, d), angle = Math.atan2(dz, dx);
-    const others = [...this.humans.values()].filter((other) => other !== human);
     const canMove = (nx: number, nz: number) => {
-      if (!pointIsFree(nx, nz, this.walkBarriers, this.walkObstacles, 0.015)) return false;
+      // Only obstacles within a metre can affect one 1/60 s step, so the walk test looks
+      // at the local cells instead of every fence and belt in the plant.
+      const localBarriers = this.barrierIndex.query(nx, nz, this.walkScratch, 0.9);
+      const localObstacles = this.obstacleIndex.query(nx, nz, this.obstacleScratch, 0.2);
+      if (!pointIsFree(nx, nz, localBarriers, localObstacles, 0.015)) return false;
       return others.every((other) => {
         const before = Math.hypot(human.x - other.x, human.z - other.z), after = Math.hypot(nx - other.x, nz - other.z);
         return after >= 0.53 || (before < 0.53 && after > before + 0.00001);
@@ -1423,14 +1573,33 @@ export class Engine {
     return false;
   }
 
+  /** Reusable list of the other walkers, so `walkHuman` does not allocate per call. */
+  private otherHumans(human: HumanRT) {
+    const out = this.otherScratch;
+    out.length = 0;
+    for (const other of this.humans.values()) if (other !== human) out.push(other);
+    return out;
+  }
+
   private updateHuman(human: HumanRT, dt: number) {
-    const item = this.items.find((i) => i.id === human.id);
+    const item = this.itemById.get(human.id);
     if (!item) return;
-    const task = String(item.props.task || "patrol");
-    const speed = num(item.props.walkSpeed, 1);
-    const candidates = this.items.filter((i) => ["feeder", "conveyor", "roller", "cnc", "press", "weld", "packaging"].includes(i.kind));
-    const source = this.items.find((i) => i.id === item.props.sourceId) ?? candidates[0];
-    const dest = this.items.find((i) => i.id === item.props.targetId) ?? this.items.find((i) => i.kind === "crates");
+    // Task, walking speed and station lookups only change when the scene is re-synced.
+    let station = this.humanStations.get(human.id);
+    if (!station || station.version !== this.structureVersion) {
+      station = {
+        version: this.structureVersion,
+        task: String(item.props.task || "patrol"),
+        speed: num(item.props.walkSpeed, 1),
+        source: this.itemById.get(String(item.props.sourceId)) ?? this.walkSources[0],
+        dest: this.itemById.get(String(item.props.targetId)) ?? this.cratesItem,
+      };
+      this.humanStations.set(human.id, station);
+    }
+    const task = station.task;
+    const speed = station.speed;
+    const source = station.source;
+    const dest = station.dest;
     if (!["carry", "tend"].includes(task) && human.held) { human.held.state = "free"; human.held.claim = 0; human.held = null; }
     if (task === "idle") { human.walking = false; human.status = "idle"; return; }
     human.status = task;
@@ -1452,7 +1621,7 @@ export class Engine {
       const table = machine.table();
       if (human.stage === 0) {
         if (!this.walkHuman(human, pickPoint.x, pickPoint.z + 0.55, speed, dt)) return;
-        const part = this.boxes.find((b) => b.state === "free" && b.claim === 0 && Math.hypot(b.x - pickPoint.x, b.z - pickPoint.z) < 0.7);
+        const part = this.findFreeNear(pickPoint.x, pickPoint.z, 0.7);
         if (!part) { human.status = "waiting"; return; }
         human.held = part; part.state = "held"; part.claim = human.claim; human.stage = 1; human.status = "carrying";
       } else if (human.stage === 1) {
@@ -1508,7 +1677,7 @@ export class Engine {
       if (targetPallet && targetPallet.cursor >= targetPallet.capacity) { human.walking = false; return; }
       if (!this.walkHuman(human, pickup.x, pickup.z + 0.65, speed, dt)) return;
       human.walking = false;
-      const b = this.boxes.find((b) => b.state === "free" && b.claim === 0 && Math.hypot(b.x - pickup.x, b.z - pickup.z) < 0.7 && (task !== "inspect" || !b.inspected));
+      const b = this.findFreeNear(pickup.x, pickup.z, 0.7, task === "inspect");
       if (!b) return;
       human.dwell += dt;
       if (human.dwell < 1.5) return;
@@ -1693,7 +1862,9 @@ export class Engine {
     const radius = zone.r ?? 0.55;
     let best: Box | null = null;
     let bestD = Infinity;
-    for (const box of this.boxes) {
+    const nearby = this.boxIndex.query(zone.x, zone.z, this.grabScratch, radius);
+    for (let i = 0; i < nearby.length; i += 1) {
+      const box = nearby[i];
       if (box.state !== "free" || (box.claim !== 0 && box.claim !== robot.id) || box.support === 0 || !this.canGrip(robot, box)) continue;
       if (Math.hypot(box.vx, box.vz) > 0.9) continue;
       const d = Math.hypot(box.x - zone.x, box.z - zone.z);
@@ -1789,34 +1960,51 @@ export class Engine {
     if (!this.running) return;
     this.acc += Math.min(frameDt, 0.1) * Math.max(0.01, this.speed);
     const started = performance.now();
+    const budget = Math.max(1, Math.min(40, this.stepBudgetMs));
     let n = 0;
-    // There is no artificial multiplier cap. High multipliers simulate as much
-    // as the current device can afford in a ~12 ms frame budget.
-    while (this.acc >= DT && n < 200_000 && performance.now() - started < 12) {
+    // There is no artificial multiplier cap. High multipliers simulate as much as the
+    // current device can afford in the frame budget, which the renderer shrinks when
+    // frames start slipping so the simulation never starves the 3D view.
+    while (this.acc >= DT && n < 200_000) {
       this.sub(DT);
       this.acc -= DT;
       n += 1;
+      if (performance.now() - started >= budget) break;
     }
     if (this.acc > 4) this.acc = 4;
-    void n;
+    this.lastStepMs = performance.now() - started;
   }
 
   private sub(dt: number) {
     this.time += dt;
     this.guard = 0;
+    // One fresh copy of the moving products per substep: every consumer below
+    // (pickers, workers, physics) then queries cells instead of scanning the list.
+    this.boxIndex.clear();
+    for (const box of this.boxes) {
+      if (box.state !== "free") continue;
+      this.boxIndex.insert(box, box.x - box.hx, box.z - box.hz, box.x + box.hx, box.z + box.hz);
+    }
 
     if (this.timers.length) {
-      const due = this.timers.filter((timer) => timer.at <= this.time);
-      if (due.length) {
-        this.timers = this.timers.filter((timer) => timer.at > this.time);
-        due.forEach((timer) => {
-          if (!timer.owner || timer.owner.runId === timer.runId) timer.fn();
-        });
+      // Two alternating buffers: this runs sixty times a second, so it allocates nothing.
+      const current = this.timers;
+      const due = this.dueBuffer;
+      const kept = this.timerBuffer;
+      due.length = 0;
+      kept.length = 0;
+      for (const timer of current) (timer.at <= this.time ? due : kept).push(timer);
+      this.timers = kept;
+      this.timerBuffer = current;
+      for (const timer of due) {
+        if (!timer.owner || timer.owner.runId === timer.runId) timer.fn();
       }
     }
     if (this.conds.length) {
-      const remaining: typeof this.conds = [];
-      for (const cond of this.conds) {
+      const current = this.conds;
+      const remaining = this.condBuffer;
+      remaining.length = 0;
+      for (const cond of current) {
         if (cond.owner && cond.owner.runId !== cond.runId) continue;
         let ok = false;
         try {
@@ -1828,6 +2016,7 @@ export class Engine {
         else remaining.push(cond);
       }
       this.conds = remaining;
+      this.condBuffer = current;
     }
 
     this.feeders.forEach((feeder) => this.updateFeeder(feeder, dt));
@@ -1929,10 +2118,9 @@ export class Engine {
   }
 
   signalFor(targetId: string) {
-    for (const item of this.items) {
-      if (item.visible === false || !["button", "laser", "sensor", "plc"].includes(item.kind) || item.props.connectedTo !== targetId) continue;
-      if (this.signalState.get(item.id)) return true;
-    }
+    const sources = this.triggers.get(targetId);
+    if (!sources) return false;
+    for (const item of sources) if (this.signalState.get(item.id)) return true;
     return false;
   }
 
@@ -1944,8 +2132,7 @@ export class Engine {
   }
 
   private updateLogic() {
-    for (const item of this.items) {
-      if (item.visible === false) continue;
+    for (const item of this.logicItems) {
       let signal = item.kind === "button" ? this.signalState.get(item.id) === true : false;
       if (item.kind === "laser") {
         const range = Math.max(0.5, num(item.props.range, 3)) / 2;
@@ -1958,19 +2145,29 @@ export class Engine {
         const radius = Math.max(0.2, num(item.props.radius, 0.8));
         signal = this.boxes.some((box) => box.state !== "dead" && Math.hypot(box.x - item.position[0], box.z - item.position[2]) <= radius);
       } else if (item.kind === "plc") {
-        signal = this.items.some((i) => i.props.connectedTo === item.id && this.signalState.get(i.id) === true) || item.props.signal === true;
+        const sources = this.triggers.get(item.id);
+        signal = (sources ? sources.some((i) => this.signalState.get(i.id) === true) : false) || item.props.signal === true;
       }
       this.signalState.set(item.id, signal);
     }
     for (const robot of this.robots.values()) {
-      const item = this.items.find((i) => i.id === robot.itemId);
+      const item = this.itemById.get(robot.itemId);
       if (item?.props.connectedTo) this.signalState.set(robot.itemId, robot.status === "moving" || !!robot.held);
     }
   }
 
   private triggerGate(robotId: string, sourceId: string) {
-    const triggers = this.items.filter((i) => ["button", "laser", "sensor"].includes(i.kind) && (i.props.connectedTo === robotId || i.props.connectedTo === sourceId));
-    return triggers.length === 0 || triggers.some((t) => this.signalState.get(t.id));
+    const lists = [this.triggers.get(robotId), this.triggers.get(sourceId)];
+    let count = 0;
+    for (const list of lists) {
+      if (!list) continue;
+      for (const item of list) {
+        if (item.kind !== "button" && item.kind !== "laser" && item.kind !== "sensor") continue;
+        count += 1;
+        if (this.signalState.get(item.id)) return true;
+      }
+    }
+    return count === 0;
   }
 
   /* ----- physics ----- */
@@ -1993,18 +2190,25 @@ export class Engine {
     out.palletId = null;
     out.collectorId = null;
     const bottom = b.y - b.hy;
-    for (const conv of this.conveyors.values()) {
-      if (bottom < conv.top - 0.14 || bottom > conv.top + 0.1) continue;
-      const q = conv.query(b.x, b.z);
-      if (q && q.inside && conv.top >= out.top) {
-        out.top = conv.top;
-        out.kind = 2;
-        out.conv = conv;
-        out.q = q;
+    // Only the support cells under this product are visited, so a plant with hundreds of
+    // belts and tables costs the same as one with three.
+    const supports = this.supportIndex.query(b.x, b.z, this.supportScratch);
+    for (let i = 0; i < supports.length; i += 1) {
+      const entry = supports[i];
+      const conv = entry.conv;
+      if (conv) {
+        if (bottom < conv.top - 0.14 || bottom > conv.top + 0.1) continue;
+        const q = conv.query(b.x, b.z);
+        if (q && q.inside && conv.top >= out.top) {
+          out.top = conv.top;
+          out.kind = 2;
+          out.conv = conv;
+          out.q = q;
+        }
+        continue;
       }
-    }
-    for (const rect of this.rects) {
-      if (bottom < rect.top - 0.14 || bottom > rect.top + 0.1 || rect.top < out.top) continue;
+      const rect = entry.rect;
+      if (!rect || bottom < rect.top - 0.14 || bottom > rect.top + 0.1 || rect.top < out.top) continue;
       const dx = b.x - rect.cx;
       const dz = b.z - rect.cz;
       const c = Math.cos(rect.yaw);
@@ -2020,7 +2224,9 @@ export class Engine {
         out.collectorId = rect.collectorId ?? null;
       }
     }
-    for (const o of this.boxes) {
+    const stacked = this.boxIndex.empty ? this.boxScratch : this.boxIndex.query(b.x, b.z, this.boxScratch, b.r);
+    for (let i = 0; i < stacked.length; i += 1) {
+      const o = stacked[i];
       if (o === b || o.state !== "free") continue;
       const top = o.y + o.hy;
       if (top < out.top || bottom < top - 0.14 || bottom > top + 0.1) continue;
@@ -2114,6 +2320,12 @@ export class Engine {
                 b.palletId = sup.palletId;
                 this.stats.placed += 1;
                 this.stats.events.push(this.time);
+                // Throughput only looks back 60 s, so older entries are dead weight that
+                // used to grow without limit on long runs.
+                if (this.stats.events.length > 4096) {
+                  const cutoff = this.time - 90;
+                  this.stats.events = this.stats.events.filter((t) => t > cutoff);
+                }
               }
             }
           } else if (sup.kind === 1 && !b.lostCounted && b.age > 0.5) {
@@ -2144,12 +2356,20 @@ export class Engine {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.z += b.vz * dt;
-      if (b.y < 2.1) for (const barrier of this.barriers) {
-        const near = distanceToSegment(b.x, b.z, barrier.a, barrier.b);
-        const d = near.distance;
+      const nearby = b.y < 2.1 ? this.barrierIndex.query(b.x, b.z, this.barrierScratch, b.r + 0.5) : this.barrierScratch;
+      for (let k = 0; k < nearby.length; k += 1) {
+        const barrier = nearby[k];
+        const ax = barrier.a[0], az = barrier.a[1];
+        const sx = barrier.b[0] - ax, sz = barrier.b[1] - az;
+        const len2 = sx * sx + sz * sz || 1;
+        let u = ((b.x - ax) * sx + (b.z - az) * sz) / len2;
+        u = u < 0 ? 0 : u > 1 ? 1 : u;
+        const qx = ax + u * sx, qz = az + u * sz;
+        const ex = b.x - qx, ez = b.z - qz;
+        const d = Math.sqrt(ex * ex + ez * ez);
         if (d > 1e-5 && d < b.r + 0.03) {
-          const nx = (b.x - near.x) / d, nz = (b.z - near.z) / d;
-          b.x = near.x + nx * (b.r + 0.03); b.z = near.z + nz * (b.r + 0.03);
+          const nx = ex / d, nz = ez / d;
+          b.x = qx + nx * (b.r + 0.03); b.z = qz + nz * (b.r + 0.03);
           const dot = b.vx * nx + b.vz * nz;
           if (dot < 0) { b.vx -= dot * nx; b.vz -= dot * nz; }
         }
@@ -2158,14 +2378,16 @@ export class Engine {
       if (b.y < -3 || Math.abs(b.x) > 80 || Math.abs(b.z) > 80) b.state = "dead";
     }
 
-    // box <-> box contacts (same layer)
+    // box <-> box contacts (same layer). The grid keeps this near-linear: only the
+    // handful of products in the neighbouring cells are compared.
     const n = boxes.length;
     for (let i = 0; i < n; i += 1) {
       const a = boxes[i];
       if (a.state !== "free") continue;
-      for (let j = i + 1; j < n; j += 1) {
-        const c = boxes[j];
-        if (c.state !== "free") continue;
+      const near = this.boxIndex.query(a.x, a.z, this.boxScratchContact, a.hx + a.hz + 1.5);
+      for (let j = 0; j < near.length; j += 1) {
+        const c = near[j];
+        if (c === a || c.state !== "free" || c.id < a.id) continue;
         const dy = Math.abs(a.y - c.y);
         if (dy > (a.hy + c.hy) * 0.8) continue;
         if (Math.abs(c.x - a.x) > a.hx + a.hz + c.hx + c.hz || Math.abs(c.z - a.z) > a.hx + a.hz + c.hx + c.hz) continue;

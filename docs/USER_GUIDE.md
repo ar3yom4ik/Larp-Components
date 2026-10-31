@@ -50,6 +50,18 @@ Imported projects embed the original model/animation files and any replacement m
   has its own colour; the hi-visibility default is yellow. Cosmetics (hard hat, cap, safety
   glasses, ear defenders, cat ears, earrings) are modelled individually and follow the head.
 
+## Speed and frame rate
+
+- The simulation and the 3D view share one frame budget. On a large plant the engine gives the
+  simulation less CPU whenever frames start to slip, so the view stays smooth; at very high
+  speed multipliers a slow device simply advances less simulated time per second. Nothing is
+  approximated, skipped or faked — the same events happen in the same order.
+- The gear button in the player bar opens the **simulation settings** downward from the bar on
+  desktop (upward on phones, where the bar sits at the bottom).
+- If a big layout still feels heavy, lower **3D resolution** to 75–90 % or pick **FXAA** instead
+  of **MSAA** in **Settings → Video**; both keep the plant identical and only change how it is
+  drawn.
+
 ## Graphics, privacy and safety
 
 - Graphics settings change real lighting, directional/contact shadows, exposure, resolution and AO. The **Max** mode uses WebGPU voxel global illumination (VXGI) when the browser supports WebGPU, with bounce lights disabled to avoid double counting. Otherwise it uses an approximation with bounce lights and screen-space occlusion. Neither is path tracing. Imported-model per-map strength controls require the WebGL renderer.
@@ -62,4 +74,4 @@ See `AI_DEVELOPER_HANDOFF.md` for the complete standalone architecture, build, t
 
 ## Кратко по-русски
 
-Распакуйте архив и откройте `Larp_Factory_V2.html` в браузере с WebGL. Для готового примера выберите **FILE → Import project** и файл `examples/Metalworking_demo_V2.txt`. Для импорта своей модели нажмите **Import 3D model**, выбрав модель вместе с текстурами; её единицы, ось и материалы доступны в свойствах. Чтобы заменить человека, выберите оператора в дереве сцены и в разделе **Animated worker** импортируйте модель со скелетом. Встроенный персонаж — CC0-модель Quaternius с совместимыми именами костей, а не персонаж Adobe Mixamo. Сохраняйте резервные копии через **Export copy (.txt)**.
+Распакуйте архив и откройте `Larp_Factory_V2.html` в браузере с WebGL. Для готового примера выберите **FILE → Import project** и файл `examples/Metalworking_demo_V2.txt`. Для импорта своей модели нажмите **Import 3D model**, выбрав модель вместе с текстурами; её единицы, ось и материалы доступны в свойствах. Чтобы заменить человека, выберите оператора в дереве сцены и в разделе **Animated worker** импортируйте модель со скелетом. Кнопка с шестерёнкой на панели плеера открывает настройки симуляции вниз от панели (на телефоне — вверх, там панель внизу). Симуляция и 3D-вид делят бюджет кадра: на большой фабрике симуляция отдаёт часть процессорного времени отрисовке, поэтому вид не «дёргается»; на слабом устройстве при большом ускорении просто прокручивается меньше модельного времени за секунду, но события не пропускаются и не подменяются. Встроенный персонаж — CC0-модель Quaternius с совместимыми именами костей, а не персонаж Adobe Mixamo. Сохраняйте резервные копии через **Export copy (.txt)**.

@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.2.0] - 2026-10-31
+
+### Changed
+- **Simulation performance on large factories.** Measured with a 276-component plant (24 workers, 12 lines) at 8× speed, one frame of simulation CPU went from **13.4 ms to 3.9 ms** (about 3.4× faster); a 72-component plant went from 2.8 ms to 1.4 ms. Results are unchanged: nine generated recipes were compared frame-by-frame against the previous build and produce identical statistics.
+  - Products, supports and walk barriers are found through a spatial hash instead of scanning every belt, table and worker.
+  - Conveyor lookups only inspect the belt segments under the product, not the whole spline.
+  - The per-substep work of robots and workers (item lookups, station resolution, reachable-point projection, product pick-up search) is cached or indexed instead of re-scanning the scene.
+  - Walk collision tests only look at obstacles within a metre, and the hottest tests no longer allocate.
+  - The timer/condition queues and the throughput history are recycled instead of allocated and grown per frame.
+- **The simulation now shares the frame budget instead of taking a fixed 12 ms.** The renderer measures the actual frame time and gives the simulation up to 8 ms while frames are comfortable, then 5 / 2.5 / 1.2 ms as frames slip, so a large plant no longer drags the frame rate down. High speed multipliers simply advance less simulated time per frame on a slow device — nothing is skipped or faked.
+- Shadow maps are refreshed every other frame (every third frame on low quality) instead of every frame.
+- Contact shadows are refreshed four times per second while the plant is running instead of rendering the whole scene into an extra target on every frame, and they are computed once when paused.
+
+### Fixed
+- The simulation-settings panel opened by the gear button in the player bar now opens **downward** from the bar (it still opens upward on phone layouts, where the player sits at the bottom of the screen).
+
 ## [2.1.0] - 2026-10-30
 
 ### Added
