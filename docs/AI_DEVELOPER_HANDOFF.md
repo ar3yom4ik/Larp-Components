@@ -1,6 +1,6 @@
 # Larp Factory V2 — independent AI/developer handoff
 
-**Release date:** 2026-10-31 (V2.3)  
+**Release date:** 2026-10-31 (V2.4)  
 **Audience:** a developer or another AI starting without any prior conversation.  
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V2 is the numbered release of this work.
 
@@ -167,6 +167,79 @@ friendly errors for 429/503) and `utils/polyhavenImport.ts` downloads a glTF set
 
 `tests/v3-graphics.ts` covers presets, sanitising, the status store, the build stamp, the shortcut
 set and the catalogue filter.
+
+### Node-based factory generator (V2.4)
+
+The generator is now a data-flow graph, not a form. The reference points were Unreal
+Blueprints (typed, colour-coded data pins; pure nodes with no exec chain) and ComfyUI
+(node registry + typed sockets + JSON workflow files). The decisive difference from
+Blueprints: there is **no exec pin chain**. Every node is pure, the whole graph is compiled
+once in topological order, and a `many` input is the equivalent of a reroute — so adding a
+section cannot change the order in which another section runs.
+
+Layering, bottom-up:
+
+- `src/gen/graph/types.ts` — `PortType` (`intent | config | cells | robot | layout | pallet |
+  staff | safety | plant | items | text | number | boolean`), `PortDef`, `ParamDef`
+  (`number | select | boolean | text | seed | product | multi`), `NodeDef`, `GraphNode`,
+  `GraphLink`, `NodeGraph`, `Diagnostic`, `Tag`, `IntentPayload`, `PlantResult`. All section
+  specs are optional, so a node only supplies the part of the factory it owns.
+- `src/gen/tags.ts` — the bilingual lexicon. A `TagRule` is `{id, kind, label, terms, weight,
+  implies, conflicts, apply}`; terms ending in `*` match any suffix (a `*` anywhere in a
+  multi-word term is a stem wildcard: `контрол* качеств*`). Matching uses `\p{L}` lookarounds
+  because `\b` does not understand Cyrillic, a 16-character negation window handles "no /
+  without / без / не", and one hit per rule plus same-kind overlap suppression keeps the tag
+  list readable.
+- `src/gen/prompt.ts` — `analyzePrompt(text, {base, keepUnmentioned})` returns a **sparse**
+  patch: only keys the sentence actually mentions. `resolveConflicts` settles contradictory
+  tags by weight (a tie keeps the earlier phrase) and records a note. `buildChain` orders the
+  process tags into `ProcessStep`s and hands each product to the next step. `coherence()`
+  then repairs or reports recipe ↔ machine, gripper ↔ product, chain ↔ stage count, staff ↔
+  unmanned, rate ↔ cycle time and pallet dimensions. `describeIntent` is what the editor
+  shows under the tag chips.
+- `src/gen/graph/registry.ts` — `registerNode`, `getNodeDef`, `allNodeDefs`,
+  `CATEGORY_ORDER`, `nodesByCategory`, `PORT_COLORS`. Registration is side-effectful and
+  idempotent per type, so a future node pack is just another module that calls
+  `registerNode`; `graphStore.ts` imports the built-in pack before loading a saved graph so
+  the saved `type` strings resolve.
+- `src/gen/graph/nodes.ts` — the ten built-in definitions, plus the small helpers that keep
+  evaluators honest: `set(params, key)` writes only what a node was told to write, and
+  `cleanConfig`, `productOptions`, `MACHINE_OPTIONS` keep option lists in one place.
+- `src/gen/graph/graph.ts` — graph algebra: `makeNode` (sparse params), `defaultGraph`,
+  `connect` (rejects type mismatches, cycles and duplicate single-input wires),
+  `disconnect`, `removeNode`, `updateNode`, `setParam`, `topoSort` (Kahn), `findCycles`,
+  `validateGraph`, `serializeGraph`, `parseGraph` (sanitises anything imported).
+- `src/gen/graph/compile.ts` — `compileGraph(graph)` evaluates every node in topological
+  order inside a try/catch, collects diagnostics and returns `{plant, diagnostics, results,
+  ms}`; the plant is then built by the untouched `generateFactory`.
+
+The editor is `src/components/factory/`: `GraphCanvas.tsx` (DOM nodes plus SVG Bézier wires,
+pan/zoom, node drag, wire drag, click-to-cut, collapse, inline prompt editing, per-node
+diagnostic badges), `NodeInspector.tsx` (parameter editors per `ParamDef.kind`, showing the
+effective `params[key] ?? default` and a "set" badge for values the user owns),
+`FactoryStudio.tsx` (palette, canvas, inspector, live `FloorPlanView`, tag chips, notes,
+diagnostics, build, JSON import/export, reset) and `GeneratorDialog.tsx`, which hosts the
+studio in a `1280px` dialog with a *Form* / *Node graph* toggle.
+
+Deliberate design rules, worth keeping when extending it:
+
+1. **Sparse parameters.** `makeNode` stores nothing it was not given, and evaluators only
+   emit the keys they own. This is what makes "explicit node > prompt > defaults" true;
+   filling defaults at creation time silently overrode the prompt.
+2. **One pure function per node.** No node knows about another node, the canvas or the
+   engine. Anything a node needs arrives through its inputs.
+3. **Reject early, explain always.** Cycles and type errors are refused when the user makes
+   them; everything else becomes a `Diagnostic` with a `nodeId`, so the editor can point at
+   the guilty node.
+4. **The graph compiles to `GenOptions`, not to geometry.** `generateFactory`,
+   `validateFactory` and the whole simulation stay untouched, which is what keeps the
+   starter graph byte-for-byte equivalent to the old form.
+
+`tests/v4-nodegraph.ts` covers the registry contract, starter-graph determinism and
+equivalence with `generateFactory`, wiring rules (type mismatch, duplicate inputs, cycles),
+topological order, import sanitisation, per-node evaluation, EN/RU tagging, prompt coherence
+(kiln, magnetic gripper, labelled products), precedence and serialisation round-trips. Item
+ids are unique per build, so equivalence is compared on a fingerprint that normalises them.
 
 ### Factory, graphics and touch
 

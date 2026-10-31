@@ -7,7 +7,15 @@ An independent browser-based factory-layout and simulation workspace. Its Visual
 1. Extract the ZIP and open **`Larp_Factory_V2.html`** in a current desktop browser with WebGL enabled. No installation, account, server or internet connection is needed to run the standalone file. The supplied Windows, macOS and Linux launchers open the same HTML.
 2. The sample layout loads automatically. Try orbit/zoom, select a component and inspect its properties. On a phone or touch tablet use the bottom navigation and sheets.
 3. For the requested steel factory, choose **FILE → Import project** and open `examples/Metalworking_demo_V2.txt`. On touch devices choose **Project → Import TXT**. The sample has two U-shaped lines, cutting, milling and inspection, parallel-jaw grippers, seven workers, feeders set to 12 parts/min and a 3 × 2 × 4 pallet pattern. Guarding is illustrative.
-4. For editable generation, open **AI Factory**, paste `examples/Russian_factory_prompt.txt`, choose **Interpret**, check the fields and press **Build factory**. Interpretation uses local rules, not an online AI service. The feed setting is not a guarantee of finished output.
+4. For editable generation, open **AI Factory**, paste `examples/Russian_factory_prompt.txt` and press **Build factory**. Interpretation uses local rules, not an online AI service. The feed setting is not a guarantee of finished output.
+
+   The generator opens as a **node graph** (the *Form* tab has the old settings dialog):
+
+   - Type the description into the **Prompt** node. Its tags appear under the preview, together with notes such as "a kiln was requested, so the brick recipe was selected".
+   - Each other node is one section of the plant: recipe and products, process chain, line speed, robot and tool, staff, safety, line layout, pallet pattern. **Drag from an output port to an input port** to feed a section; click a wire to delete it.
+   - Select a node to edit it on the right. A value you change is marked **set** and overrides the sentence; values you leave alone follow the prompt and then the defaults, so the prompt and the settings never fight.
+   - Anything the graph cannot build is listed with the node that caused it, and **Build factory** stays disabled while an error remains.
+   - **Expand** / **Collapse** (double-click) tidy the canvas, the download and upload buttons save and load the graph as JSON, and the reset button restores the starter graph.
 
 For reliable saving, run the downloaded HTML in a regular browser rather than the in-app file viewer. Sandboxed previews may block browser storage, downloads or fullscreen. Use **Export copy (.txt)** frequently and keep your backup. Storage can be cleared by the browser, be quota-limited, or be isolated between browsers and file paths.
 

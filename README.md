@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml/badge.svg)](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml)
 
-A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.3** of *Larp Components 5.1*.
+A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.4** of *Larp Components 5.1*.
 
 > Not affiliated with Visual Components. The simulator and safety guarding are illustrative only; they are **not** certified industrial, safety or robot-control tools.
 
@@ -10,7 +10,7 @@ A browser-based 3D **factory layout editor and discrete-time simulator**, built 
 
 - **3D factory editor** — drag-and-drop components, snapping, selection with move/rotate tools, conveyor spline editing, undo/redo, and floor-map navigation.
 - **Simulation** — discrete-time engine (fixed 60 Hz physics step) with product flow, machine cycles, robot pick-and-place, feeders, pallets and pedestrian navigation around obstacles. Spatial indexing and a frame-aware time budget keep large plants (hundreds of components) smooth.
-- **AI Factory generator (local)** — interprets English and Russian descriptions with deterministic rules (no online AI service) and builds a factory layout you can review before generation.
+- **Node-based AI Factory generator (local)** — describe the plant in English or Russian, then wire each section (prompt, recipe, process chain, line speed, robots, staff, safety, layout, pallet pattern, factory output) in a Blueprint/ComfyUI-style graph. Every node is a small, registrable plugin with typed ports; the generated factory follows the connections, and an explicit node setting always beats the sentence. Deterministic rules, no online AI service.
 - **3D model import** — GLB/glTF, FBX, OBJ+MTL, STL, PLY, DAE, 3MF, 3DS, USD, VRML, VTK, AMF, STEP/IGES/BREP, with Draco, Meshopt and KTX2 support where the browser allows.
 - **Materials** — per-instance material editing and texture replacement for imported models.
 - **Animated workers** — a bundled CC0 rigged human (idle / walk / work clips), custom rigged characters, and per-role animation uploads.
@@ -66,6 +66,8 @@ Screenshots are written to `tests/artifacts/` (git-ignored). Some tests need an 
 │   ├── App.tsx              App state, undo/redo, import/export, storage wiring
 │   ├── components/          Viewport, 3D models, panels, mobile UI, importers
 │   ├── sim/                 Simulation engine, navigation, generator, scripts
+│   ├── gen/                 Node-graph factory generator: tags, prompt intent, nodes, compiler
+│   ├── components/factory/  Graph editor: canvas, inspector, studio (palette + preview)
 │   ├── data/                Component library, layouts, products
 │   ├── utils/               Model import, worker animation, project (de)serialization
 │   └── assets/              Bundled CC0 worker, CAD kernel (gzip), fonts/textures

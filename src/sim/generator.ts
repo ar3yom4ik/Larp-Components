@@ -4,7 +4,8 @@ import { makeItem } from "../data/library";
 import { programToCode } from "./programCode";
 import { samplePath } from "./spline";
 import { ConveyorRT, MachineRT, PalletRT, RobotRT } from "./engine";
-import { getProduct, MACHINE_KINDS, PRODUCTS } from "../data/products";
+import { getProduct, MACHINE_KINDS } from "../data/products";
+import { analyzePrompt, mergeIntent } from "../gen/prompt";
 
 export type FactoryStyle = "straight" | "L" | "U" | "S";
 
@@ -425,143 +426,24 @@ export function describeFactory(o: GenOptions) {
  * field labels are kept separate from narrative process keywords; users can
  * review the result before generating a layout.
  */
+/**
+ * Natural-language -> options, for the form dialog and any external caller.
+ *
+ * The parsing lives in `gen/prompt.ts` (tags -> intent -> coherence), which is also what
+ * the node graph uses. Keeping one implementation means the graph and the form can never
+ * disagree about what a sentence means; this wrapper only merges the intent over a base
+ * record and returns a complete `GenOptions`.
+ */
 export function parsePrompt(text: string, base: GenOptions): GenOptions {
-  const raw = text.toLowerCase().replace(/[\u2013\u2014]/g, "-");
-  const t = ` ${raw.replace(/\s+/g, " ")} `;
-  const next: GenOptions = { ...DEFAULT_GEN, ...base, cellInputs: [], cellOutputs: [], cellWorkers: [], cellMachines: [], processChain: [] };
-  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.round(v)));
-  const num = (re: RegExp) => { const m = t.match(re); return m ? Number(m[1]) : undefined; };
-  const wordValues: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, один: 1, одна: 1, одной: 1, два: 2, две: 2, двух: 2, три: 3, трех: 3, трёх: 3, четыре: 4, четырех: 4, четырёх: 4, пять: 5, пяти: 5, шесть: 6, шести: 6, семь: 7, семи: 7, восемь: 8 };
-  const n = (s: string | undefined) => s === undefined ? undefined : /^\d+$/.test(s) ? Number(s) : wordValues[s];
-  const countWord = '(\\d+|one|two|three|four|five|six|seven|eight|один|одна|одной|два|две|двух|три|трех|трёх|четыре|четырех|четырёх|пять|пяти|шесть|шести|семь|семи|восемь)';
-  const countBefore = (noun: string) => n(t.match(new RegExp(`${countWord}\\s+(?:(?:parallel|processing|working|рабоч\\S*|параллельн\\S*)\\s+)*${noun}`, 'u'))?.[1]);
-
-  // A palletizing operation is not a factory type and does not erase stations.
-  const recipes: [RegExp, FactoryRecipe][] = [
-    [/cookie|biscuit|печень|пекарн|bakery|выпеч|dough|тесто/, "bakery"],
-    [/brick|кирпич|керамик|clay|глин|обжиг|kiln/, "brick"],
-    [/bottl|juice|розлив|бутыл|сок|beverage/, "bottling"],
-    [/electronic|circuit|электроник|pcb|печатн.{0,12}плат/, "electronics"],
-    [/medical|pharma|медицинск|лекар|флакон|vial/, "medical"],
-    [/metalwork|metal working|steel|billet|металл|сталь|стальн|заготовок|фрезеровк|механообработ/, "metalworking"],
-    [/turning|lathe|токар/, "turning"],
-    [/parcel|logistic|посылк|логист|warehouse|склад/, "logistics"],
-    [/assembly|assembl|сборк|сборочн/, "assembly"],
-  ];
-  const foundRecipe = recipes.find(([re]) => re.test(t));
-  if (foundRecipe) next.recipe = foundRecipe[1];
-
-  if (/u[- ]?shape|u[- ]?turn|horseshoe|п[- ]?образ|подков|u[- ]?type/.test(t)) next.style = "U";
-  else if (/l[- ]?shape|corner|г[- ]?образ|углов|l[- ]?type/.test(t)) next.style = "L";
-  else if (/s[- ]?(shape|curve)|snake|змей|зигзаг/.test(t)) next.style = "S";
-  else if (/straight|linear|in[- ]?line|прямолин|линейн/.test(t)) next.style = "straight";
-
-  const stageCount = num(/(?:processing cells?|process(?:ing)? stations?|ячейки обработки|количество ячеек)\s*[:=]\s*(\d+)/)
-    ?? countBefore('(?:cells?|stations?|ячей\\S*|этап\\S*|станк\\S*)');
-  if (stageCount !== undefined) next.stages = clamp(stageCount, 0, 8);
-  if (/no (?:processing|machines?|stations?)|without (?:processing|machines?)|без (?:станков|обработки|ячеек)/.test(t)) next.stages = 0;
-  const lanes = num(/(?:parallel lines?|параллельн\S* лини\S*)\s*[:=]\s*(\d+)/) ?? countBefore('(?:lines?|lanes?|лини\\S*)');
-  if (lanes !== undefined) next.lanes = clamp(lanes, 1, 8);
-  const explicitParallelColumns = num(/(?:parallel columns?|параллельн\S* колонн\S*)\s*[:=]\s*(\d+)/);
-  const genericColumns = !/pallet pattern|схем\S* паллет|схем\S* укладки/.test(t) ? countBefore('(?:columns?|cols?|колонн\\S*)') : undefined;
-  if ((explicitParallelColumns ?? genericColumns) !== undefined) next.columns = clamp((explicitParallelColumns ?? genericColumns)!, 1, 4);
-  const labeledPattern = t.match(/(\d+)\s*(?:columns?|cols?|колонн\S*)\s*[xх×*]\s*(\d+)\s*(?:rows?|ряд\S*)\s*[xх×*]\s*(\d+)\s*(?:layers?|сло\S*|уровн\S*)/u);
-  const barePattern = /pallet|поддон|паллет|stack|уклад/.test(t) ? t.match(/(\d+)\s*[xх×*]\s*(\d+)\s*[xх×*]\s*(\d+)/u) : null;
-  const dims = labeledPattern ?? barePattern;
-  if (dims) { next.cols = clamp(Number(dims[1]), 1, 6); next.rows = clamp(Number(dims[2]), 1, 6); next.layers = clamp(Number(dims[3]), 1, 8); }
-  else {
-    const rows = countBefore('(?:rows?|ряд\\S*)'), layers = countBefore('(?:layers?|сло\\S*|уровн\\S*)');
-    if (rows !== undefined) next.rows = clamp(rows, 1, 6);
-    if (layers !== undefined) next.layers = clamp(layers, 1, 8);
-  }
-  const rate = num(/(?:feed rate|подача|скорость подачи)\s*[:=]\s*(\d+)/)
-    ?? num(/(\d+)\s*(?:box\w*|parts?|cartons?|издел\S*|короб\S*|детал\S*|items?|units?|products?)\s*(?:\/|per|a|в)\s*(?:min|мин)/)
-    ?? num(/(\d+)\s*(?:\/|в|per)\s*(?:min|мин)/);
-  if (rate !== undefined) next.rate = clamp(rate, 1, 60);
-  const belt = num(/(\d+(?:\.\d+)?)\s*(?:m\/s|м\/с)/); if (belt !== undefined) next.beltSpeed = Math.max(0.1, Math.min(2, belt));
-  const cycle = num(/(\d+)\s*(?:s|sec|second|сек|секунд)(?![a-zа-яё])/); if (cycle !== undefined) next.cycleTime = clamp(cycle, 1, 60);
-  const staff = num(/(?:staff|персонал|сотрудники|операторы)\s*[:=]\s*(\d+)/)
-    ?? countBefore('(?:staff|people|operators?|workers?|человек|сотрудник\\S*|оператор\\S*)');
-  if (staff !== undefined) { next.staff = clamp(staff, 0, 50); next.operators = next.staff > 0; }
-
-  // "рабочих ячейках" means work cells, not human-operated machines.
-  const mentionsRobots = /robot|cobot|робот|манипулятор/.test(t);
-  const humanTends = /human\s+(?:operator|worker)|human[- ]operat|ручн\S*\s+(?:обслуж|управл)|(?:оператор\S*|рабочие)\s+(?:обслуж|управл|загружа)/.test(t);
-  if (humanTends && !mentionsRobots) next.cellWorkers = Array.from({ length: 8 }, () => "human" as const);
-  else if (mentionsRobots) next.cellWorkers = Array.from({ length: 8 }, () => "robot" as const);
-  if (/kuka|кука/.test(t)) next.robotBrand = "kuka";
-  else if (/fanuc|фанук/.test(t)) next.robotBrand = "fanuc";
-  else if (/industrial|промышленн|standard|larp/.test(t)) next.robotBrand = "robot";
-  if (/cobot|collaborative|кобот|коллаборатив/.test(t)) next.cobot = true;
-  if (/industrial|промышленн/.test(t)) next.cobot = false;
-  // Mechanical is a positive choice even when vacuum is mentioned as an inferior alternative.
-  if (/mechanical|механическ|parallel\s*(?:jaw|grip)|jaw gripper|параллельн\S*\s*захват/.test(t)) next.gripper = "parallel";
-  else if (/three[- ]?finger|тр[её]хпальц/.test(t)) next.gripper = "three-finger";
-  else if (/magnet|магнит/.test(t)) next.gripper = "magnetic";
-  else if (/soft gripper|мягк\S* захват/.test(t)) next.gripper = "soft";
-  else if (/vacuum|вакуум|suction|присоск/.test(t)) next.gripper = "vacuum";
-  if (/no fence|without fence|без огражд|без забор/.test(t)) next.fences = false;
-  else if (/fenc|guard|safety zone|огражд|зон\S* безопасности/.test(t)) next.fences = true;
-  if (/no operator|without operator|без оператор|без персонал/.test(t)) { next.operators = false; next.staff = 0; }
-  if (/no cabinet|без шкаф/.test(t)) next.cabinets = false;
-
-  const resolveProductName = (value: string) => {
-    const q = value.toLowerCase().trim();
-    const exact = PRODUCTS.find((p) => p.id === q || p.name.toLowerCase() === q || p.ru.toLowerCase() === q);
-    if (exact) return exact.id;
-    if (/steel billet|billet|стальн\S*\s+заготов|заготов\S*\s+из\s+стал/.test(q)) return "billet";
-    if (/machined part|finished metal|готов\S*\s+металлическ\S*\s+детал|обработанн\S*\s+детал/.test(q)) return "machined";
-    return PRODUCTS.find((p) => p.tags.some((tag) => tag.length >= 4 && q.includes(tag)))?.id;
+  const complete: GenOptions = {
+    ...DEFAULT_GEN,
+    ...base,
+    cellInputs: [...(base.cellInputs ?? [])],
+    cellOutputs: [...(base.cellOutputs ?? [])],
+    cellWorkers: [...(base.cellWorkers ?? [])],
+    cellMachines: [...(base.cellMachines ?? [])],
+    processChain: [...(base.processChain ?? [])],
   };
-  // Labels are line-scoped so one field cannot consume the next field.
-  const inputLabel = raw.match(/(?:input product|input|входной продукт|сырь[её])\s*[:=]\s*([^\n;]+)/u);
-  const outputLabel = raw.match(/(?:output product|output|выходной продукт|готовый продукт)\s*[:=]\s*([^\n;]+)/u);
-  const from = raw.match(/(?:from|из)\s+([^,.;\n]+?)\s+(?:to|into|в)\s+([^,.;\n]+)/u);
-  const input = inputLabel ? resolveProductName(inputLabel[1]) : from ? resolveProductName(from[1]) : undefined;
-  const output = outputLabel ? resolveProductName(outputLabel[1]) : from ? resolveProductName(from[2]) : undefined;
-  if (input) next.product = input;
-  if (output) next.outputProduct = output;
-
-  // Ordered actions are explicit operations only. Moving to a pallet is handled
-  // by the final palletizer; quality control is never an assembly operation.
-  const stageKeywords: [RegExp, GenOptions["machineKind"]][] = [
-    [/weld|свар/gu, "weld"], [/paint|окрас|покрас/gu, "paint"], [/press|штамп/gu, "press"],
-    [/grind|шлифов|полир/gu, "grinder"], [/milling|mill\b|фрезер|\bcnc\b/gu, "cnc"],
-    [/lathe|turning|токар/gu, "lathe"], [/assembly|assembl|сборк|собрать/gu, "assembly"],
-    [/quality\s+(?:control|inspection)|\binspect(?:ion)?\b|проверк|контрол(?:ь|я|ю)|испытан/gu, "inspection"],
-    [/filling|fill\b|наполн|фасовк|дозировк/gu, "packaging"],
-    [/pack(?:ing|aging)?\b|упаковк/gu, "packaging"], [/kiln|firing|обжиг|печь/gu, "kiln"],
-    [/cut(?:ting)?\b|резк|раскрой/gu, "cutter"],
-  ];
-  const hits: { machine: GenOptions["machineKind"]; index: number }[] = [];
-  stageKeywords.forEach(([pattern, machine]) => {
-    for (const match of raw.matchAll(pattern)) {
-      const index = match.index ?? 0;
-      const prefix = raw.slice(Math.max(0, index - 12), index);
-      if (/(?:no|without|без)\s*$/.test(prefix)) continue;
-      hits.push({ machine, index });
-    }
-  });
-  hits.sort((a, b) => a.index - b.index);
-  const ordered = hits.filter((hit, i) => !hits.slice(0, i).some((previous) => previous.machine === hit.machine && hit.index - previous.index < 28));
-  const selected = ordered.slice(0, stageCount === undefined ? 8 : clamp(stageCount, 0, 8));
-  if (selected.length) {
-    const recipe = FACTORY_RECIPES.find((r) => r.id === next.recipe) ?? FACTORY_RECIPES[0];
-    const baseInput = next.product === "auto" ? recipe.input : next.product;
-    const finalOutput = next.outputProduct === "auto" ? recipe.output : next.outputProduct;
-    const metal = next.recipe === "metalworking" || next.recipe === "turning";
-    const intermediate: Partial<Record<GenOptions["machineKind"], string>> = { weld: "welded", paint: "painted", press: "stamped", grinder: "machined", cnc: "machined", lathe: "machined", packaging: "carton", kiln: "brick", cutter: metal ? "billet" : "window", assembly: "phone" };
-    const chain: ProcessStep[] = [];
-    selected.forEach(({ machine }, index) => {
-      const previous = index === 0 ? baseInput : chain[index - 1].output;
-      const result = machine === "inspection" ? previous : index === selected.length - 1 ? finalOutput : (intermediate[machine] ?? finalOutput);
-      chain.push({ machine, input: previous, output: result, worker: humanTends && !mentionsRobots ? "human" : "robot" });
-    });
-    next.product = baseInput; next.outputProduct = finalOutput; next.processChain = chain;
-    if (stageCount === undefined) next.stages = Math.max(next.stages, chain.length);
-    next.cellMachines = chain.map((step) => step.machine);
-    next.cellWorkers = chain.map((step) => step.worker === "human" ? "human" : "robot");
-    next.cellInputs = chain.map((step) => step.input); next.cellOutputs = chain.map((step) => step.output);
-  }
-  return next;
+  const intent = analyzePrompt(text, { base: complete, keepUnmentioned: true });
+  return mergeIntent(complete, intent);
 }

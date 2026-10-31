@@ -25,3 +25,6 @@ Thumbs.db
 *.swp
 .vscode/*
 !.vscode/extensions.json
+
+# Scratch harnesses for the node-graph generator
+.tmp/

@@ -6,6 +6,7 @@ import { cn } from "../utils/cn";
 import { t } from "../i18n";
 import { getProduct, PRODUCTS } from "../data/products";
 import { ProductPicker } from "./ProductPicker";
+import { FactoryStudio } from "./factory/FactoryStudio";
 import { PalletPattern } from "./PalletPattern";
 import { FloorPlanView } from "./FloorPlanView";
 
@@ -28,6 +29,8 @@ export function GeneratorDialog({ open, initial, onClose, onBuild }: Props) {
   const [prompt, setPrompt] = useState("");
   const [interpreted, setInterpreted] = useState("");
   const [advanced, setAdvanced] = useState(false);
+  // Node graph is the primary mode; the form stays available for quick numeric tweaks.
+  const [mode, setMode] = useState<"graph" | "form">("graph");
   const items = useMemo(() => (open ? generateFactory(options) : []), [open, options]);
   const warnings = useMemo(() => open ? validateFactory(items) : [], [open, items]);
   if (!open) return null;
@@ -50,9 +53,29 @@ export function GeneratorDialog({ open, initial, onClose, onBuild }: Props) {
   const output = options.stages === 0 ? input : options.outputProduct === "auto" ? recipe.output : options.outputProduct;
   const validTool = options.gripper !== "magnetic" || (getProduct(input).magnetic && getProduct(output).magnetic);
   const select = (label: string, key: keyof GenOptions, entries: [string, string][]) => <label className="block"><span className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/45">{t(label)}</span><select aria-label={t(label)} value={String(options[key])} onChange={(e) => set(key === "machineKind" ? { machineKind: e.target.value as GenOptions["machineKind"], processChain: [], cellMachines: [] } : { [key]: e.target.value } as Partial<GenOptions>)} className="w-full rounded border border-white/15 bg-[#202023] px-2 py-2 text-[12px] outline-none focus:border-[var(--app-accent)]">{entries.map(([id, name]) => <option key={id} value={id}>{t(name)}</option>)}</select></label>;
+  if (mode === "graph") {
+    return (
+      <div className="generator-overlay fixed inset-0 z-[90] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+        <div role="dialog" aria-modal="true" aria-label={t("AI Factory")} className="flex h-[92dvh] w-full max-w-[1280px] flex-col overflow-hidden rounded-lg border border-white/15 bg-[#2b2b2e] shadow-[0_30px_80px_rgba(0,0,0,.65)]">
+          <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-[#232326] px-4"><Factory size={17} className="text-[#f2b14c]" /><h2 className="text-[14px] font-medium">{t("AI Factory")}</h2><span className="ml-1 rounded bg-[var(--app-accent)]/10 px-1.5 py-0.5 font-mono text-[9px] text-[var(--app-accent-bright)]">5.1</span><div className="ml-2 flex overflow-hidden rounded border border-white/15">
+          {([["graph", "Node graph"], ["form", "Form"]] as const).map(([id, label]) => (
+            <button key={id} type="button" onClick={() => setMode(id)} className={cn("px-2 py-1 text-[10.5px] transition", mode === id ? "bg-[var(--app-accent)]/25 text-white" : "text-white/50 hover:bg-white/10 hover:text-white")}>{t(label)}</button>
+          ))}
+        </div>
+          <button type="button" aria-label={t("Close")} onClick={onClose} className="ml-auto mr-2 rounded p-2 text-white/55 hover:bg-white/10"><X size={16} /></button>
+          </div>
+          <FactoryStudio onBuild={(items, options) => onBuild(items, options)} onClose={onClose} />
+        </div>
+      </div>
+    );
+  }
   return <div className="generator-overlay fixed inset-0 z-[90] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
     <div role="dialog" aria-modal="true" aria-label={t("AI Factory")} className="flex max-h-[92dvh] w-full max-w-[1040px] flex-col overflow-hidden rounded-lg border border-white/15 bg-[#2b2b2e] shadow-[0_30px_80px_rgba(0,0,0,.65)]">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-[#232326] px-4"><Factory size={17} className="text-[#f2b14c]" /><h2 className="text-[14px] font-medium">{t("AI Factory")}</h2><span className="ml-1 rounded bg-[var(--app-accent)]/10 px-1.5 py-0.5 font-mono text-[9px] text-[var(--app-accent-bright)]">5.1</span><button type="button" aria-label={t("Close")} onClick={onClose} className="ml-auto rounded p-2 text-white/55 hover:bg-white/10"><X size={16} /></button></div>
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-[#232326] px-4"><Factory size={17} className="text-[#f2b14c]" /><h2 className="text-[14px] font-medium">{t("AI Factory")}</h2><span className="ml-1 rounded bg-[var(--app-accent)]/10 px-1.5 py-0.5 font-mono text-[9px] text-[var(--app-accent-bright)]">5.1</span><div className="ml-2 flex overflow-hidden rounded border border-white/15">
+          {([["graph", "Node graph"], ["form", "Form"]] as const).map(([id, label]) => (
+            <button key={id} type="button" onClick={() => setMode(id)} className={cn("px-2 py-1 text-[10.5px] transition", mode === id ? "bg-[var(--app-accent)]/25 text-white" : "text-white/50 hover:bg-white/10 hover:text-white")}>{t(label)}</button>
+          ))}
+        </div><button type="button" aria-label={t("Close")} onClick={onClose} className="ml-auto rounded p-2 text-white/55 hover:bg-white/10"><X size={16} /></button></div>
       <div className="thin-scroll grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 md:grid-cols-[minmax(0,1fr)_330px]">
         <div className="space-y-4">
           <section><h3 className="mb-2 text-[10px] uppercase tracking-widest text-white/40">{t("Factory type")}</h3><div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">{FACTORY_RECIPES.map((r) => <button key={r.id} type="button" onClick={() => set({ recipe: r.id, product: "auto", outputProduct: "auto", stages: r.id === "logistics" ? 0 : Math.max(1, options.stages), gripper: r.id === "bakery" ? "soft" : r.id === "metalworking" || r.id === "turning" ? "parallel" : "vacuum", processChain: [], cellMachines: [], cellInputs: [], cellOutputs: [], cellWorkers: [] })} className={cn("flex min-h-12 items-center gap-2 rounded border px-2.5 py-2 text-left text-[11px] transition", options.recipe === r.id ? "border-[var(--app-accent)]/80 bg-[var(--app-accent)]/10 text-white" : "border-white/10 text-white/55 hover:bg-white/5")}><span className="h-2 w-2 shrink-0 rounded-full" style={{ background: r.color }} />{t(r.name)}</button>)}</div><p className="mt-2 text-[11px] text-white/40">{t(recipe.description)}</p></section>

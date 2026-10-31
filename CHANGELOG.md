@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.4.0] - 2026-10-31
+
+### Added
+- **Node-based AI Factory generator.** The generator is now a graph editor, in the spirit of Unreal Blueprints and ComfyUI: every section of the plant is a node with typed, colour-coded ports, and the factory follows the wires instead of a single option record. Ten node types ship today — *Prompt*, *Recipe & products*, *Process chain*, *Line speed*, *Robot & tool*, *Staff*, *Safety*, *Line layout*, *Pallet pattern*, *Factory output*. Drag a wire from an output port to an input port, click a wire to cut it, double-click a node to collapse it, drag nodes and pan/zoom the canvas. A starter graph reproduces the previous generator exactly, so the old workflow is still one click away in the *Form* tab.
+- **Live preview and diagnostics.** The studio compiles the wiring as you edit and shows the same floor plan the form dialog uses, the tags the prompt produced, the intent notes ("a kiln implies the brick recipe"), the compile time and per-node error/warning badges. *Build factory* is disabled while the graph has errors, and clicking a diagnostic selects the node that caused it.
+- **Modular node registry.** A node is a plain object: `type`, `title`, `category`, typed `inputs`/`outputs`, parameter definitions with defaults/ranges/options, and one pure `evaluate`. Registering a new section (or a whole future node pack) is one `registerNode()` call; the palette, inspector, validation and compiler pick it up with no other changes. Ports carry a `PortType` so a *Robot* output cannot be wired into a *Pallet* input; fan-out is allowed and marked with `many`.
+- **Graph safety.** Wires that would create a cycle are rejected at the moment of connection, and `validateGraph` reports missing required inputs, type mismatches, single-wire inputs with two sources, dangling links and unknown node types. Each node evaluates inside its own try/catch, so one broken node produces a diagnostic instead of an empty factory. The whole graph is compiled in topological order (Kahn) rather than node by node.
+- **Precedence you can predict.** An explicit node value beats the prompt, the prompt beats the defaults. Only the values a user actually touches are stored, so a settings node never silently overrides the sentence it sits next to.
+- **Better prompt coherence and tagging.** The natural-language parser was rebuilt around a bilingual tag lexicon: recipe, process, robot, gripper, style, safety and scale rules, Russian stem wildcards ("кобот\*" matches "коботами"), negation windows ("no fences", "без ограждений"), and a coherence pass that resolves contradictions instead of applying rules in file order — a kiln forces the brick recipe and a clay → brick flow, a magnetic gripper is downgraded for non-magnetic products, stage count is matched to the chain, staff is zeroed for an unmanned plant, and conflicting tags are settled by weight with an explanation. Labelled product fields now resolve fuzzy phrases ("готовая металлическая деталь" → *Machined part*) instead of falling back to the recipe default.
+- **Graph files.** Export the graph as JSON and import it back; the current graph is remembered between sessions.
+
+### Changed
+- `parsePrompt` (used by the form) now delegates to the same analyzer as the graph, so both paths understand a sentence identically.
+- The generator dialog opens in graph mode; the previous form is available from the *Form* toggle in its header.
+
 ## [2.3.0] - 2026-10-31
 
 ### Added
