@@ -23,6 +23,9 @@ import { ModelImportDialog } from "./components/ModelImportDialog";
 import { DEFAULT_WORKER_SETTINGS } from "./components/RiggedHuman";
 import { eventMatches, isCapturing } from "./keybinds";
 import { closeSettings, openSettings, useSettingsWindow } from "./settingsWindow";
+import { SettingsDialog } from "./components/SettingsDialog";
+import { sendViewportCommand } from "./viewportCommands";
+import { buildLine } from "./buildInfo";
 import { PanelShell } from "./components/PanelShell";
 import { FloorMapWindow } from "./components/FloorMapWindow";
 import { setPanel, useLayout } from "./layout";
@@ -131,6 +134,9 @@ export default function App() {
   const [genOpen, setGenOpen] = useState(false);
   const [floorMapOpen, setFloorMapOpen] = useState(false);
   const layout = useLayout();
+  // Read inside event handlers without making them re-register on every layout change.
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const [genOptions, setGenOptions] = useState<GenOptions>(DEFAULT_GEN);
   const [running, setRunning] = useState(true);
   const [simSpeed, setSimSpeed] = useState(1);
@@ -433,6 +439,8 @@ export default function App() {
     [notify, replaceScene],
   );
 
+  const projectInput = useRef<HTMLInputElement>(null);
+
   const newProject = () => {
     detachExportHandle();
     replaceScene([], "Untitled factory", "blank");
@@ -639,6 +647,39 @@ export default function App() {
       if (is("settings")) { event.preventDefault(); openSettings(); return; }
       if (is("help")) { event.preventDefault(); openSettings("help"); return; }
       if (is("search")) { event.preventDefault(); openSearch(); return; }
+      // Visual Components navigation shortcuts (fit, fit selection, COI, zoom).
+      if (is("fitAll")) { event.preventDefault(); sendViewportCommand({ type: "fit" }); return; }
+      if (is("fitSelection")) {
+        event.preventDefault();
+        if (selectedId) sendViewportCommand({ type: "fit-selected" });
+        else notify(t("Select a component first"), "info");
+        return;
+      }
+      if (is("setCoi")) {
+        event.preventDefault();
+        if (selectedId) sendViewportCommand({ type: "center-selected" });
+        return;
+      }
+      if (is("zoomIn")) { event.preventDefault(); sendViewportCommand({ type: "zoom", direction: 1 }); return; }
+      if (is("zoomOut")) { event.preventDefault(); sendViewportCommand({ type: "zoom", direction: -1 }); return; }
+      if (is("toggleGrid2")) { event.preventDefault(); sendViewportCommand({ type: "toggle-grid" }); return; }
+      if (is("togglePanels")) {
+        event.preventDefault();
+        const current = layoutRef.current;
+        const open = !(current.catalog.open && current.inspector.open);
+        setPanel("catalog", { open });
+        setPanel("inspector", { open });
+        return;
+      }
+      if (is("version")) {
+        event.preventDefault();
+        setDockTab("output");
+        setPanel("dock", { open: true });
+        sim.log(buildLine(), "info");
+        return;
+      }
+      if (is("openProject")) { event.preventDefault(); projectInput.current?.click(); return; }
+      if (is("newProject")) { event.preventDefault(); newProject(); return; }
       if (is("redo")) { event.preventDefault(); redo(); return; }
       if (is("undo")) { event.preventDefault(); undo(); return; }
       if (is("save")) { event.preventDefault(); void saveProject(); return; }
@@ -683,6 +724,7 @@ export default function App() {
       onInfo={(message) => notify(message, "info")}
       focusSignal={focusSignal}
       layoutsSignal={layoutsSignal}
+      onImportedModel={addImportedModel}
     />
   );
   const inspector = (
@@ -810,6 +852,14 @@ export default function App() {
       {!mobile && layout.inspector.floating && <PanelShell id="inspector" title="Properties">{inspector}</PanelShell>}
       {!mobile && layout.dock.floating && <PanelShell id="dock" title="Output">{dockPanelBody}</PanelShell>}
       <FloorMapWindow open={floorMapOpen} onClose={() => setFloorMapOpen(false)} items={items} selectedId={selectedId} onSelect={setSelectedId} building={appearance.building} />
+      <input
+        ref={projectInput}
+        type="file"
+        accept=".txt,text/plain"
+        className="hidden"
+        aria-hidden
+        onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void importProject(file); }}
+      />
       <ModelImportDialog open={modelOpen} initialFiles={modelFiles} requireRig={!!modelTarget} onClose={() => { setModelOpen(false); setModelFiles(null); setModelTarget(null); }} onImported={addImportedModel} />
       {!storageReady && <div role="status" className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-4 bg-[#1e1e1e]/95 text-sm text-white/75">
         <span>{t("Restoring project…")}</span>
@@ -821,7 +871,7 @@ export default function App() {
       </div>}
       {storageFailed && <div role="alert" className="fixed bottom-8 right-4 z-[105] max-w-[300px] rounded border border-amber-400/40 bg-[#382c1b] p-3 text-[11px] text-amber-100">{t("Browser autosave is unavailable. Export a project copy to keep your work.")}</div>}
       <GeneratorDialog open={genOpen} initial={genOptions} onClose={() => setGenOpen(false)} onBuild={buildGenerated} />
-      {settingsOpen && <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4" onPointerDown={(e) => e.target === e.currentTarget && setSettingsOpen(false)}><div className="relative flex h-[min(700px,90dvh)] w-full max-w-[min(980px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-white/15 bg-[#2b2b2e]"><button type="button" onClick={() => setSettingsOpen(false)} aria-label={t("Close")} className="absolute right-3 top-3 z-10 rounded p-2 text-white/50"><X size={17} /></button>{projectSettings}</div></div>}
+      {settingsOpen && <SettingsDialog>{projectSettings}</SettingsDialog>}
       <div className={cn("pointer-events-none fixed left-1/2 z-[100] flex w-full max-w-[420px] -translate-x-1/2 flex-col items-center gap-1.5 px-4", mobile ? "bottom-[78px]" : "top-[158px]")}>
         {toasts.map((toast) => <div key={toast.id} className={cn("pointer-events-auto flex w-full items-center gap-2.5 rounded border bg-[#2b2b2d]/97 px-3 py-2 shadow-xl", toast.tone === "success" ? "border-[var(--green)]/40" : "border-[var(--app-accent)]/35", "animate-[toast-in_.2s_ease-out]")}>{toast.tone === "success" ? <CheckCircle2 size={13} className="shrink-0 text-[var(--green)]" /> : <Info size={13} className="shrink-0 text-[var(--app-accent-bright)]" />}<span className="flex-1 text-[11px] leading-snug text-white/80">{t(toast.message)}</span><button type="button" aria-label={t("Close")} onClick={() => setToasts((cur) => cur.filter((entry) => entry.id !== toast.id))} className="shrink-0 rounded p-0.5 text-white/30"><X size={10} /></button></div>)}
       </div>

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Database, Download, FolderOpen, HelpCircle, Gauge, Keyboard, Monitor, Palette, RotateCcw, Save, Sun, Upload, X } from "lucide-react";
-import { useAppearance, applyPreset, isCustomGraphics, setAccent, setAppearance, setGfx, setScheme, resetScheme, SKINS, GI_MODES, TONE_MAPPINGS, ANTIALIAS_MODES, RESOLUTION_STEPS, SCHEME_FIELDS, type AntialiasMode, type ColorScheme, type GiMode, type GraphicsSettings, type SkinId, type ToneMapping, type GraphicsQuality } from "../theme";
+import { Database, Download, FolderOpen, HelpCircle, Gauge, Keyboard, Monitor, Palette, RotateCcw, Save, Sun, Upload } from "lucide-react";
+import { useAppearance, applyPreset, isCustomGraphics, setAccent, setAppearance, setGfx, setScheme, resetScheme, SKINS, GI_MODES, TONE_MAPPINGS, ANTIALIAS_MODES, RESOLUTION_STEPS, VXGI_RESOLUTIONS, SCHEME_FIELDS, type AntialiasMode, type ColorScheme, type GiMode, type GraphicsSettings, type SkinId, type ToneMapping, type GraphicsQuality } from "../theme";
 import { resetLayout, setPanel, useLayout } from "../layout";
 import { getLanguage, setLanguage, t, useLanguage } from "../i18n";
 import { KEY_ACTIONS, bindingFor, bindingFromEvent, isValidBinding, resetAllBindings, resetBinding, setBinding, setCapturing, useKeybindVersion } from "../keybinds";
 import { applySettingsFile, buildSettingsFile } from "../utils/settingsIO";
 import { probeWebGPU } from "../utils/gpu";
-import { setSettingsSection, useSettingsWindow, type SettingsSection } from "../settingsWindow";
+import { describeGi, useGraphicsStatus } from "../graphicsStatus";
+import { APP_NAME, APP_VERSION, buildLine, buildStamp } from "../buildInfo";
+import { setSettingsDim, setSettingsOffset, setSettingsSection, useSettingsWindow, type SettingsSection } from "../settingsWindow";
 import { setCornellRoom, useCornellRoom } from "../cornellRoom";
 import { cn } from "../utils/cn";
 import type { InterfaceMode } from "../utils/device";
@@ -140,7 +142,8 @@ export function SettingsWindow(props: SettingsWindowProps) {
   useLanguage();
   const appearance = useAppearance();
   const gfx = appearance.gfx;
-  const { section } = useSettingsWindow();
+  const { section, dim } = useSettingsWindow();
+  const status = useGraphicsStatus();
   const [help, setHelp] = useState<string>("Hover or focus a setting to see what it does.");
   const [webgpu, setWebgpu] = useState<boolean | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -197,6 +200,17 @@ export function SettingsWindow(props: SettingsWindowProps) {
                 <div>{t("Active graphics preset")}: <span className="font-mono text-white/85">{t(PRESETS.find((preset) => preset.id === appearance.graphics)?.label ?? "")}{custom ? ` (${t("Custom")})` : ""}</span></div>
               </div>
             </Section>
+            {/* Live diagnostics: what the renderer is actually doing, so a setting that
+                silently fell back (WebGPU missing, shader failure) is visible here. */}
+            <Section title="Active rendering">
+              <div className="space-y-1 px-3 py-2 text-[12px] text-white/60" data-graphics-status onMouseEnter={() => sectionHelp("What the renderer is doing right now. These values are measured, not copied from the settings, so a fallback becomes visible.")}>
+                <div>{t("Renderer")}: <span className="font-mono text-white/85">{status.renderer === "webgpu" ? "WebGPU" : status.renderer === "webgl" ? "WebGL" : status.renderer === "failed" ? t("failed") : t("starting")}{status.rendererDetail ? ` (${status.rendererDetail})` : ""}</span></div>
+                <div>{t("Global illumination")}: <span className={cn("font-mono", gfx.gi === "vxgi" && status.gi !== "vxgi" ? "text-[#f5c26b]" : "text-white/85")}>{t(describeGi(status, gfx.gi))}</span></div>
+                <div>{t("Shadow map")}: <span className="font-mono text-white/85">{status.shadowSize ? `${status.shadowSize}² · ${status.shadowExtent * 2} m · ${status.shadowTexelCm} cm/texel` : t("no sun shadows")}</span></div>
+                <div>{t("Frame time")}: <span className="font-mono text-white/85">{status.frameMs > 0 ? `${status.frameMs} ms (${Math.round(1000 / Math.max(1, status.frameMs))} FPS)` : t("idle")}</span></div>
+                <div>{t("3D pixel ratio")}: <span className="font-mono text-white/85">{status.pixelRatio.toFixed(2)}×</span></div>
+              </div>
+            </Section>
           </>
         );
       case "quality":
@@ -217,11 +231,18 @@ export function SettingsWindow(props: SettingsWindowProps) {
             </Section>
             <Section title="Shadows">
               <StepRow label="Shadow quality" help="Directional shadow map resolution and softness. Off removes shadows entirely." steps={SHADOW_STEPS.map((step) => step.label)} value={currentShadowStep(gfx)} onChange={(index) => setGfx(SHADOW_STEPS[index].value)} onHelp={sectionHelp} />
+              <SliderRow label="Shadow softness" help="Blur radius of the shadow map filter in texels. 1 is a crisp edge and 16 is very soft." min={1} max={16} step={1} value={gfx.shadowRadius} onChange={(value) => setGfx({ shadowRadius: value })} onHelp={sectionHelp} format={(value) => `${Math.round(value)}\u00a0px`} />
+              <SliderRow label="Shadow area" help="Half-size, in metres, of the square that receives sharp sun shadows. Smaller values give crisper shadows but the area outside them loses its shadow." min={8} max={200} step={2} value={gfx.shadowExtent} onChange={(value) => setGfx({ shadowExtent: value })} onHelp={sectionHelp} format={(value) => `${Math.round(value)}\u00a0m`} />
+              <ToggleRowUi label="Shadows follow the camera" help="Keeps the sharp shadow area centred on what you are looking at. Turn off to keep the shadows fixed around the origin." checked={gfx.sunFollowView} onChange={(value) => setGfx({ sunFollowView: value })} onHelp={sectionHelp} />
               <ToggleRowUi label="Contact shadows" help="Soft dark contact patches under equipment on the floor. Turned off in VXGI mode, where real indirect light handles contact darkening." checked={gfx.contactShadows} onChange={(value) => setGfx({ contactShadows: value })} onHelp={sectionHelp} />
             </Section>
             <Section title="Lighting and reflections">
               <StepRow label="Global illumination" help={GI_STEPS[giIndex]?.note ?? ""} steps={GI_STEPS.map((step) => step.label)} value={Math.max(0, giIndex)} onChange={(index) => setGfx({ gi: GI_STEPS[index].id })} onHelp={sectionHelp} />
               <StepRow label="Reflections" help="Strength of environment reflections on glossy surfaces." steps={REFLECTION_STEPS.map((step) => step.label)} value={nearest(REFLECTION_STEPS.map((step) => step.value), gfx.env)} onChange={(index) => setGfx({ env: REFLECTION_STEPS[index].value })} onHelp={sectionHelp} />
+              {gfx.gi === "vxgi" && <>
+                <StepRow label="Voxel resolution" help="Resolution of the voxel volume used by VXGI. Higher keeps small details in the indirect light but costs more GPU time." steps={VXGI_RESOLUTIONS.map((size) => `${size}\u00b3`)} value={Math.max(0, VXGI_RESOLUTIONS.indexOf(gfx.vxgiResolution))} onChange={(index) => setGfx({ vxgiResolution: VXGI_RESOLUTIONS[index] })} onHelp={sectionHelp} />
+                <SliderRow label="Voxel refresh" help="Seconds between full voxel rebuilds while the simulation runs. Longer is cheaper; geometry changes rebuild immediately." min={0.25} max={30} step={0.25} value={gfx.vxgiRefresh} onChange={(value) => setGfx({ vxgiRefresh: value })} onHelp={sectionHelp} format={(value) => `${value.toFixed(2)}\u00a0s`} />
+              </>}
               <StepRow label="View distance" help="Distance at which fog hides geometry. Only applies while distance fog is enabled." steps={VIEW_STEPS.map((step) => step.label)} value={nearest(VIEW_STEPS.map((step) => step.value), gfx.fogFar)} onChange={(index) => setGfx({ fogFar: VIEW_STEPS[index].value })} onHelp={sectionHelp} />
             </Section>
             <Section title="Post processing">
@@ -350,6 +371,15 @@ export function SettingsWindow(props: SettingsWindowProps) {
                 <p className="text-[10.5px] leading-relaxed text-white/40">{t("Drag a panel's inner edge to resize it. The button in each panel header detaches it into a movable window; the same button docks it again.")}</p>
               </div>
             </Section>
+            <Section title="Settings window">
+              <ToggleRowUi label="Dim background" help="Dims the factory behind the settings window. Turn it off to watch the scene while you change lighting, shadows and colour." checked={dim} onChange={setSettingsDim} onHelp={sectionHelp} />
+              <div className="px-3 py-2">
+                <button type="button" onClick={() => { setSettingsOffset(null); flash(t("Settings window re-centred")); }} className="flex w-full items-center justify-center gap-1.5 rounded border border-white/15 py-2 text-[12px] text-white/70 hover:bg-white/10">
+                  <RotateCcw size={12} /> {t("Re-centre window")}
+                </button>
+                <p className="mt-1.5 text-[10.5px] leading-relaxed text-white/40">{t("Drag the window by its title bar to move it. Double-click the title bar to re-centre. The position and the dim choice are remembered.")}</p>
+              </div>
+            </Section>
             {import.meta.env.DEV && <Section title="Developer">
               <ToggleRowUi label="Cornell benchmark room (DEV)" help="Replaces the factory with a Cornell box for GI debugging. Development builds only." checked={cornell} onChange={(value) => { setCornellRoom(value); }} onHelp={sectionHelp} />
             </Section>}
@@ -440,8 +470,15 @@ export function SettingsWindow(props: SettingsWindowProps) {
         <div className="thin-scroll min-h-0 flex-1 overflow-y-auto p-4">{renderSection()}</div>
         {!props.inline && <div className="min-h-[56px] shrink-0 border-t border-white/10 bg-black/20 px-4 py-2.5 text-[11px] leading-relaxed text-white/55" aria-live="polite">{help}</div>}
         {message && <div className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded border border-white/15 bg-[#2b2b2d] px-3 py-1.5 text-[11px] text-white/85 shadow-xl">{message}</div>}
+        {/* Build identity, kept deliberately small and quiet in the footer. */}
+        <div
+          data-build-stamp
+          title={buildLine({ renderer: status.renderer, gi: status.gi })}
+          className="shrink-0 border-t border-white/10 px-4 py-1.5 text-right font-mono text-[10px] leading-none text-white/30"
+        >
+          {APP_NAME} · v{APP_VERSION} · {buildStamp()}
+        </div>
       </div>
-      {props.onClose && !props.inline && <button type="button" onClick={props.onClose} aria-label={t("Close")} className="absolute right-3 top-3 z-10 rounded p-2 text-white/50 hover:bg-white/10"><X size={17} /></button>}
     </div>
   );
 }

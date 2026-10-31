@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.3.0] - 2026-10-31
+
+### Added
+- **Web catalogue tab (Poly Haven).** The catalog now has a third tab, *Web*, that browses the Poly Haven model library (thousands of CC0 assets), searches it locally, downloads glTF at 1k / 2k / 4k and drops the model into the scene through the normal import pipeline. The model, its buffer and all of its textures are stored inside the project file, so a saved factory still opens offline. The panel credits "Powered by Poly Haven" and its licence.
+- **Movable settings window with an optional backdrop.** Drag the window by its title bar, double-click the bar (or use Settings → Interface → Settings window) to re-centre, and switch off *Dim background* to watch the factory while tuning lighting and shadows. Position and the dim choice are remembered between sessions.
+- **Live rendering diagnostics** (Settings → Video → Active rendering): renderer that actually started, GI path that is actually running (including the reason for a fallback), real shadow map size, area and centimetres per texel, frame time/FPS and 3D pixel ratio.
+- **Build stamp**: the settings window shows the app name, version and build time in small text at the bottom; `Ctrl+Alt+J` prints the same line to the Output panel.
+- **Graphical knobs that match the descriptions**: shadow softness (1–16 texels), shadow area (8–200 m), *shadows follow the camera*, VXGI voxel resolution (64/96/128) and voxel refresh interval (0.25–30 s).
+- **Visual Components shortcut set**: `F` fit all, `Ctrl+Alt+F` fit selection, `Shift+R` / Shift+right-click centre of interest, `=` / `-` zoom, `Tab` show/hide side panels, `Shift+G` floor grid, `Ctrl+F` component search, `Ctrl+Alt+J` version to Output, `Ctrl+N` new factory, `Ctrl+O` open a project file, `Ctrl` + double-click duplicate. All of them are rebindable in Settings → Keybinds and can be exported with the settings.
+
+### Fixed
+- **Image-based lighting in the Max preset.** The old environment used drei's `Environment`, which renders into a WebGL cube render target and therefore could not feed the WebGPU renderer — the preset with the most lighting detail was the one without reflections. A renderer-matched PMREM studio environment now builds the same studio look on both backends and disposes cleanly when the renderer changes.
+- **Global illumination being overdrawn.** The post-processing composer rendered the scene a second time after the VXGI render pipeline, painting over the indirect light. Whichever pipeline owns the frame now renders it alone.
+- **Soft shadows did nothing.** `PCFSoftShadowMap` is deprecated in r186 and no longer filters; shadows now use `PCFShadowMap` with `light.shadow.radius`, and the Low preset uses the cheaper basic filter.
+- **Blurry, crawling shadows.** The sun shadow camera covered the whole building (10–20 cm per texel on a large plant). The frustum now keeps a snug, configurable area around the view, snaps to the texel grid to stop crawling, and refreshes only when something changed instead of every frame.
+- **VXGI fallback was silent.** When WebGPU or the pipeline is unavailable the app now says so in the settings, in the diagnostics and in the event log, and uses the approximation instead of quietly rendering unlit geometry.
+- Saved or imported graphics settings can no longer contain out-of-range values: every numeric field is clamped (exposure, light intensities, shadow radius/area, voxel size and refresh, occlusion, fog distance, sun angles) and unsupported enum values fall back to the preset.
+
 ## [2.2.0] - 2026-10-31
 
 ### Changed

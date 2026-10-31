@@ -17,16 +17,28 @@ export type ToneMapping = 'none' | 'linear' | 'reinhard' | 'cineon' | 'aces' | '
 export const TONE_MAPPINGS: ToneMapping[] = ['none', 'linear', 'reinhard', 'cineon', 'aces', 'agx', 'neutral'];
 export const GI_MODES: GiMode[] = ['off', 'ao', 'approx', 'vxgi'];
 export const QUALITY_PRESETS: GraphicsQuality[] = ['low', 'standard', 'enhanced', 'max'];
+/** Voxel grid sizes offered for VXGI; r187 recommends staying at or below 256. */
+export const VXGI_RESOLUTIONS = [64, 96, 128] as const;
 
 export interface GraphicsSettings {
   preset: GraphicsQuality;
   exposure: number; ambient: number; sun: number; fill: number; env: number;
   shadows: boolean; shadowSize: 1024 | 2048 | 4096; shadowStrength: number; softShadows: boolean;
+  /** Extra PCF spread in shadow texels (r187 `light.shadow.radius`). 1 = crisp. */
+  shadowRadius: number;
+  /** Half-size of the sun's shadow frustum in metres. Smaller is sharper. */
+  shadowExtent: number;
+  /** Keep the shadow frustum centred on the orbit target instead of the whole building. */
+  sunFollowView: boolean;
   sunAzimuth: number; sunElevation: number; toneMapping: ToneMapping;
   pixelRatio: number; adaptive: boolean; fog: boolean; fogFar: number; grid: boolean;
   productBoost: number; background: string; useSkinBackground: boolean;
   contactShadows: boolean; contactOpacity: number;
   gi: GiMode; aoIntensity: number; aoRadius: number; bounce: number;
+  /** Voxel grid resolution per axis for VXGI (64 / 96 / 128). */
+  vxgiResolution: 64 | 96 | 128;
+  /** Seconds between VXGI re-voxelisations while the simulation runs. */
+  vxgiRefresh: number;
   showFps: boolean; antialias: AntialiasMode;
 }
 export interface BuildingSettings { width: number; depth: number; height: number; walls: boolean; roof: boolean; lights: boolean; floorColor: string; wallColor: string }
@@ -73,17 +85,19 @@ export const defaultGfx = (preset: GraphicsQuality): GraphicsSettings => {
   const common: GraphicsSettings = {
     preset, exposure: 1, ambient: 0.32, sun: 2.5, fill: 0.28, env: 0.5,
     shadows: true, shadowSize: 2048, shadowStrength: 1, softShadows: true,
+    shadowRadius: 3, shadowExtent: 26, sunFollowView: true,
     sunAzimuth: 230, sunElevation: 45, toneMapping: 'neutral',
     pixelRatio: 1.25, adaptive: false, fog: true, fogFar: 160, grid: true,
     productBoost: 0.15, background: '#e3e6e9', useSkinBackground: true,
     contactShadows: true, contactOpacity: 0.50,
-    gi: 'off', aoIntensity: 1.0, aoRadius: 0.55, bounce: 0, showFps: false, antialias: 'msaa',
+    gi: 'off', aoIntensity: 1.0, aoRadius: 0.55, bounce: 0, vxgiResolution: 96, vxgiRefresh: 2,
+    showFps: false, antialias: 'msaa',
   };
-  if (preset === 'low') return { ...common, shadowSize: 1024, softShadows: false, contactShadows: false, pixelRatio: 1, fog: false, toneMapping: 'linear', adaptive: true, antialias: 'fxaa' };
-  if (preset === 'enhanced') return { ...common, exposure: 1.02, shadowSize: 2048, pixelRatio: 1.25, env: 0.55, gi: 'approx', bounce: 0.3, contactOpacity: 0.55, aoIntensity: 0.8, aoRadius: 0.42 };
+  if (preset === 'low') return { ...common, shadowSize: 1024, softShadows: false, shadowRadius: 1, shadowExtent: 20, contactShadows: false, pixelRatio: 1, fog: false, toneMapping: 'linear', adaptive: true, antialias: 'fxaa' };
+  if (preset === 'enhanced') return { ...common, exposure: 1.02, shadowSize: 2048, shadowRadius: 4, shadowExtent: 30, pixelRatio: 1.25, env: 0.55, gi: 'approx', bounce: 0.3, contactOpacity: 0.55, aoIntensity: 0.8, aoRadius: 0.42, vxgiResolution: 96, vxgiRefresh: 2 };
   // Max: WebGPU voxel cone-traced GI (r187 VXGI) with TRAA. The WebGL fallback is an
   // explicit approximation (bounce lights + screen-space GTAO + contact shadows), not path tracing.
-  if (preset === 'max') return { ...common, exposure: 1.0, ambient: 0.22, sun: 2.5, fill: 0.22, shadowSize: 2048, pixelRatio: 1.25, env: 0.35, gi: 'vxgi', bounce: 0.65, contactOpacity: 0.7, aoIntensity: 1.5, aoRadius: 0.8 };
+  if (preset === 'max') return { ...common, exposure: 1.0, ambient: 0.22, sun: 2.5, fill: 0.22, shadowSize: 2048, shadowRadius: 5, shadowExtent: 32, pixelRatio: 1.25, env: 0.35, gi: 'vxgi', bounce: 0.65, contactOpacity: 0.7, aoIntensity: 1.5, aoRadius: 0.8, vxgiResolution: 96, vxgiRefresh: 2 };
   return common;
 };
 
@@ -93,6 +107,10 @@ const defaults: Appearance = {
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
+const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+};
 /** Keeps only valid #rrggbb values, so an imported or old save cannot inject CSS. */
 export function sanitizeScheme(saved: unknown): ColorScheme {
   if (!saved || typeof saved !== 'object') return { ...DEFAULT_SCHEME };
@@ -118,6 +136,29 @@ export function sanitizeGfx(quality: GraphicsQuality, saved: Partial<Record<stri
   if (!ANTIALIAS_MODES.includes(raw.antialias)) raw.antialias = base.antialias;
   if (!Number.isFinite(raw.pixelRatio) || raw.pixelRatio <= 0) raw.pixelRatio = base.pixelRatio;
   raw.pixelRatio = Math.max(0.35, Math.min(3, raw.pixelRatio));
+  if (![1024, 2048, 4096].includes(raw.shadowSize)) raw.shadowSize = base.shadowSize;
+  if (!VXGI_RESOLUTIONS.includes(raw.vxgiResolution)) raw.vxgiResolution = base.vxgiResolution;
+  raw.shadowRadius = clampNumber(raw.shadowRadius, 1, 16, base.shadowRadius);
+  raw.shadowExtent = clampNumber(raw.shadowExtent, 8, 200, base.shadowExtent);
+  raw.vxgiRefresh = clampNumber(raw.vxgiRefresh, 0.25, 30, base.vxgiRefresh);
+  raw.exposure = clampNumber(raw.exposure, 0.1, 4, base.exposure);
+  raw.ambient = clampNumber(raw.ambient, 0, 4, base.ambient);
+  raw.sun = clampNumber(raw.sun, 0, 12, base.sun);
+  raw.fill = clampNumber(raw.fill, 0, 8, base.fill);
+  raw.env = clampNumber(raw.env, 0, 4, base.env);
+  raw.bounce = clampNumber(raw.bounce, 0, 4, base.bounce);
+  raw.aoIntensity = clampNumber(raw.aoIntensity, 0, 4, base.aoIntensity);
+  raw.aoRadius = clampNumber(raw.aoRadius, 0.05, 4, base.aoRadius);
+  raw.contactOpacity = clampNumber(raw.contactOpacity, 0, 1, base.contactOpacity);
+  raw.shadowStrength = clampNumber(raw.shadowStrength, 0, 1, base.shadowStrength);
+  raw.productBoost = clampNumber(raw.productBoost, 0, 2, base.productBoost);
+  raw.fogFar = clampNumber(raw.fogFar, 20, 400, base.fogFar);
+  // Azimuth wraps instead of clamping, so 725° becomes 5° rather than 360°.
+  raw.sunAzimuth = ((Math.round(clampNumber(raw.sunAzimuth, -3600, 3600, base.sunAzimuth)) % 360) + 360) % 360;
+  raw.sunElevation = clampNumber(raw.sunElevation, 5, 89, base.sunElevation);
+  if (typeof raw.sunFollowView !== 'boolean') raw.sunFollowView = base.sunFollowView;
+  if (typeof raw.useSkinBackground !== 'boolean') raw.useSkinBackground = base.useSkinBackground;
+  if (!HEX.test(String(raw.background))) raw.background = base.background;
   return { ...raw, preset: quality };
 }
 

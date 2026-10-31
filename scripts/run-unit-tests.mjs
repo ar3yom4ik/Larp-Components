@@ -6,10 +6,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "settings", "ui-layout", "floor-plan-and-shirt", "ui-render", "performance"];
+const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "settings", "ui-layout", "floor-plan-and-shirt", "ui-render", "performance", "v3-graphics"];
 const outDir = await mkdtemp(path.join(tmpdir(), "larp-unit-"));
 let failed = 0;
 
@@ -23,7 +25,11 @@ try {
       format: "esm",
       outfile,
       logLevel: "warning",
-      define: { "import.meta.env": "{}" },
+      define: {
+        "import.meta.env": "{}",
+        __APP_VERSION__: JSON.stringify(pkg.version),
+        __BUILD_TIME__: JSON.stringify("2026-10-31T00:00:00.000Z"),
+      },
     });
     const run = spawnSync(process.execPath, [outfile], { stdio: "inherit", cwd: root });
     const ok = run.status === 0;

@@ -25,9 +25,12 @@ import { PartIcon, partAccent } from "./PartIcon";
 import { FactoryEnvironment, FactoryModel, MODEL_HEIGHTS, type BuildingStyle } from "./FactoryModels";
 import { ImportedModel } from "./ImportedModel";
 import { WireLayer } from "./WireLayer";
-import { Environment, Lightformer } from "@react-three/drei";
 import { BoxesLayer } from "./ProductModels";
 import { PostEffects, RendererSettings } from "./GraphicsEffects";
+import { StudioEnvironment } from "./StudioEnvironment";
+import { SunLight } from "./SunLight";
+import { setGraphicsStatus } from "../graphicsStatus";
+import { onViewportCommand, sendViewportCommand } from "../viewportCommands";
 import { FloorPlanView } from "./FloorPlanView";
 import { setPanel, useLayout } from "../layout";
 import { GlobalIlluminationPipeline } from "./GpuGlobalIllumination";
@@ -90,6 +93,8 @@ function CameraRig({
   view,
   viewNonce,
   fitNonce,
+  fitSelected,
+  zoom,
   focus,
   focusId,
   controlsRef,
@@ -98,6 +103,8 @@ function CameraRig({
   view: CameraPreset;
   viewNonce: number;
   fitNonce: number;
+  fitSelected: number;
+  zoom: { nonce: number; direction: 1 | -1 };
   focus: Vec3 | null;
   focusId: string | null;
   controlsRef: RefObject<OrbitControlsImpl | null>;
@@ -146,6 +153,34 @@ function CameraRig({
     invalidate();
   // Keyed only on explicit camera commands (see note above).
   }, [camera, controlsRef, fitNonce, view, viewNonce, invalidate]);
+
+  // "Frame selection" (Ctrl+Alt+F in Visual Components). Frames the selected object — or
+  // the followed human — from the same three-quarter angle the iso view uses.
+  useEffect(() => {
+    if (!fitSelected) return;
+    const f = focusRef.current;
+    if (!f) return;
+    const live = focusIdRef.current ? sim.humans.get(focusIdRef.current) : undefined;
+    const p: Vec3 = live ? [live.x, f[1], live.z] : f;
+    camera.position.set(p[0] + 3.2, p[1] + 2.6, p[2] + 3.8);
+    if (controlsRef.current) {
+      controlsRef.current.target.set(p[0], p[1] + 0.6, p[2]);
+      controlsRef.current.update();
+    }
+    invalidate();
+  }, [fitSelected, camera, controlsRef, invalidate]);
+
+  // Wheel-free zoom (Ctrl +/- shortcuts, ribbon buttons) keeps the orbit target fixed.
+  useEffect(() => {
+    if (!zoom.nonce) return;
+    const target = controlsRef.current?.target ?? new THREE.Vector3();
+    const offset = camera.position.clone().sub(target);
+    const factor = zoom.direction > 0 ? 0.82 : 1.22;
+    const next = Math.min(80, Math.max(3, offset.length() * factor));
+    camera.position.copy(target.clone().add(offset.setLength(next)));
+    controlsRef.current?.update();
+    invalidate();
+  }, [zoom, camera, controlsRef, invalidate]);
 
   return (
     <OrbitControls
@@ -222,6 +257,7 @@ function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; 
     // Exponential average of the real frame time, including the last simulation step.
     const ms = Math.min(200, delta * 1000);
     frameMs.current = frameMs.current * 0.85 + ms * 0.15;
+    if (frame.current % 20 === 0) setGraphicsStatus({ frameMs: Math.round(frameMs.current * 10) / 10 });
     sim.stepBudgetMs = frameMs.current < 15 ? 8 : frameMs.current < 19 ? 5 : frameMs.current < 26 ? 2.5 : 1.2;
     sim.step(delta);
     frame.current += 1;
@@ -317,7 +353,8 @@ function SceneContent({
   onBeginEdit,
   shell,
   building,
-}: SceneContentProps) {
+  onDuplicateItem,
+}: SceneContentProps & { onDuplicateItem: (id: string) => void }) {
   const { camera, gl } = useThree();
   const drag = useRef<DragState | null>(null);
   const itemsRef = useRef(items);
@@ -452,6 +489,12 @@ function SceneContent({
             rotation={[0, (item.rotation * Math.PI) / 180, 0]}
             scale={isConveyor ? 1 : item.scale}
             onPointerDown={(event) => startDrag(event, item)}
+            // Visual Components: Ctrl + double-click duplicates the object in place.
+            onDoubleClick={(event) => {
+              if (!event.ctrlKey && !event.metaKey) return;
+              event.stopPropagation();
+              if (!item.locked) onDuplicateItem(item.id);
+            }}
           >
             {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} />}
             {selected && <SelectionMarker item={item} />}
@@ -637,6 +680,8 @@ export const Viewport = memo(function Viewport({
   const gfx = appearance.gfx;
   const [view, setView] = useState<CameraPreset>("iso");
   const [fitNonce, setFitNonce] = useState(0);
+  const [fitSelected, setFitSelected] = useState(0);
+  const [zoom, setZoom] = useState<{ nonce: number; direction: 1 | -1 }>({ nonce: 0, direction: 1 });
   const [viewNonce, setViewNonce] = useState(0);
   const [viewMenu, setViewMenu] = useState(false);
   const [shell, setShell] = useState(false);
@@ -646,17 +691,29 @@ export const Viewport = memo(function Viewport({
   const [gpuFailed, setGpuFailed] = useState(false);
   const cornellRoom = useCornellRoom();
   const benchmark = import.meta.env.DEV && cornellRoom;
-  const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed;
-  // VXGI falls back to the approximation whenever WebGPU is missing or failed to start.
+  const [giError, setGiError] = useState<string | null>(null);
+  const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed && !giError;
+  // VXGI falls back to the approximation whenever WebGPU is missing, the renderer failed
+  // to start, or the pipeline itself could not be created on this driver.
   const effectiveGi = gfx.gi === "vxgi" && !gpuMode ? "approx" : gfx.gi;
   const makeRenderer = useCallback((defaults: GLFactoryProps) => createGpuRenderer(defaults, () => setGpuFailed(true)), []);
+  const onGiUnavailable = useCallback((message: string) => setGiError(message), []);
+  // Leaving the Max preset retries VXGI next time it is selected.
+  useEffect(() => { if (gfx.gi !== "vxgi") setGiError(null); }, [gfx.gi]);
+  useEffect(() => {
+    if (effectiveGi !== "vxgi") setGraphicsStatus({ gi: effectiveGi, giDetail: gfx.gi === "vxgi" ? (giError ?? "WebGPU unavailable") : "" });
+  }, [effectiveGi, gfx.gi, giError]);
   useEffect(() => {
     let alive = true;
     void probeWebGPU().then((ok) => { if (alive) setGpuSupported(ok); });
     return () => { alive = false; };
   }, []);
-  // Voxel GI must rebuild when the geometry changes, not on every render.
-  const voxelKey = useMemo(() => ({}), [items, shell, buildingSettings.width, buildingSettings.depth]);
+  // VXGI must re-voxelise when the geometry OR the lighting changes (lights are baked
+  // into the volume), but never on an unrelated re-render.
+  const voxelKey = useMemo(() => ({}), [
+    items, shell, buildingSettings.width, buildingSettings.depth, buildingSettings.height,
+    gfx.sun, gfx.sunAzimuth, gfx.sunElevation, gfx.fill, gfx.ambient, gfx.env, gfx.shadows,
+  ]);
 
     const xs = items.map((i) => i.position[0]), zs = items.map((i) => i.position[2]);
   const building: BuildingStyle = { ...buildingSettings };
@@ -691,9 +748,6 @@ export const Viewport = memo(function Viewport({
   })();
   const dark = skin === "rpro" || schemeDark;
   const sceneBg = gfx.useSkinBackground ? (skin === "custom" ? scheme.viewportBg : dark ? "#29262a" : skin === "vc" ? "#f1f2f3" : "#e3e6e9") : gfx.background;
-  const azimuth = gfx.sunAzimuth * Math.PI / 180, elevation = gfx.sunElevation * Math.PI / 180;
-  const lightPosition: Vec3 = [36 * Math.cos(elevation) * Math.cos(azimuth), 36 * Math.sin(elevation), 36 * Math.cos(elevation) * Math.sin(azimuth)];
-  const shadowExtent = Math.max(18, Math.ceil(Math.max(building.width, building.depth) * 0.7));
   // Below 1 renders fewer pixels than the screen has (faster, softer).
   const renderDpr = gfx.adaptive && low ? Math.min(1, gfx.pixelRatio) : gfx.pixelRatio;
   const aoActive = effectiveGi === "ao" || effectiveGi === "approx";
@@ -711,6 +765,32 @@ export const Viewport = memo(function Viewport({
     else void document.exitFullscreen?.();
   };
 
+  // Shortcuts and the ribbon talk to the camera through a tiny command bus.
+  // `selected` is read through a ref so the subscription never re-registers.
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const panelsOpenRef = useRef(panelsOpen);
+  panelsOpenRef.current = panelsOpen;
+  useEffect(() => onViewportCommand((command) => {
+    switch (command.type) {
+      case "fit": setFitNonce((value) => value + 1); break;
+      case "fit-selected": if (selectedRef.current) setFitSelected((value) => value + 1); break;
+      case "view": setFitNonce(0); setView(command.preset); setViewNonce((value) => value + 1); break;
+      case "zoom": setZoom((value) => ({ nonce: value.nonce + 1, direction: command.direction })); break;
+      case "toggle-grid": setGridVisible((value) => !value); break;
+      case "toggle-fullscreen": toggleFullscreen(); break;
+      case "center-selected": {
+        const item = selectedRef.current;
+        if (!item || !controlsRef.current) break;
+        controlsRef.current.target.set(item.position[0], item.position[1] + 0.6, item.position[2]);
+        controlsRef.current.update();
+        break;
+      }
+    }
+  // toggleFullscreen only touches refs, so it is safe to omit from the dependency list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
   const viewButtons: { id: CameraPreset; label: string }[] = [
     { id: "iso", label: "Iso" },
     { id: "top", label: "Top" },
@@ -723,6 +803,16 @@ export const Viewport = memo(function Viewport({
       ref={wrapper}
       className={cn("app-viewport factory-viewport relative min-h-0 min-w-0 flex-1 overflow-hidden", mobile && "mobile-viewport")}
       style={{ background: sceneBg }}
+      // Visual Components: Shift + right-click sets the centre of interest to the
+      // selection, so orbiting afterwards happens around that object.
+      onPointerDownCapture={(event) => {
+        if (event.button === 2 && event.shiftKey && selected) {
+          event.preventDefault();
+          event.stopPropagation();
+          sendViewportCommand({ type: "center-selected" });
+        }
+      }}
+      onContextMenu={(event) => { if (event.shiftKey) event.preventDefault(); }}
       onDragOver={(event) => {
         event.preventDefault();
         if (!dragActive) setDragActive(true);
@@ -734,7 +824,7 @@ export const Viewport = memo(function Viewport({
     >
       <Canvas
         // The antialias mode is a context attribute, so switching it recreates the context.
-        key={`${gpuMode ? "renderer-webgpu" : "renderer-webgl"}-${gfx.antialias}`}
+        key={`${gpuMode ? "renderer-webgpu" : "renderer-webgl"}-${gfx.antialias}-${gfx.shadows ? (gfx.softShadows ? "soft" : "hard") : "nosun"}`}
         shadows={gfx.shadows ? (gfx.softShadows ? "percentage" : "basic") : false}
         // The WebGPU VXGI pipeline accumulates TRAA samples across frames, so it must keep rendering.
         frameloop={running || gpuMode ? "always" : "demand"}
@@ -747,12 +837,9 @@ export const Viewport = memo(function Viewport({
         }}
 
       >
-        {!benchmark && <Environment key={`env-${quality}-${gfx.env}`} resolution={quality === "standard" ? 32 : 64} background={false}>
-          <Lightformer intensity={2.2 * gfx.env} position={[0, 8, 0]} scale={[16, 16, 1]} color="#fff5e6" />
-          <Lightformer intensity={1.1 * gfx.env} position={[-8, 4, -6]} scale={[8, 8, 1]} color="#b9dcff" />
-          <Lightformer intensity={0.9 * gfx.env} position={[9, 3, 5]} scale={[7, 7, 1]} color="#ffe7b8" />
-          {quality === "max" && <Lightformer intensity={0.8 * gfx.env} position={[0, 2, 10]} scale={[14, 4, 1]} color="#ffe2c4" />}
-        </Environment>}
+        {/* Image-based lighting that works on both renderers (drei's Environment only
+            supports the WebGL renderer, which is why the Max preset lost its IBL). */}
+        {!benchmark && <StudioEnvironment intensity={gfx.env} resolution={quality === "low" ? 32 : quality === "standard" ? 64 : 128} dark={dark} />}
         <RendererSettings gfx={gfx} />
         <ambientLight intensity={benchmark ? 0 : gfx.ambient} color={dark ? "#ffd9d9" : "#ffffff"} />
         {gfx.adaptive && <PerformanceMonitor onDecline={() => setLow(true)} onIncline={() => setLow(false)} flipflops={4} />}
@@ -767,28 +854,19 @@ export const Viewport = memo(function Viewport({
           <directionalLight position={[10, 5, -12]} intensity={gfx.bounce * 0.32} color="#ffe4c2" />
           <directionalLight position={[-7, 4, 12]} intensity={gfx.bounce * 0.28} color="#e6f2ff" />
         </>}
-        <directionalLight
-          key={`sun-${gfx.shadowSize}-${gfx.shadows}`}
-          position={lightPosition}
-          intensity={benchmark ? 0 : gfx.sun}
-          color="#fffaf0"
-          castShadow={gfx.shadows}
-          shadow-mapSize-width={gfx.shadowSize}
-          shadow-mapSize-height={gfx.shadowSize}
-          shadow-camera-left={-shadowExtent}
-          shadow-camera-right={shadowExtent}
-          shadow-camera-top={shadowExtent}
-          shadow-camera-bottom={-shadowExtent}
-          shadow-camera-near={1}
-          shadow-camera-far={130}
-          shadow-intensity={gfx.shadowStrength}
-          shadow-bias={-0.00015}
-          shadow-normalBias={0.025}
-        />
+        {/* Sun with a tight, texel-snapped frustum that follows the orbit target. */}
+        {!benchmark && <SunLight gfx={gfx} controlsRef={controlsRef} building={building} />}
+        {benchmark && <directionalLight position={[10, 14, 8]} intensity={0} />}
         <directionalLight position={[-14, 10, -10]} intensity={benchmark ? 0 : gfx.fill} color="#dbe8ff" />
 
-        <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} />
-        {gpuMode && <GlobalIlluminationPipeline voxelKey={voxelKey} running={running} />}
+        <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} fitSelected={fitSelected} zoom={zoom} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} />
+        {gpuMode && <GlobalIlluminationPipeline
+          voxelKey={voxelKey}
+          running={running}
+          resolution={gfx.vxgiResolution}
+          refreshSeconds={gfx.vxgiRefresh}
+          onUnavailable={onGiUnavailable}
+        />}
         {benchmark ? <CornellBenchmark /> : <>
           <DropTarget onAddAt={onAddAt} />
           <SimDriver items={items} shell={shell} low={low || gfx.shadowSize === 1024} />
@@ -805,9 +883,10 @@ export const Viewport = memo(function Viewport({
             onBeginEdit={onBeginEdit}
             shell={shell}
             building={building}
+            onDuplicateItem={onDuplicateItem}
           />
         </>}
-        {gridVisible && gfx.grid && !benchmark && <gridHelper args={[80, 80, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
+        {gridVisible && gfx.grid && !benchmark && <gridHelper args={[Math.max(80, Math.ceil(Math.max(building.width, building.depth) * 1.4)), 40, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
         {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows
           key={`contact-${running ? contactTick : "still"}`}
           position={[0, 0.015, 0]}
@@ -819,7 +898,7 @@ export const Viewport = memo(function Viewport({
           smooth={false}
           frames={1}
         />}
-        <PostEffects gfx={gfx} pixelRatio={renderDpr} aoActive={aoActive} />
+        <PostEffects gfx={gfx} pixelRatio={renderDpr} aoActive={aoActive} externalPipeline={gpuMode} />
       </Canvas>
 
       {gfx.showFps && <FpsBadge />}

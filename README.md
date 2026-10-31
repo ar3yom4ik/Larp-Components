@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml/badge.svg)](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml)
 
-A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.2** of *Larp Components 5.1*.
+A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.3** of *Larp Components 5.1*.
 
 > Not affiliated with Visual Components. The simulator and safety guarding are illustrative only; they are **not** certified industrial, safety or robot-control tools.
 

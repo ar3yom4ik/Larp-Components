@@ -2,12 +2,49 @@ import { useSyncExternalStore } from 'react';
 
 export type SettingsSection = 'video' | 'quality' | 'lighting' | 'interface' | 'keybinds' | 'help' | 'data' | 'project';
 
-let state: { open: boolean; section: SettingsSection } = { open: false, section: 'video' };
+/** Pixels the user has dragged the settings window away from its centred position. */
+export interface SettingsOffset { x: number; y: number }
+
+interface SettingsWindowState {
+  open: boolean;
+  section: SettingsSection;
+  /** null means "centred"; any other value is remembered between sessions. */
+  offset: SettingsOffset | null;
+  /** When off, the page behind the window is not dimmed, so the scene stays visible. */
+  dim: boolean;
+}
+
+const STORAGE_KEY = 'larp-settings-window-v1';
+
+function load(): { offset: SettingsOffset | null; dim: boolean } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { offset: null, dim: true };
+    const parsed = JSON.parse(raw) as { offset?: SettingsOffset | null; dim?: boolean };
+    const offset = parsed.offset && Number.isFinite(parsed.offset.x) && Number.isFinite(parsed.offset.y)
+      ? { x: Math.max(-2400, Math.min(2400, parsed.offset.x)), y: Math.max(-1600, Math.min(1600, parsed.offset.y)) }
+      : null;
+    return { offset, dim: parsed.dim !== false };
+  } catch {
+    return { offset: null, dim: true };
+  }
+}
+
+const saved = load();
+let state: SettingsWindowState = { open: false, section: 'video', offset: saved.offset, dim: saved.dim };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
 
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ offset: state.offset, dim: state.dim }));
+  } catch {
+    // Private mode or a full quota: the window still works for this session.
+  }
+}
+
 export function openSettings(section?: SettingsSection) {
-  state = { open: true, section: section ?? state.section };
+  state = { ...state, open: true, section: section ?? state.section };
   emit();
 }
 export function closeSettings() {
@@ -18,6 +55,17 @@ export function closeSettings() {
 export function setSettingsSection(section: SettingsSection) {
   if (state.section === section) return;
   state = { ...state, section };
+  emit();
+}
+export function setSettingsOffset(offset: SettingsOffset | null) {
+  state = { ...state, offset };
+  persist();
+  emit();
+}
+export function setSettingsDim(dim: boolean) {
+  if (state.dim === dim) return;
+  state = { ...state, dim };
+  persist();
   emit();
 }
 export function useSettingsWindow() {

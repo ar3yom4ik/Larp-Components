@@ -8,7 +8,7 @@ import { useSyncExternalStore } from 'react';
 export interface KeyAction {
   id: string;
   label: string;
-  group: 'Edit' | 'Tools' | 'Simulation' | 'View' | 'Help';
+  group: 'Edit' | 'Tools' | 'Navigation' | 'Simulation' | 'View' | 'File' | 'Help';
   key: string;
 }
 
@@ -25,10 +25,22 @@ export const KEY_ACTIONS: KeyAction[] = [
   { id: 'toolMove', label: 'Move tool', group: 'Tools', key: 'M' },
   { id: 'toolRotate', label: 'Rotate tool', group: 'Tools', key: 'R' },
   { id: 'snap', label: 'Toggle grid snap', group: 'Tools', key: 'G' },
-  { id: 'search', label: 'Search components', group: 'Tools', key: 'Ctrl+K' },
+  { id: 'search', label: 'Search components', group: 'Tools', key: 'Ctrl+F' },
   { id: 'playPause', label: 'Play / pause simulation', group: 'Simulation', key: 'Space' },
+  // Visual Components navigation set: fit all, fit selection, centre of interest, zoom.
+  { id: 'fitAll', label: 'Fit all in view', group: 'Navigation', key: 'F' },
+  { id: 'fitSelection', label: 'Fit selection in view', group: 'Navigation', key: 'Ctrl+Alt+F' },
+  { id: 'setCoi', label: 'Centre of interest on selection', group: 'Navigation', key: 'Shift+R' },
+  { id: 'zoomIn', label: 'Zoom in', group: 'Navigation', key: '=' },
+  { id: 'zoomOut', label: 'Zoom out', group: 'Navigation', key: '-' },
+  { id: 'togglePanels', label: 'Show / hide side panels', group: 'View', key: 'Tab' },
+  { id: 'toggleGrid2', label: 'Toggle floor grid', group: 'View', key: 'Shift+G' },
   { id: 'settings', label: 'Open settings', group: 'View', key: 'Ctrl+,' },
   { id: 'help', label: 'Open help and shortcuts', group: 'Help', key: 'F1' },
+  // Visual Components "Help > About / Version to Output" shortcut.
+  { id: 'version', label: 'Print version to output', group: 'Help', key: 'Ctrl+Alt+J' },
+  { id: 'newProject', label: 'New factory', group: 'File', key: 'Ctrl+N' },
+  { id: 'openProject', label: 'Open project file', group: 'File', key: 'Ctrl+O' },
 ];
 
 const STORAGE_KEY = 'larp-keybinds';

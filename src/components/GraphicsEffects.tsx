@@ -19,6 +19,19 @@ export const TONE_MAPPING_BY_NAME: Record<ToneMapping, THREE.ToneMapping> = {
 };
 import { setModelRenderer } from '../utils/modelImport';
 import { isWebGPURenderer } from '../utils/gpu';
+import { setGraphicsStatus } from '../graphicsStatus';
+
+/**
+ * Shadow-map filter for the current settings.
+ *
+ * r186 deprecates `PCFSoftShadowMap`; the supported way to get soft shadows is
+ * `PCFShadowMap` plus `light.shadow.radius` (see `SunLight.tsx`). `BasicShadowMap` is
+ * kept for the Low preset, where bandwidth matters more than filtering.
+ */
+export function shadowMapType(gfx: GraphicsSettings): THREE.ShadowMapType {
+  if (!gfx.shadows) return THREE.BasicShadowMap;
+  return gfx.softShadows ? THREE.PCFShadowMap : THREE.BasicShadowMap;
+}
 
 /** Updates the live renderer, not merely its initial onCreated state. */
 export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
@@ -26,15 +39,21 @@ export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
   useEffect(() => {
     setModelRenderer(gl);
     if (import.meta.env.DEV) (window as unknown as { __larpRenderer: unknown }).__larpRenderer = { gl, scene, camera };
+    setGraphicsStatus({
+      renderer: isWebGPURenderer(gl) ? 'webgpu' : 'webgl',
+      rendererDetail: isWebGPURenderer(gl) ? 'WebGPU backend' : 'WebGL 2 backend',
+    });
     return () => setModelRenderer(null);
   }, [gl, scene, camera]);
   useEffect(() => {
     gl.toneMapping = TONE_MAPPING_BY_NAME[gfx.toneMapping] ?? THREE.NeutralToneMapping;
     gl.toneMappingExposure = gfx.exposure;
     gl.shadowMap.enabled = gfx.shadows;
-    gl.shadowMap.type = gfx.softShadows ? THREE.PCFShadowMap : THREE.BasicShadowMap;
+    gl.shadowMap.type = shadowMapType(gfx);
+    // Shadows are refreshed on demand (see SunLight / SimDriver) instead of every frame.
     gl.shadowMap.autoUpdate = false;
     gl.shadowMap.needsUpdate = true;
+    setGraphicsStatus({ pixelRatio: gl.getPixelRatio() });
     // In demand mode this makes every control visible immediately as well.
     invalidate();
   }, [gl, invalidate, gfx.exposure, gfx.toneMapping, gfx.shadows, gfx.softShadows, gfx.shadowSize, gfx.shadowStrength]);
@@ -54,7 +73,7 @@ export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
  * - `fxaa`: single-sample framebuffer plus this FXAA pass.
  * - `off`: no antialiasing.
  */
-export function PostEffects({ gfx, pixelRatio, aoActive }: { gfx: GraphicsSettings; pixelRatio: number; aoActive: boolean }) {
+export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = false }: { gfx: GraphicsSettings; pixelRatio: number; aoActive: boolean; externalPipeline?: boolean }) {
   const { gl, scene, camera, size, invalidate } = useThree();
   // EffectComposer targets a WebGL framebuffer. The WebGPU path (VXGI) has its own
   // pipeline with TRAA, so these post effects are skipped there.
@@ -118,7 +137,12 @@ export function PostEffects({ gfx, pixelRatio, aoActive }: { gfx: GraphicsSettin
   }, [gl, size.width, size.height, pixelRatio, fxaa, invalidate]);
 
   // A positive priority takes over the single final scene render from R3F.
+  //
+  // When the WebGPU VXGI pipeline is mounted it owns the frame; rendering the scene again
+  // here used to draw a second, GI-less image on top of it, which is why the Max preset
+  // looked like it had lost its global illumination.
   useFrame((_, delta) => {
+    if (externalPipeline) return;
     if (effects.current) effects.current.composer.render(delta);
     else gl.render(scene, camera);
   }, 1);

@@ -44,6 +44,13 @@ Imported projects embed the original model/animation files and any replacement m
   saved with your settings and travel with settings export/import.
 - **Settings → Video** has **3D resolution** (50 % to 200 %; below 100 % is faster and softer)
   and **Antialiasing**: Off, FXAA (fast) or MSAA (smooth).
+- **The settings window moves.** Drag it by its title bar; double-click the bar (or use
+  Settings → Interface → Settings window → Re-centre) to put it back. Switch off **Dim background** there
+  to keep the factory visible while you change lighting, shadows and colours. Both are remembered.
+- **Settings → Video → Active rendering** shows what the renderer is really doing: the backend that
+  started, whether global illumination is voxel GI or the fallback (and why), the shadow map size and
+  centimetres per texel, the frame time and the 3D pixel ratio. The build number and build time sit
+  in small text at the bottom of the window; `Ctrl+Alt+J` prints the same line to Output.
 - The **floor map** in the corner is drawn from the same plan as the AI Factory preview. The
   expand button opens it as a movable, resizable window; clicking an object selects it.
 - **Workers**: the colour you pick in Properties → Appearance is the **T-shirt colour**. The hat
@@ -61,6 +68,23 @@ Imported projects embed the original model/animation files and any replacement m
 - If a big layout still feels heavy, lower **3D resolution** to 75–90 % or pick **FXAA** instead
   of **MSAA** in **Settings → Video**; both keep the plant identical and only change how it is
   drawn.
+
+## Web catalogue (Poly Haven)
+
+The catalog's third tab, **Web**, lists the Poly Haven model library (thousands of CC0 models).
+Type to search, choose the texture size (1k / 2k / 4k — 1k is the sensible default) and click a
+model. It downloads the glTF and all of its textures, and the model is added to the scene like a
+file you imported yourself: the data lives inside the project file, so the factory opens offline
+afterwards. Big models at 4k can be tens of megabytes; the 80 MB import limit still applies.
+Credit belongs to Poly Haven (`polyhaven.com`, CC0) — the panel links it.
+
+## Keyboard shortcuts
+
+New in this version, mirroring Visual Components: `F` fit all, `Ctrl+Alt+F` fit selection,
+`Shift+R` (or Shift+right-click on the view) set the centre of interest, `=` / `-` zoom, `Tab`
+show/hide the side panels, `Shift+G` floor grid, `Ctrl+F` search the catalog, `Ctrl+Alt+J` print
+the build to Output, `Ctrl+N` new factory, `Ctrl+O` open a project file and `Ctrl` + double-click
+to duplicate. Everything stays rebindable in Settings → Keybinds.
 
 ## Graphics, privacy and safety
 

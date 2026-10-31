@@ -1,10 +1,12 @@
 import { t, useLanguage } from "../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Folder, Layers, LayoutGrid, Plus, Search, Sparkles, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Globe2, Layers, LayoutGrid, Plus, Search, Sparkles, Upload, X } from "lucide-react";
 import { CATEGORIES, COMPONENTS } from "../data/library";
 import { LAYOUTS } from "../data/layouts";
 import type { Category, ComponentKind, LayoutPreset } from "../types";
 import { PartIcon, partAccent } from "./PartIcon";
+import { PolyHavenBrowser } from "./PolyHavenBrowser";
+import type { ImportedModelData } from "../types";
 import { cn } from "../utils/cn";
 
 interface LibraryPanelProps {
@@ -15,11 +17,13 @@ interface LibraryPanelProps {
   onInfo: (message: string) => void;
   focusSignal: number;
   layoutsSignal?: number;
+  /** Adds a model downloaded from the web catalogue through the normal import pipeline. */
+  onImportedModel?: (model: ImportedModelData, warnings: string[]) => void;
 }
 
-type LibraryTab = "components" | "layouts";
+type LibraryTab = "components" | "layouts" | "web";
 
-export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutId, focusSignal, layoutsSignal = 0 }: LibraryPanelProps) {
+export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutId, focusSignal, layoutsSignal = 0, onInfo, onImportedModel }: LibraryPanelProps) {
   const language = useLanguage();
   const [tab, setTab] = useState<LibraryTab>("components");
   const [category, setCategory] = useState<"All" | Category>("All");
@@ -71,7 +75,7 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
         <button type="button" onClick={() => setCategory("All")} className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[10px] text-white/65 hover:bg-white/5"><ChevronDown size={11} />{t("Collections")}</button>
         <div className="mt-0.5 space-y-px pl-2">{[["All", "All Models"], ["Robots", "Robots"], ["Conveyors", "Conveyors"], ["Machines", "Machines"], ["Automation", "Automation"], ["Lighting", "Lighting"]].map(([id, label]) => <button key={id} type="button" onClick={() => { setTab("components"); setCategory(id as typeof category); }} className={cn("flex w-full items-center gap-1.5 rounded px-1 py-[3px] text-left text-[9.5px]", category === id ? "bg-[var(--app-accent)]/20 text-white" : "text-white/40 hover:text-white/75")}><Folder size={10} className={category === id ? "text-[var(--app-accent-bright)]" : "text-[#d4a742]/80"} />{t(label)}</button>)}</div>
       </div>
-      <div className="grid shrink-0 grid-cols-2 border-b border-white/[0.06]">
+      <div className="grid shrink-0 grid-cols-3 border-b border-white/[0.06]">
         <button
           type="button"
           onClick={() => setTab("components")}
@@ -93,9 +97,22 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
           <Sparkles size={11} /> {t("Layouts")} <span className="rounded bg-white/[0.06] px-1 text-[7.5px] text-white/35">{LAYOUTS.length}</span>
           {tab === "layouts" && <span className="absolute inset-x-4 bottom-0 h-[2px] rounded-t bg-[var(--app-accent)]" />}
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("web")}
+          className={cn(
+            "relative flex items-center justify-center gap-1.5 py-2.5 text-[10.5px] font-medium transition",
+            tab === "web" ? "text-[#f0f0f0]" : "text-white/35 hover:text-white/70",
+          )}
+        >
+          <Globe2 size={11} /> {t("Web")}
+          {tab === "web" && <span className="absolute inset-x-4 bottom-0 h-[2px] rounded-t bg-[var(--app-accent)]" />}
+        </button>
       </div>
 
-      {tab === "components" ? (
+      {tab === "web" ? (
+        <PolyHavenBrowser onImported={(model, warnings) => onImportedModel?.(model, warnings)} onInfo={onInfo} />
+      ) : tab === "components" ? (
         <>
           <div className="shrink-0 px-3 pb-2 pt-3">
             <button type="button" onClick={onImportModel} className="mb-2 flex w-full items-center justify-center gap-2 rounded border border-[var(--app-accent)]/40 bg-[var(--app-accent)]/10 px-2 py-2 text-[11px] font-medium text-[var(--app-accent-bright)] hover:bg-[var(--app-accent)]/20"><Upload size={13}/>{t("Import 3D model")}</button>

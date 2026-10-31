@@ -1,6 +1,6 @@
 # Larp Factory V2 — independent AI/developer handoff
 
-**Release date:** 2026-10-31 (V2.2)  
+**Release date:** 2026-10-31 (V2.3)  
 **Audience:** a developer or another AI starting without any prior conversation.  
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V2 is the numbered release of this work.
 
@@ -117,13 +117,64 @@ that the budget bounds the work done in one frame. When changing this code, keep
 caches in sync with item edits — `structureVersion` is bumped there and the worker station cache
 is keyed on it.
 
+### Graphics repair and web catalogue (V2.3)
+
+The V2.2 graphics presets looked broken because four separate faults stacked up:
+
+1. **IBL was missing on the WebGPU path.** drei's `<Environment>` renders the lightformers into a
+   `WebGLCubeRenderTarget`, which the WebGPU renderer cannot sample — so the preset with the most
+   lighting detail was the only one without reflections. `components/StudioEnvironment.tsx` now
+   builds the same studio (a room box plus three emissive panels) in a plain `THREE.Scene`, runs
+   `PMREMGenerator` from the matching three build (`three` for WebGL, `three/webgpu` for WebGPU)
+   and assigns `scene.environment`. It keeps `scene.environmentIntensity` live, disposes the
+   texture and generator on unmount, and degrades to no environment on failure.
+2. **The post-processing pass painted over GI.** `PostEffects` ran `gl.render()` at priority 1
+   after `RenderPipeline.render()`. It takes an `externalPipeline` prop and stays out of the frame
+   when the VXGI pipeline owns it.
+3. **Soft shadows did nothing.** `PCFSoftShadowMap` is deprecated in r186. `shadowMapType()` maps
+   `softShadows` to `PCFShadowMap` (softness then comes from `light.shadow.radius`) and the Low
+   preset to `BasicShadowMap`. `Canvas` is keyed on the filter because it is baked into the
+   compiled programs.
+4. **Shadows were blurry and crawling.** The sun's shadow camera spanned the whole building.
+   `components/SunLight.tsx` keeps a configurable half-size (`shadowExtent`, presets 20–32 m),
+   snaps the frustum centre to the texel grid, follows the orbit target when `sunFollowView` is
+   on, and only sets `shadowMap.needsUpdate` when the snapped frustum or a shadow setting
+   changed. `SimDriver` still refreshes it every second frame while the plant runs.
+
+VXGI (`GpuGlobalIllumination.tsx`) now takes `resolution` and `refreshSeconds` from the settings,
+refreshes only while the simulation is running, publishes its state to `graphicsStatus.ts` and
+calls `onUnavailable` when the pipeline cannot be built or fails mid-render; `Viewport.tsx` then
+drops the preset to `approx` for the session and shows the reason in Settings → Video. The status
+store also carries the renderer that started, the shadow texel size and the measured frame time,
+so the diagnostics panel reports measurements rather than settings.
+
+`theme.ts` gained `shadowRadius`, `shadowExtent`, `sunFollowView`, `vxgiResolution` and
+`vxgiRefresh`; `sanitizeGfx` clamps every numeric field and wraps the sun azimuth, so an old or
+hand-edited save cannot produce an unusable renderer state.
+
+`keybinds.ts` mirrors the Visual Components shortcut sheet (fit, fit selection, centre of
+interest, zoom, panel toggle, version-to-output, new/open project). `viewportCommands.ts` is the
+bus between `App.tsx` key handling and the camera inside `<Canvas>`; `SettingsDialog.tsx` owns the
+draggable, optionally undimmed settings frame (offset and dim flag persist in
+`settingsWindow.ts`). `buildInfo.ts` renders the build stamp in the settings footer and prints the
+same line on `Ctrl+Alt+J`.
+
+Poly Haven support is split in two so the catalogue logic stays testable without WebGL:
+`utils/polyhaven.ts` talks to `api.polyhaven.com` (catalogue cached per session, local filtering,
+friendly errors for 429/503) and `utils/polyhavenImport.ts` downloads a glTF set (entry plus every
+`include` companion) and feeds it through the normal `modelImport` pipeline, respecting the 80 MB
+/ 1,000-file limits. Assets are CC0; the panel shows "Powered by Poly Haven" and links the licence.
+
+`tests/v3-graphics.ts` covers presets, sanitising, the status store, the build stamp, the shortcut
+set and the catalogue filter.
+
 ### Factory, graphics and touch
 
 AI Factory interprets English/Russian keywords locally and exposes recognized recipe, geometry, staffing, products, gripper, rate and pallet controls for correction before generation. Navigation in `sim/navigation.ts` uses bounded A* around known barriers and machine obstacles, plus proximity handling in `engine.ts`; imported visual meshes do not participate. Users should inspect reach, routes and cell layout, particularly after manual edits. Collision behavior and material transport are simplified.
 
 `theme.ts`, `GraphicsEffects.tsx` and `Viewport.tsx` control live exposure, tone mapping, ambient/sun/fill/bounce, directional and contact shadows, fog, pixel ratio and GTAO. Standard/Enhanced/GI presets differ. GI is an approximation, not path tracing. A low-resolution GPU/phone may struggle; no performance promise has been made for all devices. The touch workspace exposes catalog, properties, program, tools, factory generation, project and view/settings actions. EN/RU UI uses `i18n.ts`; user-authored code/names are not translated.
 
-**Max preset (three.js r187).** `GraphicsQuality` is `standard | enhanced | max` (legacy `gi` is mapped to `max` on load; saved graphics revision 3 retuned it). `utils/gpu.ts` probes `navigator.gpu` for an adapter. When it is available, `Viewport.tsx` mounts the Canvas with an async `gl` factory that creates a `WebGPURenderer` (MSAA off; TRAA anti-aliases instead) and awaits `init()`. Failure latches `gpuFailed` and falls back to WebGL for the session. `GpuGlobalIllumination.tsx` builds the r187 `webgpu_vxgi` pipeline: a depth/normal/velocity pre-pass, `vxgi(...)` AO and GI nodes, `builtinGIContext`, and TRAA. It re-voxelizes when `voxelKey` changes (items or building footprint) and every 1.5 s while the simulation runs. In GPU mode bounce lights, GTAO and contact shadows are off. `ImportedModel.tsx`'s `onBeforeCompile` patches do not run under WebGPU, so per-map strength controls are WebGL-only. `window.__larpGI` exposes the VXGI node in DEV.
+**Max preset (three.js r187).** `GraphicsQuality` is `standard | enhanced | max` (legacy `gi` is mapped to `max` on load; saved graphics revision 3 retuned it). `utils/gpu.ts` probes `navigator.gpu` for an adapter. When it is available, `Viewport.tsx` mounts the Canvas with an async `gl` factory that creates a `WebGPURenderer` (MSAA off; TRAA anti-aliases instead) and awaits `init()`. Failure latches `gpuFailed` and falls back to WebGL for the session. `GpuGlobalIllumination.tsx` builds the r187 `webgpu_vxgi` pipeline: a depth/normal/velocity pre-pass, `vxgi(...)` AO and GI nodes, `builtinGIContext`, and TRAA. It re-voxelizes when `voxelKey` changes (items, building footprint or lighting) and every `vxgiRefresh` seconds (default 2 s) while the simulation runs; see the V2.3 section for the fallback reporting. In GPU mode bounce lights, GTAO and contact shadows are off. `ImportedModel.tsx`'s `onBeforeCompile` patches do not run under WebGPU, so per-map strength controls are WebGL-only. `window.__larpGI` exposes the VXGI node in DEV.
 **DEV Cornell benchmark.** `CornellBenchmark.tsx` builds a Cornell box modelled on `docs/benchmarks/cornell-reference.png`. Toggle it from Project settings (DEV builds only). It replaces the factory content, removes sun, fill, sky and environment light, and frames the `room` camera preset. Use it to debug GI against the reference.
 **Verification limits.** Headless Chromium here uses SwiftShader, so WebGPU VXGI runs at well under 1 fps. Correctness has been checked with screenshots and console logs, not frame timing. Measure performance on real GPUs before tuning the GI parameters.
 
