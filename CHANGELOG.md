@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.9] - 2026-11-01 (prerelease)
+
+- Added reproducible side-by-side Node benchmarks of the historical pre-Rust engine, current TypeScript engine, and combined experimental Rust hybrid, plus per-frame selected-state hybrid comparisons. The historical engine is linked to current shared dependencies.
+- The hybrid was 15.7–23.7% slower than the pre-Rust engine by median total step time in three measured scenes. Parity passed only for selected fields and scenes; full migration, universal parity, browser behavior and performance remain unverified. See `docs/RUST_HYBRID_BENCHMARK.md`.
+- Avoided empty Rust signal evaluation when a scene contains no logic items. Experimental paths remain opt-in.
+
 ## [2.5.0-alpha.8] - 2026-11-01 (prerelease)
 
 - Experimental Rust/Wasm free-product integration (`?rustProducts=1`): gravity, support response, conveyor motion, friction and tilt. Support lookup, collision response, statistics and lifecycle remain TypeScript; the default remains TypeScript.

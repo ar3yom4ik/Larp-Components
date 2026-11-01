@@ -1,6 +1,6 @@
 {
   "name": "larp-components",
-  "version": "2.5.0-alpha.8",
+  "version": "2.5.0-alpha.9",
   "description": "Browser-based React/Three.js factory layout editor and discrete-time simulator (Larp Components 5.1, release V2).",
   "private": true,
   "type": "module",
@@ -17,6 +17,7 @@
     "test:rust": "cargo test --manifest-path rust/larp-kernel/Cargo.toml --offline",
     "typecheck": "tsc --noEmit",
     "test:unit": "node scripts/run-unit-tests.mjs",
+    "bench:hybrid": "node scripts/bench-hybrid.mjs",
     "build": "vite build && node scripts/embed-assets.mjs",
     "preview": "vite preview"
   },

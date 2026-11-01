@@ -126,6 +126,14 @@ factory, plus pallet, collector, floor and fence cases. Browser behavior,
 performance, and full-engine parity remain unverified. The per-product Wasm
 boundary and buffer copies may be costly.
 
+## Combined parity and performance (alpha.9)
+
+The combined experimental hybrid was compared with the current TypeScript engine
+and the historical pre-Rust V2.4 engine. Selected-state parity passed in the
+scenarios tested, but the hybrid was slower in all three measured Node scenes.
+See `docs/RUST_HYBRID_BENCHMARK.md` for methodology, numbers and limitations.
+The Rust port remains incomplete; the tests do not establish full-engine parity.
+
 ## Constraints for remaining migration
 
 - Preserve fixed-step simulation, pacing under load, saved projects, and all existing

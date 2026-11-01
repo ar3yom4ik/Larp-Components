@@ -167,6 +167,7 @@ export function createRustLogicStepper() {
   return {
     step(items:readonly import('../../types').SceneItem[], boxes:readonly import('../engine').Box[], triggers:ReadonlyMap<string, import('../../types').SceneItem[]>, signals:Map<string,boolean>) {
       if(disposed) throw new Error('Rust logic stepper has been disposed');
+      if(items.length === 0) return;
       const ids=[...new Set(items.map(item=>item.id))], slots=new Map(ids.map((id,i)=>[id,i]));
       const sourceLists=items.map(item=>(triggers.get(item.id)??[]).map(v=>slots.get(v.id)).filter((v):v is number=>v!==undefined));
       const totalSources=sourceLists.reduce((n,v)=>n+v.length,0);
