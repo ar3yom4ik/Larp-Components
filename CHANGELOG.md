@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.7] - 2026-11-01 (prerelease)
+
+- Experimental Rust/Wasm robot reachability and inverse kinematics (`?rustKinematics=1`), with host-managed transforms, programs, commands and motion. The default remains TypeScript.
+- Added 20,000 randomized comparisons, a 130-second factory comparison and a JavaScript robot-script test. These are not full robot or engine parity; browser behavior and performance remain unverified. The Rust port is incomplete.
+
 ## [2.5.0-alpha.6] - 2026-11-01 (prerelease)
 
 - Experimental Rust/Wasm bounded A* route planning for humans (`?rustNavigation=1`). Destination projection, task logic, steering and motion remain TypeScript; the default remains TypeScript.

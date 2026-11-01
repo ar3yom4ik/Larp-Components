@@ -100,6 +100,19 @@ all navigation behavior, performance, or browser compatibility; route difference
 can change downstream simulation outcomes. The prior microbenchmark above tested
 point queries, not this route planner.
 
+## Experimental robot kinematics (alpha.7)
+
+`?rustKinematics=1` enables Rust/Wasm reachability checks and inverse kinematics
+for robots and cobots. The TypeScript host still owns coordinate transforms,
+commands, motion profiles, scheduling, JavaScript programs and object interaction.
+The default remains TypeScript. The per-call Wasm bridge is experimental and has
+not been benchmarked or validated in a browser.
+
+20,000 randomized robot poses matched reach decisions and joint angles within
+1e-10; a 130-second generated factory comparison matched selected counters and
+joint angles, and one JavaScript robot program completed. This is not full robot
+or engine parity; floating-point boundary cases and other scripts remain unproven.
+
 ## Constraints for remaining migration
 
 - Preserve fixed-step simulation, pacing under load, saved projects, and all existing

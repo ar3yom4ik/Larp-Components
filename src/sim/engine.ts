@@ -403,7 +403,13 @@ interface Job {
   resolve: (value: unknown) => void;
 }
 
+export interface RobotKinematics {
+  reach(local: V3, spec: RobotSpec): boolean;
+  solve(local: V3, spec: RobotSpec): { waist: number; shoulder: number; elbow: number; wrist: number };
+}
+
 export class RobotRT {
+  kinematics: RobotKinematics | null = null;
   id: number;
   itemId: string;
   name: string;
@@ -493,6 +499,7 @@ export class RobotRT {
 
   reach(p: V3): boolean {
     const [lx, ly, lz] = this.toLocal(p);
+    if (this.kinematics) return this.kinematics.reach([lx, ly, lz], this.spec);
     const r = Math.hypot(lx, lz);
     const { shoulder, L1, L2, Lw } = this.spec;
     const dy = ly + Lw - shoulder;
@@ -502,6 +509,10 @@ export class RobotRT {
 
   solve() {
     const [lx, ly, lz] = this.toLocal(this.tip);
+    if (this.kinematics) {
+      Object.assign(this.joints, this.kinematics.solve([lx, ly, lz], this.spec));
+      return;
+    }
     const { shoulder, L1, L2, Lw } = this.spec;
     const r = Math.hypot(lx, lz);
     const wy = ly + Lw - shoulder;
@@ -685,6 +696,12 @@ export interface Navigator {
 }
 
 export class Engine {
+  private _robotKinematics: RobotKinematics | null = null;
+  get robotKinematics() { return this._robotKinematics; }
+  set robotKinematics(value: RobotKinematics | null) {
+    this._robotKinematics = value;
+    this.robots.forEach((robot) => { robot.kinematics = value; });
+  }
   navigator: Navigator | null = null;
   logicStepper: LogicStepper | null = null;
   machineStepper: MachineStepper | null = null;
@@ -872,6 +889,7 @@ export class Engine {
               rt.tip = rt.homeTip();
             }
           }
+          rt.kinematics = this._robotKinematics;
           robots.set(item.id, rt);
           break;
         }

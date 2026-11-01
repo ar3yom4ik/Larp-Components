@@ -371,3 +371,50 @@ mod navigation_tests {
         assert_eq!(unsafe{navigate_path(0.,0.,7.,0.,barriers.as_ptr(),1,obstacles.as_ptr(),0,out.as_mut_ptr(),1)},-1);
     }
 }
+
+fn js_min(a:f64,b:f64)->f64 {if a.is_nan()||b.is_nan(){f64::NAN}else{a.min(b)}}
+fn js_max(a:f64,b:f64)->f64 {if a.is_nan()||b.is_nan(){f64::NAN}else{a.max(b)}}
+
+/// Robot inverse kinematics from a local-space tip position and arm geometry.
+/// Input: lx, ly, lz, shoulder, L1, L2, wrist length. Output: waist,
+/// shoulder, elbow, wrist. The browser continues to own frames and script jobs.
+/// # Safety
+/// Both pointers must reference non-overlapping initialized arrays (7 and 4 f64).
+#[no_mangle]
+pub unsafe extern "C" fn solve_robot(input:*const f64, output:*mut f64) {
+    let v=std::slice::from_raw_parts(input,7); let out=std::slice::from_raw_parts_mut(output,4);
+    let (lx,ly,lz,shoulder,l1,l2,lw)=(v[0],v[1],v[2],v[3],v[4],v[5],v[6]);
+    let r=lx.hypot(lz); let wy=ly+lw-shoulder; let raw=r.hypot(wy);
+    let d=js_max((l1-l2).abs()+0.05,js_min(l1+l2-0.01,raw));
+    let phi=wy.atan2(r);
+    let cos_a=js_max(-1.0,js_min(1.0,(l1*l1+d*d-l2*l2)/(2.0*l1*d)));
+    let th1=phi+cos_a.acos();
+    let ex=l1*th1.cos(); let ey=l1*th1.sin();
+    let wxr=d*phi.cos(); let wyr=d*phi.sin();
+    let th2=(wyr-ey).atan2(wxr-ex);
+    out[0]=(-lz).atan2(lx);out[1]=th1;out[2]=th2-th1;out[3]=-std::f64::consts::FRAC_PI_2-th2;
+}
+
+/// Reachability for local-space robot position and arm geometry.
+/// # Safety
+/// `input` must point to seven initialized f64 values.
+#[no_mangle]
+pub unsafe extern "C" fn robot_reachable(input:*const f64)->u32 {
+    let v=std::slice::from_raw_parts(input,7);
+    let r=v[0].hypot(v[2]);let dy=v[1]+v[6]-v[3];let d=r.hypot(dy);
+    (r>=0.3 && v[1]>=0.0 && d<=v[4]+v[5]-0.03 && d>=(v[4]-v[5]).abs()+0.08) as u32
+}
+
+#[cfg(test)]
+mod robot_tests {
+    use super::{solve_robot,robot_reachable};
+    #[test]
+    fn reach_and_solve() {
+        let input=[1.2,1.1,0.,0.95,1.2,1.1,0.55]; let mut joints=[0.;4];
+        assert_eq!(unsafe {robot_reachable(input.as_ptr())},1);
+        unsafe {solve_robot(input.as_ptr(),joints.as_mut_ptr())};
+        assert!(joints.iter().all(|v|v.is_finite()));
+        let too_far=[100.,1.,0.,0.95,1.2,1.1,0.55];
+        assert_eq!(unsafe {robot_reachable(too_far.as_ptr())},0);
+    }
+}

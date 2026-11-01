@@ -216,3 +216,28 @@ export function createRustNavigator() {
     dispose(){if(!disposed){disposed=true;free(out,outputCapacity*2);if(bp)free(bp,bc);if(op)free(op,oc);}},
   };
 }
+
+/** Experimental robot reachability and inverse kinematics. The JavaScript host
+ * retains world transforms, motion commands, jobs, scripts and object ownership. */
+export function createRustRobotKinematics() {
+  if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.solve_robot !== 'function' || typeof exports.robot_reachable !== 'function') throw new Error('Rust robot kinematics unavailable');
+  const memory=exports.memory, alloc=exports.alloc_f64 as (n:number)=>number, free=exports.free_f64 as (p:number,n:number)=>void;
+  const solve=exports.solve_robot as (input:number,output:number)=>void;
+  const reachable=exports.robot_reachable as (input:number)=>number;
+  const ptr=alloc(11);
+  let disposed=false;
+  function input(local:import('../engine').V3,spec:import('../engine').RobotSpec) {
+    if(disposed) throw new Error('Rust robot kinematics has been disposed');
+    const data=new Float64Array(memory.buffer,ptr,11);
+    data.set([local[0],local[1],local[2],spec.shoulder,spec.L1,spec.L2,spec.Lw]);
+    return data;
+  }
+  return {
+    reach(local:import('../engine').V3,spec:import('../engine').RobotSpec) {input(local,spec);return reachable(ptr)!==0;},
+    solve(local:import('../engine').V3,spec:import('../engine').RobotSpec) {
+      const data=input(local,spec);solve(ptr,ptr+7*8);
+      return {waist:data[7],shoulder:data[8],elbow:data[9],wrist:data[10]};
+    },
+    dispose(){if(!disposed){disposed=true;free(ptr,11);}},
+  };
+}

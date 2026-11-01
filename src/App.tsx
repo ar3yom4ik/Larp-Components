@@ -236,6 +236,20 @@ export default function App() {
     return () => { cancelled = true; if (navigator && sim.navigator === navigator) sim.navigator = null; navigator?.dispose(); };
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("rustKinematics") !== "1") return;
+    let cancelled = false;
+    let kinematics: ReturnType<typeof import("./sim/wasm/kernel").createRustRobotKinematics> | null = null;
+    void import("./sim/wasm/kernel").then(({ createRustRobotKinematics }) => {
+      if (cancelled) return;
+      kinematics = createRustRobotKinematics(); sim.robotKinematics = kinematics;
+      sim.log("Experimental Rust robot kinematics active; scripts and motion remain host-managed.", "info");
+    }).catch((error: unknown) => {
+      if (!cancelled) sim.log(`Rust robot kinematics unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
+    });
+    return () => { cancelled = true; if (kinematics && sim.robotKinematics === kinematics) sim.robotKinematics = null; kinematics?.dispose(); };
+  }, []);
+
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {
