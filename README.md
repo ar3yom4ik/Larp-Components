@@ -40,7 +40,8 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | --- | --- |
 | `npm run dev` | Start the Vite dev server (port 5173 by default; the docs and tests use 4173). |
 | `npm run typecheck` | TypeScript type check with `tsc --noEmit`. |
-| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance and server-rendered UI tests (23 files, including experimental Wasm parity). |
+| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance and server-rendered UI tests (24 files, including experimental Wasm parity). |
+| `npm run test:archive-browser` | Playwright `.LCMX` import/export and save/autosave checks against the development server. |
 | `npm run test:browser` | Four core Playwright UI suites against a running development server on port 4173. |
 | `npm run test:typescript-parity` | Compare selected simulation state against a Git baseline; see `docs/TYPESCRIPT_OPTIMIZATION.md`. |
 | `npm run build` | Production build **plus** the asset embedder; writes `dist/index.html` (standalone, ~10 MB). |
@@ -98,3 +99,7 @@ Screenshots are written to `tests/artifacts/` (git-ignored). Some tests need an 
 ## Licensing
 
 No top-level license has been chosen for this repository yet. Bundled third-party code and assets keep their own licenses; see `THIRD_PARTY_LICENSES/`. The default worker is Quaternius (CC0) with Mixamo-style bone names; it is not an Adobe Mixamo asset.
+
+### Project archives
+
+Use **Save project** to select an `.lcmx` file when the browser supports the File System Access API, or **FILE → Export copy (.lcmx)** to download one. The compressed archive includes embedded custom models and worker assets. Browsers without writable file handles download a copy instead of autosaving to that file. Legacy `.txt` export and `.txt`/`.json` imports remain supported. See `docs/ROADMAP.md` for format, security and roadmap limitations.

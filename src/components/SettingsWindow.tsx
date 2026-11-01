@@ -18,6 +18,7 @@ export interface SettingsWindowProps {
   rename: (name: string) => void;
   save: () => void;
   exportFile: () => void;
+  exportArchive: () => void;
   importFile: (file: File) => void;
   newProject: () => void;
   mode: InterfaceMode;
@@ -445,12 +446,12 @@ export function SettingsWindow(props: SettingsWindowProps) {
             <Section title="Project">
               <label className="block px-3 text-[11px] text-white/45">{t("Rename project")}<input value={props.project} onChange={(event) => props.rename(event.target.value)} className="mt-1.5 w-full rounded border border-white/15 bg-[#202024] px-3 py-2 text-[13px] text-white/85 outline-none focus:border-[var(--app-accent)]" /></label>
               <div className="my-3 grid grid-cols-2 gap-2 px-3">
-                {[[t("Save project"), Save, props.save], [t("New factory"), FolderOpen, props.newProject], [t("Export copy (.txt)"), Download, props.exportFile], [t("Import TXT"), Upload, () => importInput.current?.click()]].map(([label, Icon, fn]) => {
+                {[[t("Save project"), Save, props.save], [t("New factory"), FolderOpen, props.newProject], [t("Export copy (.txt)"), Download, props.exportFile], [t("Export copy (.lcmx)"), Download, props.exportArchive], [t("Import project"), Upload, () => importInput.current?.click()]].map(([label, Icon, fn]) => {
                   const I = Icon as typeof Save;
                   return <button key={String(label)} type="button" onClick={fn as () => void} className="flex min-h-10 items-center justify-center gap-2 rounded border border-white/15 px-2 text-[12px] text-white/75 hover:bg-white/10"><I size={14} />{String(label)}</button>;
                 })}
               </div>
-              <input ref={importInput} type="file" accept=".txt,text/plain" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) props.importFile(file); }} />
+              <input ref={importInput} type="file" accept=".txt,.json,.lcmx,text/plain,application/json,application/zip" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) props.importFile(file); }} />
             </Section>
           </>
         );

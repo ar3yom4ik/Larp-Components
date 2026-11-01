@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.14] - 2026-11-01 (prerelease)
+
+- Added `.LCMX` compressed project archives, including deduplicated embedded custom model, texture and worker assets, alongside legacy text project support. Archive imports validate structure, limits and checksums before accepting a scene.
+- Save picks `.lcmx` where browser file access is available and autosaves to the chosen handle; ordered writes prevent older autosaves overtaking newer ones. Other browsers download a copy instead. Browser sandboxes cannot set an arbitrary default local folder.
+- Added project archive unit and browser tests and an incremental roadmap. The Rust rewrite is dropped; the experimental code remains historical and opt-in. Remaining roadmap features, VC interoperability and robot-controller code are not implemented.
+
 ## [2.5.0-alpha.13] - 2026-11-01 (prerelease)
 
 - Fixed high products incorrectly colliding with a fence after a lower product populated the reusable collision buffer; added a regression test.

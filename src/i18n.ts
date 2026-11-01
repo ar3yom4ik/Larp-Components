@@ -17,6 +17,7 @@ export function useLanguage() {
 
 // Program identifiers, code and user-authored names remain unchanged in both languages.
 export const RU: Record<string, string> = {
+  "Export copy (.lcmx)": "Экспорт копии (.lcmx)", "Import project (.lcmx / .txt / .json)": "Импорт проекта (.lcmx / .txt / .json)",
   "Video": "Видео", "Graphics quality": "Качество графики", "Lighting": "Освещение",
   "Interface & colours": "Интерфейс и цвета", "Keybinds": "Горячие клавиши", "Settings backup": "Резервная копия настроек",
   "Import 3D model": "Импорт 3D-модели",

@@ -1,6 +1,6 @@
 export interface ExportHandle {
   name: string;
-  createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
+  createWritable: () => Promise<{ write: (data: string | Blob) => Promise<void>; close: () => Promise<void> }>;
   queryPermission?: (descriptor: { mode: string }) => Promise<string>;
   requestPermission?: (descriptor: { mode: string }) => Promise<string>;
 }

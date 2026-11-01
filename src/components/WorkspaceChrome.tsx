@@ -82,6 +82,7 @@ export interface ChromeProps {
   onNewProject: () => void;
   onSave: () => void;
   onExport: () => void;
+  onExportArchive: () => void;
   onImport: (file: File) => void;
   onImportModel: () => void;
   onShare: () => void;
@@ -298,7 +299,8 @@ export function AppChrome(props: ChromeProps) {
                   { icon: <FolderOpen size={14} />, label: "Browse layouts", hint: "", fn: props.onShowLayouts },
                   { icon: <Save size={14} />, label: "Save project", hint: "Ctrl+S", fn: props.onSave },
                   { icon: <Download size={14} />, label: "Export copy (.txt)", hint: "", fn: props.onExport },
-                  { icon: <Upload size={14} />, label: "Import project (.txt / .json)", hint: "", fn: () => importInput.current?.click() },
+                  { icon: <Download size={14} />, label: "Export copy (.lcmx)", hint: "", fn: props.onExportArchive },
+                  { icon: <Upload size={14} />, label: "Import project (.lcmx / .txt / .json)", hint: "", fn: () => importInput.current?.click() },
                   { icon: <Boxes size={14} />, label: "Import 3D model", hint: "", fn: props.onImportModel },
                 ].map((entry) => (
                   <button
@@ -541,7 +543,7 @@ export function AppChrome(props: ChromeProps) {
       <input
         ref={importInput}
         type="file"
-        accept=".txt,.json,text/plain,application/json"
+        accept=".txt,.json,.lcmx,text/plain,application/json,application/zip"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];

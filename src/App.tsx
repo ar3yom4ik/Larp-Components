@@ -16,6 +16,7 @@ import { useDevice } from "./utils/device";
 import { t, useLanguage } from "./i18n";
 import { useAppearance, SKINS, setBuilding } from "./theme";
 import { estimateProjectBytes, MAX_PROJECT_CHARS, parseProject, serializeProject } from "./utils/project";
+import { createProjectArchive, MAX_ARCHIVE_BYTES, readProjectArchive } from "./utils/projectArchive";
 import { loadExportHandle, storeExportHandle, clearExportHandle, permission, type ExportHandle } from "./utils/handles";
 import { MobileChrome, MobileNav, ProjectSettings, type TouchPanel } from "./components/MobileChrome";
 import { MobileTools } from "./components/MobileTools";
@@ -143,6 +144,7 @@ export default function App() {
   const toastCounter = useRef(0);
   const clipboard = useRef<SceneItem | null>(null);
   const fileHandle = useRef<ExportHandle | null>(null);
+  const writeQueue = useRef<Promise<void>>(Promise.resolve());
   const handleGeneration = useRef(0);
   const [exportedName, setExportedName] = useState<string | null>(null);
   useEffect(() => { let alive = true; const generation = handleGeneration.current; void loadExportHandle().then((handle) => { if (alive && generation === handleGeneration.current && handle) { fileHandle.current = handle; setExportedName(handle.name); } }); return () => { alive = false; }; }, []);
@@ -463,12 +465,20 @@ export default function App() {
         fileHandle.current = null; notify("Write permission denied", "info"); return;
       }
       try {
-        const writer = await handle.createWritable(); await writer.write(text); await writer.close();
+        const data = /\.lcmx$/i.test(handle.name) ? new Blob([Uint8Array.from(createProjectArchive(text))], { type: "application/zip" }) : text;
+        // Serialize writes so a slower old autosave cannot overwrite a newer one.
+        const pending = writeQueue.current.then(async () => {
+          if (fileHandle.current !== handle) return;
+          const writer = await handle.createWritable(); await writer.write(data); await writer.close();
+        });
+        writeQueue.current = pending.catch(() => {});
+        await pending;
+        if (fileHandle.current !== handle) return;
         setExportedName(handle.name);
         if (!silent) notify(`Changes written to ${handle.name}`);
         return;
       } catch {
-        fileHandle.current = null; setExportedName(null);
+        if (fileHandle.current === handle) { fileHandle.current = null; setExportedName(null); }
         if (silent) return;
       }
     }
@@ -476,8 +486,8 @@ export default function App() {
     try {
       const picker = (window as unknown as { showSaveFilePicker?: (options: unknown) => Promise<ExportHandle> }).showSaveFilePicker;
       if (picker) {
-        const picked = await picker({ suggestedName: `${projectName.replace(/[<>:"/\\|?*]+/g, "-").trim() || "factory"}.txt`, types: [{ description: "Larp factory project", accept: { "text/plain": [".txt"] } }] });
-        const writer = await picked.createWritable(); await writer.write(text); await writer.close();
+        const picked = await picker({ suggestedName: `${projectName.replace(/[<>:"/\\|?*]+/g, "-").trim() || "factory"}.lcmx`, types: [{ description: "Larp factory project", accept: { "application/zip": [".lcmx"] } }] });
+        const writer = await picked.createWritable(); await writer.write(/\.lcmx$/i.test(picked.name) ? new Blob([Uint8Array.from(createProjectArchive(text))], { type: "application/zip" }) : text); await writer.close();
         fileHandle.current = picked; await storeExportHandle(picked); setExportedName(picked.name);
         notify(`Project exported to ${picked.name}`); return;
       }
@@ -485,11 +495,11 @@ export default function App() {
       if ((error as { name?: string }).name === "AbortError") return;
       notify("Could not write the project file", "info");
     }
-    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([Uint8Array.from(createProjectArchive(text))], { type: "application/zip" });
     const url = URL.createObjectURL(blob); const link = document.createElement("a");
-    link.href = url; link.download = `${projectName.replace(/[<>:"/\\|?*]+/g, "-").trim() || "factory"}.txt`;
+    link.href = url; link.download = `${projectName.replace(/[<>:"/\\|?*]+/g, "-").trim() || "factory"}.lcmx`;
     document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setExportedName(link.download); notify("Project downloaded (.txt)");
+    setExportedName(link.download); notify("Project downloaded (.lcmx)");
   }, [notify, projectText, projectName]);
 
   useEffect(() => {
@@ -570,12 +580,23 @@ export default function App() {
     notify("Project exported as a new .txt file");
   }, [notify, projectName, projectText]);
 
+  const downloadArchive = useCallback(() => {
+    try {
+      const blob = new Blob([Uint8Array.from(createProjectArchive(projectText()))], { type: "application/zip" });
+      const url = URL.createObjectURL(blob); const link = document.createElement("a");
+      link.href = url; link.download = `${projectName.replace(/[<>:"/\\|?*]+/g, "-").trim() || "factory"}.lcmx`;
+      document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      notify("Project exported as a new .lcmx file");
+    } catch (error) { notify(`Could not export project: ${error instanceof Error ? error.message : String(error)}`, "info"); }
+  }, [notify, projectName, projectText]);
+
   const importProject = async (file: File) => {
     try {
-      if (file.size > 180_000_000) throw new Error("Project exceeds the 180 MB limit.");
-      const parsed = parseProject(await file.text());
+      if (file.size > (/\.lcmx$/i.test(file.name) ? MAX_ARCHIVE_BYTES : 180_000_000)) throw new Error("Project exceeds the 180 MB limit.");
+      const parsed = parseProject(/\.lcmx$/i.test(file.name) ? readProjectArchive(new Uint8Array(await file.arrayBuffer())) : await file.text());
       if (parsed.items.some((i) => i.script?.trim() && (!i.program || i.script.trim() !== programToCode(i.program).trim())) && !window.confirm(t("This project contains executable JavaScript. Only open scripts from a trusted source. Continue?"))) return;
-      replaceScene(parsed.items, parsed.projectName || file.name.replace(/\.(txt|json)$/i, ""), parsed.activeLayoutId);
+      replaceScene(parsed.items, parsed.projectName || file.name.replace(/\.(txt|json|lcmx)$/i, ""), parsed.activeLayoutId);
       setLayoutName(parsed.layoutName);
       detachExportHandle();
       setMobilePanel(null);
@@ -871,7 +892,7 @@ export default function App() {
   );
   // Docked panels own their size; a detached panel renders as a floating window instead.
   const dockNode = !mobile && layout.dock.open && !layout.dock.floating ? <PanelShell id="dock" title="Output">{dockPanelBody}</PanelShell> : null;
-  const projectSettings = <ProjectSettings inline={mobile} project={projectName} rename={setProjectName} save={() => void saveProject()} exportFile={downloadProject} importFile={importProject} newProject={newProject} mode={interfaceMode} setMode={setInterfaceMode} onClose={() => setSettingsOpen(false)} />;
+  const projectSettings = <ProjectSettings inline={mobile} project={projectName} rename={setProjectName} save={() => void saveProject()} exportFile={downloadProject} exportArchive={downloadArchive} importFile={importProject} newProject={newProject} mode={interfaceMode} setMode={setInterfaceMode} onClose={() => setSettingsOpen(false)} />;
   const mobileTools = <MobileTools selected={selected} selectedPoint={selectedPoint} snap={snap}
     onSnap={() => setSnap((v) => !v)} onCopy={copySelected} onPaste={paste}
     onDuplicate={() => selectedId && duplicateItem(selectedId)} onDelete={() => selectedId && deleteItem(selectedId)}
@@ -912,6 +933,7 @@ export default function App() {
         onNewProject={newProject}
         onSave={() => void saveProject()}
         onExport={downloadProject}
+        onExportArchive={downloadArchive}
         onImport={importProject}
         onImportModel={() => openModelImport()}
         onShare={shareProject}
@@ -965,7 +987,7 @@ export default function App() {
       <input
         ref={projectInput}
         type="file"
-        accept=".txt,text/plain"
+        accept=".txt,.json,.lcmx,text/plain,application/json,application/zip"
         className="hidden"
         aria-hidden
         onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void importProject(file); }}

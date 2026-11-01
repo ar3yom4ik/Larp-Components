@@ -1,6 +1,6 @@
 {
   "name": "larp-components",
-  "version": "2.5.0-alpha.13",
+  "version": "2.5.0-alpha.14",
   "description": "Browser-based React/Three.js factory layout editor and discrete-time simulator (Larp Components 5.1, release V2).",
   "private": true,
   "type": "module",
@@ -22,7 +22,8 @@
     "test:typescript-parity": "node scripts/bench-typescript.mjs --parity",
     "build": "vite build && node scripts/embed-assets.mjs",
     "preview": "vite preview",
-    "test:browser": "node tests/browser.mjs && node tests/code-and-tablet.mjs && node tests/features.mjs && node tests/v1-graphics.mjs"
+    "test:browser": "node tests/browser.mjs && node tests/code-and-tablet.mjs && node tests/features.mjs && node tests/v1-graphics.mjs",
+    "test:archive-browser": "node tests/project-archive.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
