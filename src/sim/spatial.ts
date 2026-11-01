@@ -1,19 +1,20 @@
 /**
  * Small uniform spatial hash used by the simulation to avoid O(n²) scans.
  *
- * It stores references, never copies, and re-uses its buckets between rebuilds, so a
- * per-substep rebuild of the moving boxes is cheap. Query results are written into a
+ * It stores references, never copies. Query results are written into a
  * caller-owned array, which keeps the physics loop allocation-free.
  *
  * Every value must be an object (identity is used to de-duplicate hits inside one query).
- * A stamp is kept in a WeakMap so values themselves are not mutated.
+ * A module-wide stamp de-duplicates hits without allocating a set per query.
  */
 /** Values may carry a scratch stamp; it is private to this module's bookkeeping. */
 interface Stamped { __spatialStamp?: number }
+// A single sequence prevents two indexes containing the same object from
+// accidentally treating one another's stamps as their own.
+let queryGeneration = 0;
 
 export class SpatialHash<T extends object> {
   private buckets = new Map<number, T[]>();
-  private generation = 0;
   private minX = Infinity;
   private minZ = Infinity;
   private maxX = -Infinity;
@@ -22,7 +23,6 @@ export class SpatialHash<T extends object> {
   constructor(private cellSize = 2) {}
 
   clear() {
-    // Buckets are dropped entirely: rebuilding happens once per scene change, not per frame.
     this.buckets.clear();
     this.minX = this.minZ = Infinity;
     this.maxX = this.maxZ = -Infinity;
@@ -60,8 +60,7 @@ export class SpatialHash<T extends object> {
     if (!this.buckets.size) return out;
     // Outside the indexed area nothing can match, which keeps big empty scenes cheap.
     if (x < this.minX - radius || x > this.maxX + radius || z < this.minZ - radius || z > this.maxZ + radius) return out;
-    this.generation += 1;
-    const g = this.generation;
+    const g = ++queryGeneration;
     const x0 = Math.floor((x - radius) / this.cellSize), x1 = Math.floor((x + radius) / this.cellSize);
     const z0 = Math.floor((z - radius) / this.cellSize), z1 = Math.floor((z + radius) / this.cellSize);
     for (let cx = x0; cx <= x1; cx += 1) {

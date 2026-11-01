@@ -43,9 +43,12 @@ function wrapQuarter(d: number) { return Math.atan2(Math.sin(d), Math.cos(d)); }
 interface Footprint { x: number; z: number; hx: number; hz: number; yaw: number }
 function contactXZ(a: Footprint, b: Footprint) {
   const ac = Math.cos(a.yaw), as = Math.sin(a.yaw), bc = Math.cos(b.yaw), bs = Math.sin(b.yaw);
-  const axes = [[ac, -as], [as, ac], [bc, -bs], [bs, bc]];
   let depth = Infinity, nx = 0, nz = 0;
-  for (const [x, z] of axes) {
+  // Keep the original axis order and arithmetic, without allocating four pairs
+  // for every product contact in the simulation hot path.
+  for (let i = 0; i < 4; i += 1) {
+    const x = i === 0 ? ac : i === 1 ? as : i === 2 ? bc : bs;
+    const z = i === 0 ? -as : i === 1 ? ac : i === 2 ? -bs : bc;
     const ra = a.hx * Math.abs(x * ac - z * as) + a.hz * Math.abs(x * as + z * ac);
     const rb = b.hx * Math.abs(x * bc - z * bs) + b.hz * Math.abs(x * bs + z * bc);
     const distance = (b.x - a.x) * x + (b.z - a.z) * z;
@@ -2354,10 +2357,36 @@ export class Engine {
     }
   }
 
+  private conveyorBoxGroups = new Map<string, Box[]>();
+  private conveyorBoxPool: Box[][] = [];
+  private emptyConveyorBoxes: Box[] = [];
+
+  private addConveyorBox(box: Box) {
+    let list = this.conveyorBoxGroups.get(box.convId);
+    if (!list) {
+      list = this.conveyorBoxPool.pop() ?? [];
+      this.conveyorBoxGroups.set(box.convId, list);
+    }
+    list.push(box);
+  }
+
   private physics(dt: number) {
     const boxes = this.boxes;
+    // Group products by their last conveyor when enough products exist to
+    // amortize the index. A previously processed product can change conveyor;
+    // it is appended to its new group below, and stale entries are filtered by
+    // the same state/support/id checks as the original full scan.
+    const grouped = boxes.length >= 48;
+    const groups = this.conveyorBoxGroups;
+    for (const list of groups.values()) {
+      list.length = 0;
+      if (this.conveyorBoxPool.length < 512) this.conveyorBoxPool.push(list);
+    }
+    groups.clear();
+    if (grouped) for (const box of boxes) if (box.state === "free" && box.support === 2) this.addConveyorBox(box);
     let floorBoxes = 0;
     for (const b of boxes) {
+      const previousConveyor = grouped && b.state === "free" && b.support === 2 ? b.convId : null;
       b.age += dt;
       if (b.state === "held" || b.state === "inside" || b.state === "dead") continue;
       if (b.state === "dying") {
@@ -2375,7 +2404,7 @@ export class Engine {
         let blocked = false;
         if (conv && q) {
           b.convId = conv.id; b.convS = q.s; b.convLat = q.lat;
-          for (const o of boxes) {
+          for (const o of (grouped ? groups.get(conv.id) ?? this.emptyConveyorBoxes : boxes)) {
             if (o === b || o.state !== "free" || o.support !== 2 || o.convId !== conv.id) continue;
             const ds = o.convS - q.s;
             if (ds > 0 && ds < b.r + o.r + 0.02 && Math.abs(o.convLat - q.lat) < b.r + o.r - 0.05) { blocked = true; break; }
@@ -2399,7 +2428,7 @@ export class Engine {
           b.convLat = q.lat;
           // belt accumulation: wait for the carton ahead instead of pushing into it
           let blocked = false;
-          for (const o of boxes) {
+          for (const o of (grouped ? groups.get(conv.id) ?? this.emptyConveyorBoxes : boxes)) {
             if (o === b || o.state !== "free" || o.support !== 2 || o.convId !== conv.id) continue;
             const ds = o.convS - q.s;
             if (ds > 0 && ds < b.r + o.r + 0.02 && Math.abs(o.convLat - q.lat) < b.r + o.r - 0.05) {
@@ -2483,6 +2512,7 @@ export class Engine {
       }
       if (b.support === 1) floorBoxes += 1;
       if (b.y < -3 || Math.abs(b.x) > 80 || Math.abs(b.z) > 80) b.state = "dead";
+      if (grouped && b.state === "free" && b.support === 2 && b.convId !== previousConveyor) this.addConveyorBox(b);
     }
 
     // box <-> box contacts (same layer). The grid keeps this near-linear: only the

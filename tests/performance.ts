@@ -23,6 +23,16 @@ assert(hits.join(',') === 'wide', `overlapping object should be returned once, g
 assert(hash.query(4, 0, out).map((h) => h.id).join(',') === 'near', 'neighbouring cell missed');
 assert(hash.query(1000, 1000, out).length === 0, 'query outside the indexed bounds returned hits');
 assert(hash.query(0, 0, out, 4).length >= 2, 'radial query should widen the cell range');
+// One object can be present in different indexes; generation counters must not
+// collide across instances. Duplicate inserts must still appear just once.
+const shared = { id: 'shared' };
+const firstIndex = new SpatialHash<typeof shared>(2), secondIndex = new SpatialHash<typeof shared>(2);
+firstIndex.insert(shared, 0, 0, 1, 1); secondIndex.insert(shared, 0, 0, 1, 1);
+secondIndex.insert(shared, 0, 0, 1, 1);
+assert(firstIndex.query(0, 0, []).length === 1, 'first index lost shared object');
+assert(secondIndex.query(0, 0, []).length === 1, 'second index lost or duplicated shared object');
+secondIndex.clear(); secondIndex.insert(shared, 6, 6, 7, 7);
+assert(secondIndex.query(0, 0, []).length === 0 && secondIndex.query(6, 6, []).length === 1, 'cleared index retained stale objects');
 hash.clear();
 assert(hash.empty && hash.query(0, 0, out).length === 0, 'clear did not empty the hash');
 

@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.11] - 2026-11-01 (prerelease)
+
+- Continued simulation optimization in TypeScript. Larger product sets use conveyor-specific candidate groups for blocking checks; product contact checks avoid temporary axis arrays. No visual quality or simulation fidelity settings were reduced.
+- Fixed spatial-index query stamps colliding when the same object belongs to multiple indexes. Added a before/after TypeScript parity test and benchmark, including crowded conveyor transfers.
+- In one Node benchmark, median total simulation-step time was 9.7–10.7% lower in two dense scenarios; the human-cell result was 0.6% higher. Browser FPS and broader workloads were not measured. See `docs/TYPESCRIPT_OPTIMIZATION.md`.
+- TypeScript remains the default. Rust prototypes remain experimental and opt-in; the Rust port is incomplete.
+
 ## [2.5.0-alpha.10] - 2026-11-01 (prerelease)
 
 - Reduced temporary allocations in the experimental feeder, machine, robot and product Wasm bridges and refreshed views after shared-memory growth, including growth in feeder callbacks.
