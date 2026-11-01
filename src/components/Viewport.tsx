@@ -25,6 +25,7 @@ import { COMPONENTS, getDef } from "../data/library";
 import { PartIcon, partAccent } from "./PartIcon";
 import { FactoryEnvironment, FactoryModel, MODEL_HEIGHTS, type BuildingStyle } from "./FactoryModels";
 import { ImportedModel } from "./ImportedModel";
+import { ViewportErrorBoundary } from "./ViewportErrorBoundary";
 import { SignalPortLayer } from "./SignalPortLayer";
 import { canSignalInput, canSignalOutput } from "../utils/signalPorts";
 import { WireLayer } from "./WireLayer";
@@ -834,6 +835,7 @@ export const Viewport = memo(function Viewport({
       }}
       onDrop={(event) => { setDragActive(false); const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); onImportFiles(files); } }}
     >
+      <ViewportErrorBoundary>
       <Canvas
         // The antialias mode is a context attribute, so switching it recreates the context.
         key={`${gpuMode ? "renderer-webgpu" : "renderer-webgl"}-${gfx.antialias}-${gfx.shadows ? (gfx.softShadows ? "soft" : "hard") : "nosun"}`}
@@ -913,6 +915,7 @@ export const Viewport = memo(function Viewport({
         />}
         <PostEffects gfx={gfx} pixelRatio={renderDpr} aoActive={aoActive} externalPipeline={gpuMode} />
       </Canvas>
+      </ViewportErrorBoundary>
 
       {gfx.showFps && <FpsBadge />}
       {/* Floating simulation player (top centre) */}

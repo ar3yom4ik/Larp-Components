@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.2] - 2026-11-01 (prerelease)
+
+- Keep the workspace visible when 3D renderer creation fails, with a retry button and guidance for enabling WebGL. The viewport still requires a working renderer.
+- Allow the production preview through proxied hostnames; verified embedded preview with and without WebGL.
+
 ## [3.0.0-alpha.1] - 2026-11-01 (prerelease)
 
 - Added an opt-in viewport signal editor for existing button, sensor, laser and PLC outputs, with robot, conveyor and PLC inputs. Supports multiple sources per endpoint, disconnect, undo and project persistence; connections use existing simulation behavior.

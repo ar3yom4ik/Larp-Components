@@ -14,6 +14,8 @@ const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "ut
 export default defineConfig({
   // The Arena preview is served through an e2b.app hostname, not localhost.
   server: { host: '0.0.0.0', allowedHosts: true },
+  // The preview is also accessed through Arena's proxied hostname.
+  preview: { host: '0.0.0.0', allowedHosts: true },
   // Large packed CAD/worker assets are appended after Rollup to keep build memory low.
   build: { reportCompressedSize: false },
   plugins: [react(), tailwindcss(), viteSingleFile()],

@@ -17,6 +17,7 @@ export function useLanguage() {
 
 // Program identifiers, code and user-authored names remain unchanged in both languages.
 export const RU: Record<string, string> = {
+  "3D viewport unavailable": "3D-вид недоступен", "Retry 3D viewport": "Повторить запуск 3D-вида", "The browser could not start the 3D renderer. Check that WebGL and hardware acceleration are enabled, or try another browser. The rest of the workspace remains available.": "Браузеру не удалось запустить 3D-рендерер. Проверьте, включены ли WebGL и аппаратное ускорение, или попробуйте другой браузер. Остальные элементы интерфейса доступны.",
   "Edit signal connections": "Редактировать сигнальные соединения", "Signal output": "Выход сигнала", "Signal input": "Вход сигнала", "Disconnect signal": "Отключить сигнал", "Choose an IN port for": "Выберите вход для", "Choose an OUT port on a sensor, button, laser or PLC.": "Выберите выход датчика, кнопки, лазера или ПЛК.", "Signal links only; material flow is separate.": "Только сигналы; поток изделий подключается отдельно.",
   "Export copy (.lcmx)": "Экспорт копии (.lcmx)", "Import project (.lcmx / .txt / .json)": "Импорт проекта (.lcmx / .txt / .json)",
   "Video": "Видео", "Graphics quality": "Качество графики", "Lighting": "Освещение",
