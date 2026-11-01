@@ -418,3 +418,66 @@ mod robot_tests {
         assert_eq!(unsafe {robot_reachable(too_far.as_ptr())},0);
     }
 }
+
+/// Integrate one free product for one fixed step using host-selected support and
+/// conveyor information. Host owns scene lookup, statistics and collision response.
+/// State: x,y,z,vx,vy,vz,yaw,tilt,tilt_velocity,axis_x,axis_z,half_height,radius,
+/// support_kind. Support: top,kind,is_conveyor,lat,tx,tz,s,speed,blocked,stopper,
+/// length. Returns whether the product contacted the support.
+/// # Safety
+/// State and support point to non-overlapping initialized arrays of 14 and 11 f64.
+#[no_mangle]
+pub unsafe extern "C" fn integrate_product(state:*mut f64, support:*const f64, dt:f64)->u32 {
+    let b=std::slice::from_raw_parts_mut(state,14);let s=std::slice::from_raw_parts(support,11);
+    let previous=b[13];
+    let grounded=b[1]-b[11]<=s[0]+0.004 && b[4]<=0.05;
+    if grounded {
+        b[1]=s[0]+b[11];
+        if previous==0.0 && b[4]< -1.3 {b[4]= -b[4]*0.12;} else {b[4]=0.0;}
+        b[13]=s[1];
+        if s[2]!=0.0 {
+            let sp=if s[8]!=0.0 {0.0} else {s[7]};
+            let vlat=js_max(-0.5,js_min(0.5,-s[3]*4.0));
+            let dvx=s[4]*sp+ -s[5]*vlat;let dvz=s[5]*sp+s[4]*vlat;
+            let k=js_min(1.0,12.0*dt);
+            b[3]+=(dvx-b[3])*k;b[5]+=(dvz-b[5])*k;
+            let target=(-s[5]).atan2(s[4]);let angle=target-b[6];
+            b[6]+=angle.sin().atan2(angle.cos())*js_min(1.0,5.0*dt);
+            if s[9]!=0.0 {
+                let limit=s[10]-0.06-b[12];
+                if s[6]>limit {
+                    let back=s[6]-limit;b[0]-=s[4]*back;b[2]-=s[5]*back;
+                    let vn=b[3]*s[4]+b[5]*s[5];
+                    if vn>0.0 {b[3]-=s[4]*vn;b[5]-=s[5]*vn;}
+                }
+            }
+        } else {
+            let sp=b[3].hypot(b[5]);
+            if sp>0.0 {let next=js_max(0.0,sp-7.0*dt);b[3]*=next/sp;b[5]*=next/sp;}
+        }
+        b[8]+=(-70.0*b[7]-10.0*b[8])*dt;b[7]+=b[8]*dt;
+        if b[7].abs()<0.002 && b[8].abs()<0.02 {b[7]=0.0;b[8]=0.0;}
+    } else {
+        if previous==2.0 {
+            let sp=b[3].hypot(b[5]);if sp>0.04 {b[9]=b[5]/sp;b[10]= -b[3]/sp;b[8]=1.6+sp*2.4;}
+        }
+        b[13]=0.0;b[4]-=9.81*dt;b[7]=js_min(1.25,b[7]+b[8]*dt);
+    }
+    b[0]+=b[3]*dt;b[1]+=b[4]*dt;b[2]+=b[5]*dt;
+    grounded as u32
+}
+
+#[cfg(test)]
+mod product_tests {
+    use super::integrate_product;
+    #[test]
+    fn gravity_and_ground_contact() {
+        let mut b=[0.,1.,0.,0.,0.,0.,0.,0.,0.,1.,0.,0.1,0.2,0.];
+        let support=[0.,1.,0.,0.,0.,0.,0.,0.,0.,0.,0.];
+        assert_eq!(unsafe {integrate_product(b.as_mut_ptr(),support.as_ptr(),0.1)},0);
+        assert!(b[1]<1. && b[4]<0.);
+        b[1]=0.1;b[4]= -0.5;
+        assert_eq!(unsafe {integrate_product(b.as_mut_ptr(),support.as_ptr(),0.1)},1);
+        assert_eq!(b[4],0.);assert_eq!(b[13],1.);
+    }
+}

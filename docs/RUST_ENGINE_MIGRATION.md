@@ -113,6 +113,19 @@ not been benchmarked or validated in a browser.
 joint angles, and one JavaScript robot program completed. This is not full robot
 or engine parity; floating-point boundary cases and other scripts remain unproven.
 
+## Experimental product integration (alpha.8)
+
+`?rustProducts=1` opts free-product motion integration into Rust/Wasm: gravity,
+support response, conveyor velocity and stopper, friction, tilt, and position
+updates. The host still selects support and conveyor blocking, resolves barrier
+and product contacts, records statistics, and owns lifecycle and objects. The
+default remains TypeScript. This is not a complete physics or engine port.
+
+Tests compare 10,000 numerical scenarios and selected state in a 100-second
+factory, plus pallet, collector, floor and fence cases. Browser behavior,
+performance, and full-engine parity remain unverified. The per-product Wasm
+boundary and buffer copies may be costly.
+
 ## Constraints for remaining migration
 
 - Preserve fixed-step simulation, pacing under load, saved projects, and all existing

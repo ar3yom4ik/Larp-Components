@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.8] - 2026-11-01 (prerelease)
+
+- Experimental Rust/Wasm free-product integration (`?rustProducts=1`): gravity, support response, conveyor motion, friction and tilt. Support lookup, collision response, statistics and lifecycle remain TypeScript; the default remains TypeScript.
+- Added 10,000 motion comparisons and live factory, pallet, collector, floor and fence tests. Browser behavior, performance and full-engine parity remain unverified. The Rust port is still incomplete.
+
 ## [2.5.0-alpha.7] - 2026-11-01 (prerelease)
 
 - Experimental Rust/Wasm robot reachability and inverse kinematics (`?rustKinematics=1`), with host-managed transforms, programs, commands and motion. The default remains TypeScript.

@@ -241,3 +241,24 @@ export function createRustRobotKinematics() {
     dispose(){if(!disposed){disposed=true;free(ptr,11);}},
   };
 }
+
+/** Experimental free-product integration. Support selection, identity, contacts,
+ * statistics and cleanup remain in the TypeScript host. */
+export function createRustProductIntegrator() {
+  if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.integrate_product !== 'function') throw new Error('Rust product integration unavailable');
+  const memory=exports.memory, alloc=exports.alloc_f64 as (n:number)=>number, free=exports.free_f64 as (p:number,n:number)=>void;
+  const run=exports.integrate_product as (state:number,support:number,dt:number)=>number;
+  const ptr=alloc(25);let disposed=false;
+  return {
+    integrate(b:import('../engine').Box,s:import('../engine').ProductSupport,dt:number) {
+      if(disposed) throw new Error('Rust product integrator has been disposed');
+      const a=new Float64Array(memory.buffer,ptr,25);
+      a.set([b.x,b.y,b.z,b.vx,b.vy,b.vz,b.yaw,b.tilt,b.tiltV,b.ax,b.az,b.hy,b.r,b.support,
+        s.top,s.kind,s.conveyor?1:0,s.lat,s.tx,s.tz,s.along,s.speed,s.blocked?1:0,s.stopper?1:0,s.length]);
+      const grounded=run(ptr,ptr+14*8,dt)!==0;
+      b.x=a[0];b.y=a[1];b.z=a[2];b.vx=a[3];b.vy=a[4];b.vz=a[5];b.yaw=a[6];b.tilt=a[7];b.tiltV=a[8];b.ax=a[9];b.az=a[10];b.support=a[13] as import('../engine').Box['support'];
+      return grounded;
+    },
+    dispose(){if(!disposed){disposed=true;free(ptr,25);}},
+  };
+}

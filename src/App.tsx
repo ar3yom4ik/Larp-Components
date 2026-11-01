@@ -250,6 +250,20 @@ export default function App() {
     return () => { cancelled = true; if (kinematics && sim.robotKinematics === kinematics) sim.robotKinematics = null; kinematics?.dispose(); };
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("rustProducts") !== "1") return;
+    let cancelled = false;
+    let integrator: ReturnType<typeof import("./sim/wasm/kernel").createRustProductIntegrator> | null = null;
+    void import("./sim/wasm/kernel").then(({ createRustProductIntegrator }) => {
+      if (cancelled) return;
+      integrator = createRustProductIntegrator(); sim.productIntegrator = integrator;
+      sim.log("Experimental Rust product integration active; collision handling remains host-managed.", "info");
+    }).catch((error: unknown) => {
+      if (!cancelled) sim.log(`Rust product integration unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
+    });
+    return () => { cancelled = true; if (integrator && sim.productIntegrator === integrator) sim.productIntegrator = null; integrator?.dispose(); };
+  }, []);
+
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {

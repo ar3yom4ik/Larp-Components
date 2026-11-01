@@ -691,6 +691,12 @@ export interface LogicStepper {
   step(items: readonly SceneItem[], boxes: readonly Box[], triggers: ReadonlyMap<string, SceneItem[]>, signals: Map<string, boolean>): void;
 }
 
+export interface ProductSupport {
+  top: number; kind: number; conveyor: boolean; lat: number; tx: number; tz: number;
+  along: number; speed: number; blocked: boolean; stopper: boolean; length: number;
+}
+export interface ProductIntegrator { integrate(box: Box, support: ProductSupport, dt: number): boolean }
+
 export interface Navigator {
   navigate(start: P2, end: P2, barriers: Barrier[], obstacles: WalkObstacle[]): P2[];
 }
@@ -702,6 +708,7 @@ export class Engine {
     this._robotKinematics = value;
     this.robots.forEach((robot) => { robot.kinematics = value; });
   }
+  productIntegrator: ProductIntegrator | null = null;
   navigator: Navigator | null = null;
   logicStepper: LogicStepper | null = null;
   machineStepper: MachineStepper | null = null;
@@ -2318,6 +2325,35 @@ export class Engine {
     return out;
   }
 
+  private recordProductSupport(b: Box, sup: typeof this.supportResult, dt: number) {
+    if (sup.kind === 3 && sup.collectorId) {
+      const collector = this.collectors.get(sup.collectorId);
+      if (collector && !b.counted) {
+        b.counted = true; collector.count += 1; this.stats.collected += 1;
+        if (collector.count % 50 === 0) this.log(`${sup.collectorId}: ${collector.count} products received`, "ok");
+      }
+    }
+    if (sup.kind === 3 || sup.kind === 4) {
+      if (sup.palletId) {
+        b.palletT += dt;
+        if (b.palletId !== sup.palletId && b.palletT > 0.35) {
+          b.palletId = sup.palletId;
+          this.stats.placed += 1;
+          this.stats.events.push(this.time);
+          // Throughput only looks back 60 s, so older entries are dead weight that
+          // used to grow without limit on long runs.
+          if (this.stats.events.length > 4096) {
+            const cutoff = this.time - 90;
+            this.stats.events = this.stats.events.filter((t) => t > cutoff);
+          }
+        }
+      }
+    } else if (sup.kind === 1 && !b.lostCounted && b.age > 0.5) {
+      b.lostCounted = true;
+      this.stats.lost += 1;
+    }
+  }
+
   private physics(dt: number) {
     const boxes = this.boxes;
     let floorBoxes = 0;
@@ -2332,7 +2368,25 @@ export class Engine {
       const prev = b.support;
       const sup = this.findSupport(b);
       const bottom = b.y - b.hy;
-      if (bottom <= sup.top + 0.004 && b.vy <= 0.05) {
+      if (this.productIntegrator) {
+        const grounded = bottom <= sup.top + 0.004 && b.vy <= 0.05;
+        const conv = grounded && sup.kind === 2 ? sup.conv : null;
+        const q = conv ? sup.q : null;
+        let blocked = false;
+        if (conv && q) {
+          b.convId = conv.id; b.convS = q.s; b.convLat = q.lat;
+          for (const o of boxes) {
+            if (o === b || o.state !== "free" || o.support !== 2 || o.convId !== conv.id) continue;
+            const ds = o.convS - q.s;
+            if (ds > 0 && ds < b.r + o.r + 0.02 && Math.abs(o.convLat - q.lat) < b.r + o.r - 0.05) { blocked = true; break; }
+          }
+        }
+        const landed = this.productIntegrator.integrate(b, {
+          top: sup.top, kind: sup.kind, conveyor: !!(conv && q), lat: q?.lat ?? 0, tx: q?.tx ?? 0, tz: q?.tz ?? 0,
+          along: q?.s ?? 0, speed: conv?.active ? conv.speed : 0, blocked, stopper: conv?.stopper ?? false, length: conv?.length ?? 0,
+        }, dt);
+        if (landed && !(conv && q)) this.recordProductSupport(b, sup, dt);
+      } else if (bottom <= sup.top + 0.004 && b.vy <= 0.05) {
         b.y = sup.top + b.hy;
         if (prev === 0 && b.vy < -1.3) b.vy = -b.vy * 0.12;
         else b.vy = 0;
@@ -2382,32 +2436,7 @@ export class Engine {
             b.vx *= next / sp;
             b.vz *= next / sp;
           }
-          if (sup.kind === 3 && sup.collectorId) {
-            const collector = this.collectors.get(sup.collectorId);
-            if (collector && !b.counted) {
-              b.counted = true; collector.count += 1; this.stats.collected += 1;
-              if (collector.count % 50 === 0) this.log(`${sup.collectorId}: ${collector.count} products received`, "ok");
-            }
-          }
-          if (sup.kind === 3 || sup.kind === 4) {
-            if (sup.palletId) {
-              b.palletT += dt;
-              if (b.palletId !== sup.palletId && b.palletT > 0.35) {
-                b.palletId = sup.palletId;
-                this.stats.placed += 1;
-                this.stats.events.push(this.time);
-                // Throughput only looks back 60 s, so older entries are dead weight that
-                // used to grow without limit on long runs.
-                if (this.stats.events.length > 4096) {
-                  const cutoff = this.time - 90;
-                  this.stats.events = this.stats.events.filter((t) => t > cutoff);
-                }
-              }
-            }
-          } else if (sup.kind === 1 && !b.lostCounted && b.age > 0.5) {
-            b.lostCounted = true;
-            this.stats.lost += 1;
-          }
+          this.recordProductSupport(b, sup, dt);
         }
         // spring the tilt back to flat
         b.tiltV += (-70 * b.tilt - 10 * b.tiltV) * dt;
@@ -2429,9 +2458,11 @@ export class Engine {
         b.vy -= G * dt;
         b.tilt = Math.min(1.25, b.tilt + b.tiltV * dt);
       }
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-      b.z += b.vz * dt;
+      if (!this.productIntegrator) {
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.z += b.vz * dt;
+      }
       const nearby = b.y < 2.1 ? this.barrierIndex.query(b.x, b.z, this.barrierScratch, b.r + 0.5) : this.barrierScratch;
       for (let k = 0; k < nearby.length; k += 1) {
         const barrier = nearby[k];
