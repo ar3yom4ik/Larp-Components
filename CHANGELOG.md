@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.12] - 2026-11-01 (prerelease)
+
+- Updated vulnerable fflate, Vite and esbuild dependencies; `npm audit` reported zero vulnerabilities after a clean install.
+- Rechecked TypeScript simulation parity and benchmarks, production and offline builds, import formats and worker workflows. No new simulation optimization was merged in this maintenance audit.
+- Four older UI test scripts did not complete, Mixamo-specific tests were skipped and native Cargo tests were unavailable. Existing component graph branching and 3D I/O work remain incomplete. See `docs/AUDIT_2.5.0-alpha.12.md` for coverage and limitations.
+
 ## [2.5.0-alpha.11] - 2026-11-01 (prerelease)
 
 - Continued simulation optimization in TypeScript. Larger product sets use conveyor-specific candidate groups for blocking checks; product contact checks avoid temporary axis arrays. No visual quality or simulation fidelity settings were reduced.
