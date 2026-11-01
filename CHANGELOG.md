@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.2] - 2026-11-01 (prerelease)
+
+- Experimental batched Rust/Wasm feeder decisions can be enabled with `?rustFeeders=1`; the default remains TypeScript. The rest of the factory simulation still runs in TypeScript with Three.js rendering.
+- Added side-by-side tests of selected state for generated factories and feeder edge cases. Both sides share all non-feeder systems; this is not full-engine parity. Browser behavior and performance have not been validated.
+- The full Rust migration, physical graph branching and merging, and 3D I/O editing remain incomplete. See `docs/RUST_ENGINE_MIGRATION.md`.
+
 ## [2.5.0-alpha.1] - 2026-11-01 (prerelease)
 
 ### Experimental: Rust engine migration

@@ -62,3 +62,35 @@ export function createRustNavigationScene(barriers: Barrier[], obstacles: WalkOb
     dispose() { if (!disposed) { disposed = true; free(bp,n); free(op,m); } },
   };
 }
+
+/** Experimental feeder-only bridge; all other subsystems still run in TypeScript.
+ * Scratch buffers are reused across frames, and views are reacquired after allocation. */
+export function createRustFeederStepper() {
+  if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.step_feeders !== 'function') throw new Error('Rust feeder kernel unavailable');
+  const memory = exports.memory;
+  const alloc = exports.alloc_f64 as (count: number) => number;
+  const free = exports.free_f64 as (ptr: number, count: number) => void;
+  const run = exports.step_feeders as (feeders: number, count: number, boxes: number, boxCount: number, dt: number, maxBoxes: number) => void;
+  let fp = 0, fc = 0, bp = 0, bc = 0, disposed = false;
+  return {
+    step(feeders: Iterable<import('../engine').FeederRT>, boxes: readonly import('../engine').Box[], dt: number, spawn: (feeder: import('../engine').FeederRT) => void, maxBoxes: number) {
+      if (disposed) throw new Error('Rust feeder stepper has been disposed');
+      const list = Array.from(feeders), nf = list.length * 8, nb = boxes.length * 4;
+      if (nf > fc || !fp) { if (fp) free(fp,fc); fc = Math.max(8,nf); fp = alloc(fc); }
+      if (nb > bc || !bp) { if (bp) free(bp,bc); bc = Math.max(4,nb); bp = alloc(bc); }
+      const fs = new Float64Array(memory.buffer,fp,nf), bs = new Float64Array(memory.buffer,bp,nb);
+      for (let i=0;i<list.length;i++) {
+        const f=list[i]; fs.set([f.x,f.z,f.interval,f.timer,f.active?1:0,f.supply,f.requireSupply?1:0,0],i*8);
+      }
+      for (let i=0;i<boxes.length;i++) {
+        const b=boxes[i]; bs.set([b.x,b.y,b.z,b.state === 'dead'?0:1],i*4);
+      }
+      run(fp,list.length,bp,boxes.length,dt,maxBoxes);
+      for (let i=0;i<list.length;i++) {
+        const f=list[i]; f.timer=fs[i*8+3]; f.supply=fs[i*8+5];
+        if (fs[i*8+7] !== 0) spawn(f);
+      }
+    },
+    dispose() { if (!disposed) { disposed=true; if(fp) free(fp,fc); if(bp) free(bp,bc); } },
+  };
+}

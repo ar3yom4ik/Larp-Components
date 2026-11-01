@@ -154,6 +154,27 @@ export default function App() {
 
   const selected = useMemo(() => items.find((item) => item.id === selectedId) ?? null, [items, selectedId]);
 
+  /* Experimental, explicitly opt-in Rust feeder path. Everything else remains
+     TypeScript; failure to load the module leaves the original backend active. */
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("rustFeeders") !== "1") return;
+    let cancelled = false;
+    let stepper: ReturnType<typeof import("./sim/wasm/kernel").createRustFeederStepper> | null = null;
+    void import("./sim/wasm/kernel").then(({ createRustFeederStepper }) => {
+      if (cancelled) return;
+      stepper = createRustFeederStepper();
+      sim.feederStepper = stepper;
+      sim.log("Experimental Rust feeder kernel active; other simulation systems use TypeScript.", "info");
+    }).catch((error: unknown) => {
+      if (!cancelled) sim.log(`Rust feeder kernel unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
+    });
+    return () => {
+      cancelled = true;
+      if (stepper && sim.feederStepper === stepper) sim.feederStepper = null;
+      stepper?.dispose();
+    };
+  }, []);
+
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {

@@ -1,4 +1,4 @@
-# Rust engine migration: initial kernel
+# Rust engine migration: experimental hybrid
 
 This migration is **not complete**. The shipping simulation remains the TypeScript
 engine in `src/sim/engine.ts`; Three.js / React Three Fiber remain the renderer.
@@ -10,8 +10,7 @@ execute as JavaScript and must continue working across any eventual engine bound
 `rust/larp-kernel` contains point-to-segment and packed-scene collision kernels, using f64 to match
 JavaScript Number semantics. `scripts/build-rust-kernel.mjs` compiles it for
 `wasm32-unknown-unknown` and generates `src/sim/wasm/kernelBytes.ts`; the embedded
-bytes can be bundled without a separate fetch. The prototype is not yet loaded by
-the production app, so current offline behavior is unchanged. Regenerate with
+bytes can be bundled without a separate fetch. The navigation prototype is not used by the production navigation path. Regenerate with
 `npm run build:rust` (Cargo and that Rust target required), and run native tests with
 `npm run test:rust`. Ordinary app builds do not require a Rust toolchain.
 `tests/rust-kernel.ts` instantiates the real generated Wasm in Node and compares
@@ -27,6 +26,21 @@ real plants and verify behavior before enabling it. A separate packed-scene test
 measured warmed JavaScript 86.6 ms and Wasm 337.9 ms on Node 22 in this sandbox,
 not including packing. This is a microbenchmark, not an end-to-end browser result.
 No overall speedup is claimed.
+
+## Experimental feeder hybrid (alpha.2)
+
+The default engine is still TypeScript. Open the app with `?rustFeeders=1` to opt
+into batched Rust/Wasm feeder decisions. This is a hybrid, not a complete Rust
+engine: the TypeScript host owns boxes, other simulation systems and rendering.
+If initial Wasm loading fails the app retains the TypeScript feeder path. The
+bridge copies state into reusable buffers on each step; no speedup is established.
+The opt-in has not been validated in a browser in this environment.
+
+`tests/rust-feeder-parity.ts` compares selected state on every frame of nine
+60-second generated factory scenarios and further overlap, script/staff and
+multi-cell cases, plus 2,000 randomized feeder cases. Both sides share the same
+TypeScript systems except feeder decisions. These checks do not establish full
+engine or universal project parity, or validate the browser and renderer.
 
 ## Constraints for remaining migration
 

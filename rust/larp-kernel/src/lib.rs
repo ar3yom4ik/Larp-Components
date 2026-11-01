@@ -62,6 +62,31 @@ pub unsafe extern "C" fn point_is_free(
     1
 }
 
+/// Advance all feeders in insertion order, preserving sequential spawn/block semantics.
+/// Feeder record (8 f64): x,z,interval,timer,active,supply,require_supply,spawn.
+/// Box record (4 f64): x,y,z,is_not_dead. Spawn flags and state are written in place.
+/// # Safety
+/// Pointers must reference valid arrays of the indicated record counts; arrays must not alias.
+#[no_mangle]
+pub unsafe extern "C" fn step_feeders(feeders: *mut f64, feeder_count: usize, boxes: *const f64, box_count: usize, dt: f64, max_boxes: usize) {
+    let fs = std::slice::from_raw_parts_mut(feeders, feeder_count * 8);
+    let bs = std::slice::from_raw_parts(boxes, box_count * 4);
+    let mut spawned: Vec<(f64, f64)> = Vec::new();
+    for f in fs.chunks_exact_mut(8) {
+        f[7] = 0.0;
+        if f[4] == 0.0 || (f[6] != 0.0 && f[5] <= 0.0) { continue; }
+        f[3] -= dt;
+        if f[3] > 0.0 { continue; }
+        let blocked = bs.chunks_exact(4).any(|b| b[3] != 0.0 && (b[0] - f[0]).hypot(b[2] - f[1]) < 0.5 && b[1] > 0.4 && b[1] < 1.52)
+            || spawned.iter().any(|(x,z)| (x - f[0]).hypot(z - f[1]) < 0.5);
+        if blocked || box_count + spawned.len() >= max_boxes { f[3] = 0.25; continue; }
+        f[3] = f[2];
+        f[5] -= 1.0;
+        f[7] = 1.0;
+        spawned.push((f[0], f[1]));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

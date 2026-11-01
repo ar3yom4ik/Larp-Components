@@ -353,7 +353,7 @@ export class MachineRT {
   }
 }
 
-interface FeederRT {
+export interface FeederRT {
   id: string;
   x: number;
   z: number;
@@ -662,7 +662,14 @@ export function guardLoops(src: string): string {
 
 type Listener = () => void;
 
+/** Experimental injection point for side-by-side backend testing. */
+export interface FeederStepper {
+  step(feeders: Iterable<FeederRT>, boxes: readonly Box[], dt: number, spawn: (feeder: FeederRT) => void, maxBoxes: number): void;
+}
+
 export class Engine {
+  /** Null uses the original TypeScript feeder implementation. */
+  feederStepper: FeederStepper | null = null;
   items: SceneItem[] = [];
   running = false;
   speed = 1;
@@ -2022,7 +2029,9 @@ export class Engine {
       this.condBuffer = current;
     }
 
-    this.feeders.forEach((feeder) => this.updateFeeder(feeder, dt));
+    if (this.feederStepper) {
+      this.feederStepper.step(this.feeders.values(), this.boxes, dt, (feeder) => this.spawn(feeder.productId, feeder.x, 1.12, feeder.z, feeder.yaw), MAX_BOXES);
+    } else this.feeders.forEach((feeder) => this.updateFeeder(feeder, dt));
     this.robots.forEach((robot) => this.updateRobot(robot, dt));
     this.machines.forEach((machine) => this.updateMachine(machine, dt));
     this.humans.forEach((human) => this.updateHuman(human, dt));
