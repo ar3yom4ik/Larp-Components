@@ -33,7 +33,7 @@ export function SettingsDialog({ children }: { children: ReactNode }) {
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     // Ignore the close button and anything interactive inside the header.
-    if ((event.target as HTMLElement).closest("button")) return;
+    if ((event.target as HTMLElement).closest("button, input, label, select, textarea, a")) return;
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
     drag.current = {

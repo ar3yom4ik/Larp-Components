@@ -16,6 +16,8 @@ import type { SceneItem } from '../../types';
 
 /** Port types. Two ports connect when their types match exactly. */
 export type PortType =
+  | 'flow'     // material handoff between physical modules
+  | 'machine'  // machine attachment to a robot
   | 'intent'   // tagged meaning extracted from a prompt
   | 'config'   // partial GenOptions patch
   | 'cells'    // ordered process chain

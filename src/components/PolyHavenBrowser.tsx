@@ -28,6 +28,8 @@ export function PolyHavenBrowser({
   const [assets, setAssets] = useState<PolyAsset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(120);
+  const [attempt, setAttempt] = useState(0);
   const [resolution, setResolution] = useState<PolyResolution>("1k");
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
@@ -43,9 +45,10 @@ export function PolyHavenBrowser({
         setError((cause as Error)?.message ?? "Could not load the Poly Haven catalogue.");
       });
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
 
-  const visible = useMemo(() => filterPolyAssets(assets ?? [], query).slice(0, 120), [assets, query]);
+  const matches = useMemo(() => filterPolyAssets(assets ?? [], query), [assets, query]);
+  const visible = matches.slice(0, limit);
 
   const importAsset = async (asset: PolyAsset) => {
     if (busy) return;
@@ -103,7 +106,7 @@ export function PolyHavenBrowser({
         <Search size={12} className="shrink-0 text-white/25" />
         <input
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => { setQuery(event.target.value); setLimit(120); }}
           placeholder={t("Search polyhaven.com...")}
           className="w-full bg-transparent text-[10.5px] text-white/75 outline-none placeholder:text-white/25"
         />
@@ -112,7 +115,7 @@ export function PolyHavenBrowser({
 
       {error && (
         <div className="mb-2 flex items-start gap-2 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1.5 text-[9.5px] text-amber-100/90">
-          <span className="min-w-0 flex-1">{error}</span>
+          <span className="min-w-0 flex-1">{error} {!assets && <button type="button" onClick={() => { setError(null); setAttempt((n) => n + 1); }} className="underline">{t("Retry")}</button>}</span>
           <button type="button" onClick={() => setError(null)} className="text-amber-100/60 hover:text-white"><X size={10} /></button>
         </div>
       )}
@@ -158,6 +161,8 @@ export function PolyHavenBrowser({
           </button>
         ))}
       </div>
+
+      {visible.length < matches.length && <button type="button" onClick={() => setLimit((n) => n + 120)} className="mb-3 w-full rounded border border-white/15 py-2 text-xs text-white/70">{t("Show more")} ({visible.length} / {matches.length})</button>}
 
       {assets && visible.length === 0 && (
         <p className="px-2 py-6 text-center text-[10.5px] text-white/40">{t("No Poly Haven model matches that search.")}</p>

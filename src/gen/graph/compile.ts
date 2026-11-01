@@ -7,6 +7,7 @@
  * a node can never read a value that has not been computed yet, and a cycle is reported
  * as a diagnostic instead of overflowing the stack.
  */
+import { compileComponentGraph } from './componentCompile';
 import { getNodeDef } from './registry';
 import { topoSort, validateGraph } from './graph';
 import type { Diagnostic, EvalContext, NodeGraph, PlantResult } from './types';
@@ -22,6 +23,7 @@ export interface CompileResult {
 }
 
 export function compileGraph(graph: NodeGraph): CompileResult {
+  if (graph.nodes.some(node => node.type.startsWith('part.'))) return compileComponentGraph(graph);
   const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const diagnostics = validateGraph(graph);
   if (diagnostics.some((entry) => entry.severity === 'error')) {

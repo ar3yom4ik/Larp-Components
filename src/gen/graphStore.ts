@@ -2,7 +2,9 @@ import { useSyncExternalStore } from 'react';
 // The node definitions must be registered before a saved graph is parsed, otherwise
 // `parseGraph` would treat every node type as unknown and drop the user's graph.
 import './graph/nodes';
-import { defaultGraph, parseGraph, serializeGraph } from './graph/graph';
+import './graph/components';
+import { parseGraph, serializeGraph } from './graph/graph';
+import { defaultComponentGraph } from './graph/componentCompile';
 import type { NodeGraph } from './graph/types';
 
 /**
@@ -12,20 +14,22 @@ import type { NodeGraph } from './graph/types';
  * reloads, and is exported/imported as plain JSON. Loading goes through `parseGraph`, so
  * an older save with node types that no longer exist degrades instead of crashing.
  */
-const STORAGE_KEY = 'larp-factory-graph-v1';
+const STORAGE_KEY = 'larp-factory-component-graph-v1';
 
 function load(): NodeGraph {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultGraph();
+    if (!raw) return defaultComponentGraph();
     const graph = parseGraph(JSON.parse(raw));
-    return graph.nodes.length ? graph : defaultGraph();
+    return graph.nodes.length ? graph : defaultComponentGraph();
   } catch {
-    return defaultGraph();
+    return defaultComponentGraph();
   }
 }
 
 let state: NodeGraph = load();
+const past: NodeGraph[] = [];
+const future: NodeGraph[] = [];
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((listener) => listener());
 
@@ -38,9 +42,23 @@ function persist() {
 }
 
 export function setGraph(next: NodeGraph) {
+  if (next === state) return;
+  past.push(state); if (past.length > 100) past.shift();
+  future.length = 0;
   state = next;
   persist();
   emit();
+}
+
+export function undoGraph() {
+  const previous = past.pop();
+  if (!previous) return;
+  future.push(state); state = previous; persist(); emit();
+}
+export function redoGraph() {
+  const next = future.pop();
+  if (!next) return;
+  past.push(state); state = next; persist(); emit();
 }
 
 export function graphValue() {
@@ -52,7 +70,7 @@ export function replaceGraph(next: NodeGraph) {
 }
 
 export function resetGraph() {
-  setGraph(defaultGraph());
+  setGraph(defaultComponentGraph());
 }
 
 export function useFactoryGraph(): NodeGraph {

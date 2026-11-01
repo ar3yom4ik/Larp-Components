@@ -194,7 +194,7 @@ export function validateGraph(graph: NodeGraph): Diagnostic[] {
   if (cycle.length) {
     diagnostics.push({ id: 'cycle', severity: 'error', message: `The graph has a loop through ${cycle.length} node(s). Remove one of the wires to continue.` });
   }
-  if (!graph.nodes.some((node) => node.type === 'output.factory')) {
+  if (!graph.nodes.some((node) => node.type === 'output.factory' || node.type === 'part.pallet')) {
     diagnostics.push({ id: 'no-output', severity: 'error', message: 'The graph needs a Factory output node to build anything.' });
   }
   // Orphan nodes are allowed but worth pointing out, since users expect them to matter.
@@ -236,8 +236,8 @@ export function parseGraph(input: unknown): NodeGraph {
     nodes.push({
       id: typeof node.id === 'string' && node.id ? node.id : uid(),
       type: node.type,
-      x: Number.isFinite(node.x) ? Math.max(-8000, Math.min(8000, Number(node.x))) : 40,
-      y: Number.isFinite(node.y) ? Math.max(-8000, Math.min(8000, Number(node.y))) : 40,
+      x: Number.isFinite(node.x) ? Math.max(-1000000, Math.min(1000000, Number(node.x))) : 40,
+      y: Number.isFinite(node.y) ? Math.max(-1000000, Math.min(1000000, Number(node.y))) : 40,
       params,
       title: typeof node.title === 'string' ? node.title.slice(0, 80) : undefined,
       collapsed: node.collapsed === true,
@@ -258,4 +258,22 @@ export function parseGraph(input: unknown): NodeGraph {
   const graph: NodeGraph = { version: 1, nodes, links, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined };
   // Drop wires that no longer type-check after a registry change.
   return { ...graph, links: links.filter((entry) => portType(graph, entry.from, 'out') === portType(graph, entry.to, 'in')) };
+}
+
+/** Insert a compatible node in a wire atomically; leave the graph untouched on failure. */
+export function insertNodeInLink(graph: NodeGraph, nodeId: string, linkId: string): ConnectResult {
+  const link = graph.links.find(entry => entry.id === linkId);
+  const node = graph.nodes.find(entry => entry.id === nodeId);
+  if (!link || !node || link.from.node === nodeId || link.to.node === nodeId) return {ok:false,graph};
+  if (graph.links.some(entry => entry.from.node === nodeId || entry.to.node === nodeId)) return {ok:false,graph};
+  const def = getNodeDef(node.type);
+  const type = portType(graph, link.from, 'out');
+  const input = def?.inputs.find(port => port.type === type);
+  const output = def?.outputs.find(port => port.type === type);
+  if (!input || !output) return {ok:false,graph};
+  const without = {...graph,links:graph.links.filter(entry=>entry.id !== linkId)};
+  const first = connect(without,link.from,{node:nodeId,port:input.key});
+  if (!first.ok) return {ok:false,graph,error:first.error};
+  const second = connect(first.graph,{node:nodeId,port:output.key},link.to);
+  return second.ok ? second : {ok:false,graph,error:second.error};
 }

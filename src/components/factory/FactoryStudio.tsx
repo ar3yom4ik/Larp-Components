@@ -5,7 +5,7 @@ import { NodeInspector } from "./NodeInspector";
 import { nodesByCategory, getNodeDef } from "../../gen/graph/registry";
 import { connect, makeNode, removeNode, setParam, validateGraph } from "../../gen/graph/graph";
 import { compileGraph } from "../../gen/graph/compile";
-import { useFactoryGraph, setGraph as storeGraph, resetGraph, replaceGraph } from "../../gen/graphStore";
+import { useFactoryGraph, setGraph as storeGraph, resetGraph, replaceGraph, undoGraph, redoGraph } from "../../gen/graphStore";
 import { describeIntent, analyzePrompt } from "../../gen/prompt";
 import { FloorPlanView } from "../FloorPlanView";
 import { cn } from "../../utils/cn";
@@ -32,6 +32,7 @@ export function FactoryStudio({
   const graph = useFactoryGraph();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
   const selected = graph.nodes.find((node) => node.id === selectedId) ?? null;
@@ -92,6 +93,19 @@ export function FactoryStudio({
     onClose();
   };
 
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || (event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable=true]')) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' || key === 'y') {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (key === 'y' || event.shiftKey) redoGraph(); else undoGraph();
+      }
+    };
+    window.addEventListener('keydown', keydown, true);
+    return () => window.removeEventListener('keydown', keydown, true);
+  }, []);
+
   // Focus the build result once so the dialog does not lie about being ready.
   useEffect(() => { if (errors.length) setSelectedId(errors[0].nodeId ?? null); }, [errors.length]);
 
@@ -99,7 +113,7 @@ export function FactoryStudio({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#242427] px-3 py-2">
         <span className="flex items-center gap-1.5 rounded bg-[var(--app-accent)]/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--app-accent-bright)]">
-          <Wand2 size={11} /> {t('Node graph')}
+          <Wand2 size={11} /> {t('Factory parts')}
         </span>
         <div className="flex items-center gap-1.5 text-[10px] text-white/40">
           {errors.length ? (
@@ -124,10 +138,11 @@ export function FactoryStudio({
       <div className="flex min-h-0 flex-1">
         {paletteOpen && (
           <div className="thin-scroll w-[186px] shrink-0 overflow-y-auto border-r border-white/10 bg-[#232326] p-2">
-            {nodesByCategory().map((group) => (
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('Search parts…')} aria-label={t('Search parts')} className="mb-2 w-full rounded border border-white/15 bg-[#19191b] px-2 py-1 text-xs text-white" />
+            {nodesByCategory().filter((group) => group.defs.some((def) => def.type.startsWith('part.') && `${def.title} ${def.description} ${def.type}`.toLowerCase().includes(search.trim().toLowerCase()))).map((group) => (
               <div key={group.category} className="mb-2.5">
                 <div className="mb-1 px-1 font-mono text-[8px] uppercase tracking-widest text-white/30">{t(group.category)}</div>
-                {group.defs.map((def) => (
+                {group.defs.filter((def) => def.type.startsWith('part.') && `${def.title} ${def.description} ${def.type}`.toLowerCase().includes(search.trim().toLowerCase())).map((def) => (
                   <button key={def.type} type="button" onClick={() => addNode(def.type)} title={t(def.description)} className="mb-0.5 block w-full rounded px-1.5 py-1 text-left text-[10.5px] text-white/70 hover:bg-white/10 hover:text-white">
                     {t(def.title)}
                   </button>
@@ -141,7 +156,7 @@ export function FactoryStudio({
           <GraphCanvas
             graph={graph}
             selectedId={selectedId}
-            diagnostics={validation}
+            diagnostics={compiled.diagnostics.length ? compiled.diagnostics : validation}
             onSelect={setSelectedId}
             onChange={storeGraph}
             onContextMenu={(nodeId) => setSelectedId(nodeId)}
@@ -205,7 +220,7 @@ export function FactoryStudio({
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/10 bg-[#242427] px-4 py-2.5">
-        <span className="text-[10px] text-white/35">{t('Each node is one section of the factory. Wire the output of a section into the Factory output node.')}</span>
+        <span className="text-[10px] text-white/35">{t('Each node is a physical factory part. Connect material ports to define its production line.')}</span>
         <button
           type="button"
           disabled={!plant || errors.length > 0}

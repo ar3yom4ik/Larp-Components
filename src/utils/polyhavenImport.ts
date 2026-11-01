@@ -1,6 +1,6 @@
 import type { ImportedModelData, ModelResource } from '../types';
 import { describeImportedModel, loadModelAsset, makeAsset, MAX_MODEL_BYTES, MAX_RESOURCES } from './modelImport';
-import { PolyError, getPolyJson, type FilesResponse, type PolyAsset, type PolyResolution } from './polyhaven';
+import { PolyError, getPolyJson, selectPolyFile, type FilesResponse, type PolyAsset, type PolyResolution } from './polyhaven';
 
 const fail = (message: string): never => { throw new PolyError(message); };
 
@@ -51,16 +51,10 @@ export async function importPolyHavenModel(
   const { signal, onProgress } = options;
   onProgress?.('Reading file list…');
   const files = await getPolyJson<FilesResponse>(`https://api.polyhaven.com/files/${asset.id}`, signal);
-  const gltfSets = files.gltf ?? {};
-  const glbSets = files.glb ?? {};
-  // Prefer glTF (external textures) because it keeps the texture resolution controllable.
-  const sets = Object.keys(gltfSets).length ? gltfSets : glbSets;
-  if (!Object.keys(sets).length) fail('This asset has no glTF download. Try another model.');
-  const available = Object.keys(sets);
-  const chosen = available.includes(resolution) ? resolution : available.includes('1k') ? '1k' : available[0];
-  const entry = sets[chosen];
-  const entryUrl = entry?.url;
-  if (!entryUrl) throw new PolyError('Poly Haven did not return a download link for this model.');
+  const selected = selectPolyFile(files, resolution);
+  if (!selected) throw new PolyError('This asset has no glTF download. Try another model.');
+  const { entry, resolution: chosen } = selected;
+  const entryUrl = entry.url!;
 
   const companions = Object.entries(entry.include ?? {}).filter(([, value]) => !!value?.url);
   const total = (entry.size ?? 0) + companions.reduce((sum, [, value]) => sum + (value.size ?? 0), 0);

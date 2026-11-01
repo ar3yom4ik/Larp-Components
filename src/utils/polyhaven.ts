@@ -23,6 +23,7 @@ export interface PolyAsset {
   categories: string[];
   downloads: number;
   maxResolution: string;
+  tags?: string[];
 }
 
 interface AssetsResponse {
@@ -31,6 +32,7 @@ interface AssetsResponse {
     type?: number;
     thumbnail_url?: string;
     categories?: string[];
+    tags?: string[];
     category?: string;
     download_count?: number;
     max_resolution?: string;
@@ -39,8 +41,8 @@ interface AssetsResponse {
 
 export interface PolyFileSet { url?: string; size?: number; include?: Record<string, { url?: string; size?: number }> }
 export interface FilesResponse {
-  gltf?: Record<string, PolyFileSet>;
-  glb?: Record<string, PolyFileSet>;
+  gltf?: Record<string, PolyFileSet | Record<string, PolyFileSet>>;
+  glb?: Record<string, PolyFileSet | Record<string, PolyFileSet>>;
 }
 
 /** Friendly message for network and rate-limit failures. */
@@ -63,14 +65,15 @@ export async function getPolyJson<T>(url: string, signal?: AbortSignal): Promise
 let catalogue: Promise<PolyAsset[]> | null = null;
 
 /** The full model catalogue (about 500 entries) is fetched once per session. */
-export function polyHavenModels(signal?: AbortSignal): Promise<PolyAsset[]> {
+export function polyHavenModels(_signal?: AbortSignal): Promise<PolyAsset[]> {
   if (!catalogue) {
-    catalogue = getPolyJson<AssetsResponse>(`${API}/assets?type=models`, signal).then((data) =>
+    catalogue = getPolyJson<AssetsResponse>(`${API}/assets?type=models`).then((data) =>
       Object.entries(data).map(([id, asset]) => ({
         id,
         name: asset.name || id,
-        thumbnail: asset.thumbnail_url || '',
+        thumbnail: asset.thumbnail_url || `https://cdn.polyhaven.com/asset_img/thumbs/${encodeURIComponent(id)}.png?width=256&height=256`,
         categories: asset.categories?.length ? asset.categories : asset.category ? [asset.category] : [],
+        tags: asset.tags ?? [],
         downloads: asset.download_count ?? 0,
         maxResolution: asset.max_resolution || '1k',
       })),
@@ -88,7 +91,7 @@ export function filterPolyAssets(assets: PolyAsset[], query: string): PolyAsset[
   const words = needle.split(/\s+/).filter(Boolean);
   return assets
     .map((asset) => {
-      const haystack = `${asset.name} ${asset.categories.join(' ')}`.toLowerCase();
+      const haystack = `${asset.id.replace(/_/g, ' ')} ${asset.name} ${asset.categories.join(' ')} ${(asset.tags ?? []).join(' ')}`.toLowerCase();
       if (!words.every((word) => haystack.includes(word))) return null;
       const exact = asset.name.toLowerCase() === needle ? 3 : asset.name.toLowerCase().startsWith(needle) ? 2 : 1;
       return { asset, score: exact };
@@ -100,4 +103,18 @@ export function filterPolyAssets(assets: PolyAsset[], query: string): PolyAsset[
 
 export function isPolyError(error: unknown): error is Error {
   return error instanceof PolyError;
+}
+
+/** Poly Haven nests files by resolution and format (gltf/1k/gltf). */
+export function selectPolyFile(files: FilesResponse, resolution: PolyResolution): { entry: PolyFileSet; resolution: string } | null {
+  for (const format of ['gltf', 'glb'] as const) {
+    const sets = files[format] ?? {};
+    const available = Object.keys(sets);
+    const chosen = available.includes(resolution) ? resolution : available.includes('1k') ? '1k' : available[0];
+    if (!chosen) continue;
+    const value = sets[chosen];
+    const entry = ('url' in value ? value : (value as Record<string, PolyFileSet>)[format]) as PolyFileSet | undefined;
+    if (entry?.url) return { entry, resolution: chosen };
+  }
+  return null;
 }

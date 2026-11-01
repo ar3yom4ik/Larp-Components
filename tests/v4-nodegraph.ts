@@ -128,7 +128,7 @@ const restored = parseGraph({
 } as unknown as NodeGraph);
 assert.equal(restored.nodes.length, 2, 'unknown node types are dropped');
 assert.ok(!('evil' in restored.nodes[0].params), 'unknown parameters are dropped');
-assert.ok(Math.abs(restored.nodes[0].x) <= 8000, 'coordinates are clamped');
+assert.ok(Math.abs(restored.nodes[0].x) <= 1000000, 'coordinates are clamped');
 assert.equal(restored.links.length, 1, 'wires to missing or invalid nodes are dropped');
 assert.equal(parseGraph(null).nodes.length, defaultGraph().nodes.length, 'a corrupt save falls back to the starter graph');
 

@@ -5,7 +5,7 @@ import { defaultGfx, QUALITY_PRESETS, sanitizeGfx, VXGI_RESOLUTIONS, type Graphi
 import { describeGi, getGraphicsStatus, resetGraphicsStatus, setGraphicsStatus } from "../src/graphicsStatus";
 import { APP_NAME, APP_VERSION, buildLine, buildStamp } from "../src/buildInfo";
 import { bindingFor, eventMatches, KEY_ACTIONS, resetAllBindings } from "../src/keybinds";
-import { filterPolyAssets, POLY_RESOLUTIONS, type PolyAsset } from "../src/utils/polyhaven";
+import { filterPolyAssets, selectPolyFile, POLY_RESOLUTIONS, type PolyAsset } from "../src/utils/polyhaven";
 import { onViewportCommand, sendViewportCommand, type ViewportCommand } from "../src/viewportCommands";
 
 /* ----- presets: every quality level produces a complete, in-range setting set ----- */
@@ -133,3 +133,9 @@ assert.equal(seen.length, 2);
 assert.deepEqual(seen[1], { type: "zoom", direction: -1 });
 
 console.log("graphics: presets, sanitising, status, build stamp, shortcuts, web catalogue and commands OK");
+
+// The API nests each model format below the resolution.
+assert.deepEqual(selectPolyFile({gltf: {'1k': {gltf: {url: 'https://example.com/model.gltf', include: {'mesh.bin': {url: 'https://example.com/mesh.bin'}}}}}}, '2k')?.entry.url, 'https://example.com/model.gltf');
+assert.equal(selectPolyFile({gltf: {'1k': {url: 'https://example.com/flat.gltf'}}}, '1k')?.entry.url, 'https://example.com/flat.gltf');
+assert.equal(selectPolyFile({}, '1k'), null);
+assert.equal(filterPolyAssets([{id: 'industrial_table', name: 'Workbench', thumbnail: '', categories: [], tags: ['factory'], downloads: 0, maxResolution: '1k'}], 'factory').length, 1);

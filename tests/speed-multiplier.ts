@@ -1,0 +1,15 @@
+import { Engine } from '../src/sim/engine';
+import assert from 'node:assert/strict';
+const engine = new Engine();
+engine.setRunning(true);
+engine.stepBudgetMs = 40;
+engine.setSpeed(2);
+engine.step(0.5);
+assert.ok(Math.abs(engine.time - 1) < 0.02, `Expected ~1 simulated second, got ${engine.time}`);
+engine.setSpeed(0.5);
+const before = engine.time;
+engine.step(0.5);
+assert.ok(Math.abs(engine.time - before - 0.25) < 0.02);
+engine.setSpeed(NaN);
+assert.equal(engine.speed, 1);
+console.log('speed multiplier and slow-frame elapsed time OK');

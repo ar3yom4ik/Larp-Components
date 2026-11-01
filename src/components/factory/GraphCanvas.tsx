@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Info } from 'lucide-react';
 import { getNodeDef, PORT_COLORS } from '../../gen/graph/registry';
-import { setParam, updateNode } from '../../gen/graph/graph';
+import { connect, insertNodeInLink, makeNode, setParam, updateNode } from '../../gen/graph/graph';
 import type { Diagnostic, GraphNode, NodeGraph } from '../../gen/graph/types';
 import { cn } from '../../utils/cn';
 import { t } from '../../i18n';
@@ -42,6 +42,7 @@ interface DragState {
   originX: number;
   originY: number;
   from?: { node: string; port: string };
+  detachLinkId?: string;
 }
 
 /**
@@ -54,6 +55,7 @@ interface DragState {
  */
 export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange, onContextMenu, onConnect }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const clipboard = useRef<GraphNode | null>(null);
   const drag = useRef<DragState | null>(null);
   const [pan, setPan] = useState({ x: 24, y: 12 });
   const [zoom, setZoom] = useState(0.85);
@@ -102,8 +104,44 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
     }
   };
 
-  const endDrag = () => {
+  const endDrag = (event: React.PointerEvent) => {
     const state = drag.current;
+    if (state?.kind === 'node' && state.id) {
+      // Insert only loose nodes, and only when their box actually covers a wire.
+      const element = host.current?.querySelector(`[data-node="${CSS.escape(state.id)}"]`);
+      const rect = element?.getBoundingClientRect();
+      if (rect && Math.hypot(event.clientX-state.startX, event.clientY-state.startY) > 5) {
+        for (const path of host.current?.querySelectorAll<SVGPathElement>('path[data-link-id]') ?? []) {
+          const matrix = path.getScreenCTM();
+          if (!matrix) continue;
+          const length = path.getTotalLength();
+          let intersects = false;
+          for (let d = 0; d <= length; d += Math.max(4, length / 100)) {
+            const point = path.getPointAtLength(d).matrixTransform(matrix);
+            if (point.x > rect.left && point.x < rect.right && point.y > rect.top && point.y < rect.bottom) { intersects = true; break; }
+          }
+          if (intersects && path.dataset.linkId) {
+            const result = insertNodeInLink(graph, state.id, path.dataset.linkId);
+            if (result.ok) { onChange(result.graph); break; }
+          }
+        }
+      }
+    }
+    if (state?.kind === 'wire' && state.from) {
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-input-node]') as HTMLElement | null;
+      if (state.detachLinkId && Math.hypot(event.clientX-state.startX, event.clientY-state.startY)>6) {
+        const without = {...graph, links: graph.links.filter(link => link.id !== state.detachLinkId)};
+        if (target?.dataset.inputNode && target.dataset.inputPort && target.dataset.inputNode !== state.from.node) {
+          const result = connect(without, state.from, {node:target.dataset.inputNode,port:target.dataset.inputPort});
+          if (result.ok) onChange(result.graph);
+        } else onChange(without);
+      } else if (!state.detachLinkId && target?.dataset.inputNode && target.dataset.inputPort && target.dataset.inputNode !== state.from.node) {
+        onConnect(state.from, { node: target.dataset.inputNode, port: target.dataset.inputPort });
+      } else if (!state.detachLinkId && !target && Math.hypot(event.clientX-state.startX, event.clientY-state.startY)>6) {
+        // Pulling an output into empty space disconnects its outgoing wires.
+        onChange({...graph,links:graph.links.filter(link=>link.from.node!==state.from!.node || link.from.port!==state.from!.port)});
+      }
+    }
     drag.current = null;
     setWire(null);
     if (state?.kind === 'wire') setHoverPort(null);
@@ -142,6 +180,17 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
     setWire({ from: { node: node.id, port }, x: point.x, y: point.y });
   };
 
+  const beginInputDrag = (event: React.PointerEvent, node: GraphNode, port: string) => {
+    event.stopPropagation();
+    const link = graph.links.find(entry => entry.to.node === node.id && entry.to.port === port);
+    if (!link) return;
+    event.preventDefault();
+    host.current?.setPointerCapture?.(event.pointerId);
+    drag.current = {kind:'wire', pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,originX:0,originY:0,from:link.from,detachLinkId:link.id};
+    const point = toWorld(event.clientX,event.clientY);
+    setWire({from:link.from,...point});
+  };
+
   const finishWire = (event: React.PointerEvent, node: GraphNode, port: string) => {
     const state = drag.current;
     if (state?.kind !== 'wire' || !state.from) return;
@@ -154,7 +203,20 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement)?.tagName === 'INPUT' || (event.target as HTMLElement)?.tagName === 'SELECT') return;
+      if ((event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable=true]')) return;
+      const key = event.key.toLowerCase();
+      const selected = graph.nodes.find(node => node.id === selectedId);
+      if ((event.ctrlKey || event.metaKey) && (key === 'c' || key === 'x') && selected) {
+        event.preventDefault(); event.stopPropagation();
+        clipboard.current = structuredClone(selected);
+        if (key === 'x') { onChange({...graph,nodes:graph.nodes.filter(node=>node.id!==selected.id),links:graph.links.filter(link=>link.from.node!==selected.id && link.to.node!==selected.id)}); onSelect(null); }
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && key === 'v' && clipboard.current) {
+        event.preventDefault(); event.stopPropagation();
+        const old=clipboard.current; const node=makeNode(old.type,old.x+35,old.y+35,structuredClone(old.params),old.title);
+        clipboard.current=node; onChange({...graph,nodes:[...graph.nodes,node]}); onSelect(node.id); return;
+      }
       if (event.key === 'Delete' && selectedId) {
         event.preventDefault();
         onChange({ ...graph, nodes: graph.nodes.filter((node) => node.id !== selectedId), links: graph.links.filter((link) => link.from.node !== selectedId && link.to.node !== selectedId) });
@@ -162,17 +224,18 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
       }
       if (event.key === 'Escape') onSelect(null);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [graph, onChange, onSelect, selectedId]);
 
   const bounds = useMemo(() => {
-    if (!graph.nodes.length) return { width: 1400, height: 800 };
-    return {
-      width: Math.max(...graph.nodes.map((node) => node.x + NODE_WIDTH)) + 400,
-      height: Math.max(...graph.nodes.map((node) => node.y + nodeHeight(node))) + 300,
-    };
-  }, [graph.nodes]);
+    const xs = graph.nodes.map(node => node.x); const ys = graph.nodes.map(node => node.y);
+    if (wire) { xs.push(wire.x); ys.push(wire.y); }
+    const left = Math.min(0, ...xs) - 400, top = Math.min(0, ...ys) - 400;
+    const right = Math.max(1400, ...xs.map(x=>x+NODE_WIDTH)) + 400;
+    const bottom = Math.max(800, ...ys.map(y=>y+400)) + 400;
+    return { left, top, width:right-left, height:bottom-top };
+  }, [graph.nodes, wire]);
 
   return (
     <div
@@ -180,7 +243,7 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
       ref={host}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerCancel={() => { drag.current = null; setWire(null); }}
       onWheel={onWheel}
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -193,7 +256,7 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
       data-graph-canvas
     >
       <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-        <svg width={bounds.width} height={bounds.height} className="pointer-events-none absolute left-0 top-0">
+        <svg width={bounds.width} height={bounds.height} viewBox={`${bounds.left} ${bounds.top} ${bounds.width} ${bounds.height}`} style={{left:bounds.left,top:bounds.top}} className="pointer-events-none absolute overflow-visible">
           {graph.links.map((link) => {
             const fromNode = byId.get(link.from.node), toNode = byId.get(link.to.node);
             if (!fromNode || !toNode) return null;
@@ -201,6 +264,7 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
             return (
               <path
                 key={link.id}
+                data-link-id={link.id}
                 d={wirePath(fromNode, link.from.port, toNode, link.to.port)}
                 fill="none"
                 stroke={PORT_COLORS[type] ?? '#94a3b8'}
@@ -272,8 +336,10 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
                         <button
                           type="button"
                           data-no-drag
+                          data-input-node={node.id}
+                          data-input-port={port.key}
                           aria-label={`${def.title} ${port.label}`}
-                          onPointerDown={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => beginInputDrag(event, node, port.key)}
                           onPointerUp={(event) => finishWire(event, node, port.key)}
                           onPointerEnter={() => setHoverPort(`${node.id}:in:${port.key}`)}
                           onPointerLeave={() => setHoverPort(null)}
@@ -308,6 +374,17 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {!collapsed && node.type.startsWith('part.') && (
+                <div data-no-drag className="space-y-1 border-t border-white/10 px-2 py-1.5" onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+                  {def.params.map((param) => (
+                    <label key={param.key} className="flex items-center gap-1 text-[9px] text-white/55">
+                      <span className="w-[72px] shrink-0 truncate" title={t(param.label)}>{t(param.label)}</span>
+                      {param.kind === 'select' ? <select aria-label={t(param.label)} value={String(node.params[param.key] ?? param.default)} onChange={e => onChange(setParam(graph, node.id, param.key, e.target.value))} className="min-w-0 flex-1 rounded bg-[#19191b] px-1 text-white/85">{param.options?.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select> : param.kind === 'number' ? <><input aria-label={t(param.label)} type="range" min={param.min} max={param.max} step={param.step} value={Number(node.params[param.key] ?? param.default)} onChange={e => onChange(setParam(graph,node.id,param.key,Number(e.target.value)))} className="min-w-0 flex-1 accent-range"/><span className="w-7 text-right font-mono">{String(node.params[param.key] ?? param.default)}</span></> : null}
+                    </label>
+                  ))}
                 </div>
               )}
 

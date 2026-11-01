@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.1] - 2026-11-01 (prerelease)
+
+### Experimental: Rust engine migration
+- A Rust/WebAssembly navigation prototype implements point-to-segment distance and obstacle/barrier checks against a packed scene. The real Wasm module is tested against the TypeScript reference (10,000 distance cases and 20,000 scene queries), alongside the existing simulator regression suite.
+- **The migration is not complete.** The released application still runs the TypeScript simulation, including its JavaScript robot programs. The Rust prototype is not wired into the production simulation; no claim of full feature parity, improved speed or Rust-based app runtime is made.
+- A Node microbenchmark of the prototype showed no performance benefit in this environment; further batched engine work and browser measurements are needed before switching production paths. See `docs/RUST_ENGINE_MIGRATION.md`.
+
+### Other work in progress
+- The graph editor contains early physical feeder, conveyor, robot, machine, human and pallet nodes; it supports selected linear production setups, not arbitrary branching/merging. Node insertion, search, copy/paste and disconnected nodes are experimental.
+- Includes fixes for the settings-header dim toggle, Poly Haven catalogue response parsing, and simulation elapsed-time handling. Live Poly Haven connectivity was not verified in this sandbox.
+
 ## [2.4.0] - 2026-10-31
 
 ### Added

@@ -1012,7 +1012,7 @@ export class Engine {
   }
 
   setSpeed(speed: number) {
-    this.speed = speed;
+    this.speed = Number.isFinite(speed) ? Math.max(0.01, speed) : 1;
   }
 
   reset() {
@@ -1958,7 +1958,9 @@ export class Engine {
 
   step(frameDt: number) {
     if (!this.running) return;
-    this.acc += Math.min(frameDt, 0.1) * Math.max(0.01, this.speed);
+    // Account for the actual elapsed frame time, including slow frames.
+    if (!Number.isFinite(frameDt) || frameDt <= 0) return;
+    this.acc += frameDt * this.speed;
     const started = performance.now();
     const budget = Math.max(1, Math.min(40, this.stepBudgetMs));
     let n = 0;
@@ -1971,7 +1973,8 @@ export class Engine {
       n += 1;
       if (performance.now() - started >= budget) break;
     }
-    if (this.acc > 4) this.acc = 4;
+    // Preserve unprocessed simulation time rather than silently losing it under load.
+    // The frame budget can make the actual rate lower than requested until caught up.
     this.lastStepMs = performance.now() - started;
   }
 
