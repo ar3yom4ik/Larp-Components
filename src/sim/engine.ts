@@ -680,7 +680,12 @@ export interface LogicStepper {
   step(items: readonly SceneItem[], boxes: readonly Box[], triggers: ReadonlyMap<string, SceneItem[]>, signals: Map<string, boolean>): void;
 }
 
+export interface Navigator {
+  navigate(start: P2, end: P2, barriers: Barrier[], obstacles: WalkObstacle[]): P2[];
+}
+
 export class Engine {
+  navigator: Navigator | null = null;
   logicStepper: LogicStepper | null = null;
   machineStepper: MachineStepper | null = null;
   machineClock: MachineClock | null = null;
@@ -1580,7 +1585,7 @@ export class Engine {
     if (human.targetKey !== key) {
       human.targetKey = key;
       const dynamic: WalkObstacle[] = stuck ? others.map((other) => ({ x: other.x, z: other.z, radius: 0.6 })) : [];
-      human.route = navigate([human.x, human.z], target, this.walkBarriers, dynamic.length ? [...this.walkObstacles, ...dynamic] : this.walkObstacles);
+      human.route = (this.navigator?.navigate ?? navigate)([human.x, human.z], target, this.walkBarriers, dynamic.length ? [...this.walkObstacles, ...dynamic] : this.walkObstacles);
     }
     const p = human.route[0];
     if (!p) {

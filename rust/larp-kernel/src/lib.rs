@@ -255,3 +255,119 @@ mod logic_tests {
         assert_eq!(signals,[1.,1.,0.]);
     }
 }
+
+struct NavGrid<'a> {
+    min_x: f64, min_z: f64, width: usize, height: usize,
+    cache: Vec<i8>, barriers: &'a [f64], obstacles: &'a [f64],
+}
+impl NavGrid<'_> {
+    fn position(&self, id: usize) -> (f64,f64) {
+        (self.min_x + (id % self.width) as f64 * 0.5,
+         self.min_z + (id / self.width) as f64 * 0.5)
+    }
+    fn free(&mut self, id: usize) -> bool {
+        if id >= self.cache.len() { return false; }
+        if self.cache[id] == 0 {
+            let (x,z)=self.position(id);
+            self.cache[id]=if unsafe {point_is_free(x,z,0.0,self.barriers.as_ptr(),self.barriers.len()/5,self.obstacles.as_ptr(),self.obstacles.len()/3)} != 0 {1} else {-1};
+        }
+        self.cache[id] == 1
+    }
+    fn nearest(&mut self, point: (f64,f64)) -> Option<usize> {
+        let cx=(((point.0-self.min_x)/0.5+0.5).floor() as isize).clamp(0,self.width as isize-1);
+        let cz=(((point.1-self.min_z)/0.5+0.5).floor() as isize).clamp(0,self.height as isize-1);
+        let mut best=None; let mut distance=f64::INFINITY;
+        for radius in 0isize..=5 {
+            for dz in -radius..=radius { for dx in -radius..=radius {
+                let (x,z)=(cx+dx,cz+dz);
+                if x<0 || z<0 || x>=self.width as isize || z>=self.height as isize {continue;}
+                let id=x as usize+z as usize*self.width;
+                if !self.free(id) {continue;}
+                let q=self.position(id); let d=(q.0-point.0).hypot(q.1-point.1);
+                if d<distance {best=Some(id);distance=d;}
+            }}
+            if best.is_some() {break;}
+        }
+        best
+    }
+}
+#[derive(Clone,Copy)]
+struct HeapNode { id: usize, score: f64 }
+fn nav_push(heap: &mut Vec<HeapNode>, v: HeapNode) {
+    heap.push(v); let mut n=heap.len()-1;
+    while n>0 {let p=(n-1)>>1; if heap[p].score<=v.score {break;} heap[n]=heap[p];n=p;}
+    heap[n]=v;
+}
+fn nav_pop(heap: &mut Vec<HeapNode>) -> HeapNode {
+    let first=heap[0];let last=heap.pop().unwrap();
+    if !heap.is_empty() {let mut n=0;loop {let mut c=n*2+1;if c>=heap.len(){break;}if c+1<heap.len() && heap[c+1].score<heap[c].score {c+=1;}if heap[c].score>=last.score{break;}heap[n]=heap[c];n=c;}heap[n]=last;}
+    first
+}
+
+/// Bounded grid A* matching the host's route search and tie-breaking rules.
+/// Returns route point count, or -1 for insufficient output buffer, or -2 for
+/// non-finite input. Caller can fall back to the host implementation on -2.
+/// # Safety
+/// All pointers must address non-overlapping initialized arrays. `out` must
+/// have capacity for `out_capacity * 2` f64 values.
+#[no_mangle]
+pub unsafe extern "C" fn navigate_path(sx:f64,sz:f64,ex:f64,ez:f64,barriers:*const f64,barrier_count:usize,
+                                       obstacles:*const f64,obstacle_count:usize,out:*mut f64,out_capacity:usize)->i32 {
+    let barriers=std::slice::from_raw_parts(barriers,barrier_count*5);
+    let obstacles=std::slice::from_raw_parts(obstacles,obstacle_count*3);
+    if ![sx,sz,ex,ez].iter().chain(barriers.iter()).chain(obstacles.iter()).all(|v|v.is_finite()) {return -2;}
+    let (mut min_x,mut max_x)=(sx.min(ex),sx.max(ex));
+    let (mut min_z,mut max_z)=(sz.min(ez),sz.max(ez));
+    for b in barriers.chunks_exact(5) {min_x=min_x.min(b[0]).min(b[2]);max_x=max_x.max(b[0]).max(b[2]);min_z=min_z.min(b[1]).min(b[3]);max_z=max_z.max(b[1]).max(b[3]);}
+    for o in obstacles.chunks_exact(3) {min_x=min_x.min(o[0]);max_x=max_x.max(o[0]);min_z=min_z.min(o[1]);max_z=max_z.max(o[1]);}
+    min_x-=3.0;min_z-=3.0;
+    let width=(((max_x-min_x+3.0)/0.5).ceil()+1.0).min(240.0) as usize;
+    let height=(((max_z-min_z+3.0)/0.5).ceil()+1.0).min(240.0) as usize;
+    if width==0 || height==0 {return -2;}
+    let mut grid=NavGrid{min_x,min_z,width,height,cache:vec![0;width*height],barriers,obstacles};
+    let (start,end)=match (grid.nearest((sx,sz)),grid.nearest((ex,ez))) {(Some(a),Some(b))=>(a,b),_=>return 0};
+    let mut g=vec![f64::INFINITY;width*height];g[start]=0.0;
+    let mut parents=vec![usize::MAX;width*height];let mut closed=vec![false;width*height];
+    let heuristic=|id:usize| {let x=min_x+(id%width) as f64*0.5;let z=min_z+(id/width) as f64*0.5;(x-ex).hypot(z-ez)};
+    let mut heap=Vec::new();nav_push(&mut heap,HeapNode{id:start,score:heuristic(start)});
+    let dirs=[(1isize,0isize),(-1,0),(0,1),(0,-1),(1,1),(-1,1),(1,-1),(-1,-1)];
+    for _ in 0..18000 {
+        if heap.is_empty(){break;}
+        let cur=nav_pop(&mut heap).id;if closed[cur]{continue;}
+        if cur==end {
+            let mut route=Vec::new();let mut node=cur;
+            while node!=start && node!=usize::MAX {route.push(grid.position(node));node=parents[node];}
+            if start!=end {route.push(grid.position(start));}
+            let count=route.len()+1;if count>out_capacity{return -1;}
+            let output=std::slice::from_raw_parts_mut(out,out_capacity*2);
+            for (i,(x,z)) in route.iter().rev().enumerate() {output[i*2]=*x;output[i*2+1]=*z;}
+            output[(count-1)*2]=ex;output[(count-1)*2+1]=ez;return count as i32;
+        }
+        closed[cur]=true;
+        let (cx,cz)=((cur%width) as isize,(cur/width) as isize);
+        for (dx,dz) in dirs {
+            let (x,z)=(cx+dx,cz+dz);
+            if x<0 || z<0 || x>=width as isize || z>=height as isize {continue;}
+            let next=x as usize+z as usize*width;
+            if closed[next] || !grid.free(next) {continue;}
+            if dx!=0 && dz!=0 && (!grid.free((cx+dx) as usize+cz as usize*width) || !grid.free(cx as usize+(cz+dz) as usize*width)) {continue;}
+            let score=g[cur]+(dx as f64).hypot(dz as f64)*0.5;
+            if score>=g[next] {continue;}
+            parents[next]=cur;g[next]=score;nav_push(&mut heap,HeapNode{id:next,score:score+heuristic(next)});
+        }
+    }
+    0
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::navigate_path;
+    #[test]
+    fn route_and_output_capacity() {
+        let barriers=[3.,-1.,3.,1.,0.34];let obstacles:[f64;0]=[];
+        let mut out=[0.;512];
+        let n=unsafe{navigate_path(0.,0.,7.,0.,barriers.as_ptr(),1,obstacles.as_ptr(),0,out.as_mut_ptr(),256)};
+        assert!(n>1); assert_eq!((out[(n as usize-1)*2],out[(n as usize-1)*2+1]),(7.,0.));
+        assert_eq!(unsafe{navigate_path(0.,0.,7.,0.,barriers.as_ptr(),1,obstacles.as_ptr(),0,out.as_mut_ptr(),1)},-1);
+    }
+}

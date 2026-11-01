@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.6] - 2026-11-01 (prerelease)
+
+- Experimental Rust/Wasm bounded A* route planning for humans (`?rustNavigation=1`). Destination projection, task logic, steering and motion remain TypeScript; the default remains TypeScript.
+- In 500 route comparisons, reachability and grid cost matched but five routes took different equal-cost paths. Four human-task scenarios completed with the Rust planner; full behavior parity and browser performance are not established.
+- The complete Rust port is still unfinished.
+
 ## [2.5.0-alpha.5] - 2026-11-01 (prerelease)
 
 - Experimental Rust/Wasm automation signals for buttons, lasers, proximity sensors and PLCs (`?rustLogic=1`), with ordered signal propagation. Wiring, user input and robot signals remain host-managed. The default remains TypeScript.

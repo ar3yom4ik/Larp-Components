@@ -16,7 +16,7 @@ bytes can be bundled without a separate fetch. The navigation prototype is not u
 `tests/rust-kernel.ts` instantiates the real generated Wasm in Node and compares
 10,000 deterministic distance inputs and 20,000 scene queries with the JavaScript reference.
 
-The production navigation path is deliberately still JavaScript. An exploratory
+The default navigation path is deliberately still JavaScript. An exploratory
 Node 22 microbenchmark here, two million scalar calls, measured approximately
 10 ms for warmed JS versus 37 ms for warmed Wasm. This is not a browser benchmark,
 but demonstrates why crossing the JS/Wasm boundary for each tiny calculation is a
@@ -85,6 +85,20 @@ The logic test covers 3,000 randomized ordered circuits (including duplicate
 IDs) and a live button/PLC/sensor/laser chain against the TypeScript reference.
 Generated-factory comparisons also exercise the experimental signal path. These
 checks are not full-engine parity or proof of browser performance.
+
+## Experimental route planning (alpha.6)
+
+`?rustNavigation=1` opts human route searches into Rust/Wasm bounded A*. The
+host still performs destination projection, human task decisions, steering,
+collision avoidance and movement. JavaScript remains the default. Non-finite
+inputs and output-capacity failures fall back to the TypeScript route search.
+
+In 500 deterministic random scenes, reachability and grid-route cost matched;
+5 produced different equal-cost routes, so exact motion parity is not established.
+Four human task scenarios completed using the Rust planner. This does not prove
+all navigation behavior, performance, or browser compatibility; route differences
+can change downstream simulation outcomes. The prior microbenchmark above tested
+point queries, not this route planner.
 
 ## Constraints for remaining migration
 

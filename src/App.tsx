@@ -222,6 +222,20 @@ export default function App() {
     return () => { cancelled = true; if (stepper && sim.logicStepper === stepper) sim.logicStepper = null; stepper?.dispose(); };
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("rustNavigation") !== "1") return;
+    let cancelled = false;
+    let navigator: ReturnType<typeof import("./sim/wasm/kernel").createRustNavigator> | null = null;
+    void import("./sim/wasm/kernel").then(({ createRustNavigator }) => {
+      if (cancelled) return;
+      navigator = createRustNavigator(); sim.navigator = navigator;
+      sim.log("Experimental Rust human route planning active.", "info");
+    }).catch((error: unknown) => {
+      if (!cancelled) sim.log(`Rust navigation unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
+    });
+    return () => { cancelled = true; if (navigator && sim.navigator === navigator) sim.navigator = null; navigator?.dispose(); };
+  }, []);
+
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {

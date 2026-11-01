@@ -1,5 +1,5 @@
 import { KERNEL_BASE64 } from './kernelBytes';
-import type { Barrier, WalkObstacle } from '../navigation';
+import { navigate as navigateJs, type Barrier, type WalkObstacle, type Point } from '../navigation';
 import { TABLE_TOP } from '../engine';
 
 /** Small synchronous Wasm kernel, embedded so the standalone HTML stays offline.
@@ -187,5 +187,32 @@ export function createRustLogicStepper() {
       for(let i=0;i<ids.length;i++) signals.set(ids[i],ss[i]!==0);
     },
     dispose() { if(!disposed) { disposed=true; for(let i=0;i<4;i++) if(ptr[i]) free(ptr[i],cap[i]); } },
+  };
+}
+
+/** Experimental bounded A*; the host still owns human decisions and movement. */
+export function createRustNavigator() {
+  if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.navigate_path !== 'function') throw new Error('Rust navigator unavailable');
+  const memory=exports.memory, alloc=exports.alloc_f64 as (n:number)=>number, free=exports.free_f64 as (p:number,n:number)=>void;
+  const run=exports.navigate_path as (sx:number,sz:number,ex:number,ez:number,b:number,bc:number,o:number,oc:number,out:number,capacity:number)=>number;
+  const outputCapacity=57601, out=alloc(outputCapacity*2);
+  let bp=0,bc=0,op=0,oc=0,disposed=false;
+  return {
+    navigate(start:Point,end:Point,barriers:Barrier[],obstacles:WalkObstacle[]):Point[] {
+      if(disposed) throw new Error('Rust navigator has been disposed');
+      const bn=barriers.length*5,on=obstacles.length*3;
+      if(!bp||bn>bc){if(bp)free(bp,bc);bc=Math.max(1,bn);bp=alloc(bc);}
+      if(!op||on>oc){if(op)free(op,oc);oc=Math.max(1,on);op=alloc(oc);}
+      const b=new Float64Array(memory.buffer,bp,bn),o=new Float64Array(memory.buffer,op,on);
+      for(let i=0;i<barriers.length;i++) {const v=barriers[i];b.set([v.a[0],v.a[1],v.b[0],v.b[1],v.clearance??0.34],i*5);}
+      for(let i=0;i<obstacles.length;i++) {const v=obstacles[i];o.set([v.x,v.z,v.radius],i*3);}
+      const count=run(start[0],start[1],end[0],end[1],bp,barriers.length,op,obstacles.length,out,outputCapacity);
+      if(count<0) return navigateJs(start,end,barriers,obstacles);
+      // A* allocations may grow memory; reacquire the output view after the call.
+      const data=new Float64Array(memory.buffer,out,count*2), route:Point[]=[];
+      for(let i=0;i<count;i++) route.push([data[i*2],data[i*2+1]]);
+      return route;
+    },
+    dispose(){if(!disposed){disposed=true;free(out,outputCapacity*2);if(bp)free(bp,bc);if(op)free(op,oc);}},
   };
 }
