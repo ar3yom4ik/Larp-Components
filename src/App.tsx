@@ -208,6 +208,20 @@ export default function App() {
     return () => { cancelled = true; if (stepper && sim.machineStepper === stepper) sim.machineStepper = null; stepper?.dispose(); };
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("rustLogic") !== "1") return;
+    let cancelled = false;
+    let stepper: ReturnType<typeof import("./sim/wasm/kernel").createRustLogicStepper> | null = null;
+    void import("./sim/wasm/kernel").then(({ createRustLogicStepper }) => {
+      if (cancelled) return;
+      stepper = createRustLogicStepper(); sim.logicStepper = stepper;
+      sim.log("Experimental Rust automation signal evaluation active.", "info");
+    }).catch((error: unknown) => {
+      if (!cancelled) sim.log(`Rust automation signals unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
+    });
+    return () => { cancelled = true; if (stepper && sim.logicStepper === stepper) sim.logicStepper = null; stepper?.dispose(); };
+  }, []);
+
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {

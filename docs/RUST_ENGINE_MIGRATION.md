@@ -38,8 +38,8 @@ The opt-in has not been validated in a browser in this environment.
 
 `tests/rust-feeder-parity.ts` compares selected state on every frame of nine
 60-second generated factory scenarios and further overlap, script/staff and
-multi-cell cases, plus 2,000 randomized feeder cases. Both sides share the same
-TypeScript systems except feeder decisions. These checks do not establish full
+multi-cell cases, plus 2,000 randomized feeder cases. The current hybrid comparison also enables the experimental machine workflow and
+automation signals; all other systems remain TypeScript. These checks do not establish full
 engine or universal project parity, or validate the browser and renderer.
 
 ## Experimental machine clock (alpha.3)
@@ -71,6 +71,20 @@ The hybrid tests compare selected fields for generated factories. Separate tests
 exercise four machine kinds, rejected/claimed inputs, assembly, empty/missing
 parts, and 500 randomized candidate scenes against the TypeScript reference.
 They do not cover every project, browser, or subsystem.
+
+## Experimental automation signals (alpha.5)
+
+`?rustLogic=1` opts in to batched button, laser, proximity sensor and PLC
+signal evaluation in Rust/Wasm, including ordered PLC propagation. The host
+continues to manage scene wiring, buttons, robot signals, JavaScript scripts,
+and all other simulation systems. Can be combined with the feeder and machine
+workflow flags. The default remains TypeScript and browser behavior and
+performance are not yet verified.
+
+The logic test covers 3,000 randomized ordered circuits (including duplicate
+IDs) and a live button/PLC/sensor/laser chain against the TypeScript reference.
+Generated-factory comparisons also exercise the experimental signal path. These
+checks are not full-engine parity or proof of browser performance.
 
 ## Constraints for remaining migration
 

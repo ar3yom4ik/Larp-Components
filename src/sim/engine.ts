@@ -676,7 +676,12 @@ export interface MachineStepper {
   step(machine: MachineRT, candidates: readonly Box[], dt: number): {action: number; first: Box | null; consumed: Box[]};
 }
 
+export interface LogicStepper {
+  step(items: readonly SceneItem[], boxes: readonly Box[], triggers: ReadonlyMap<string, SceneItem[]>, signals: Map<string, boolean>): void;
+}
+
 export class Engine {
+  logicStepper: LogicStepper | null = null;
   machineStepper: MachineStepper | null = null;
   machineClock: MachineClock | null = null;
   /** Null uses the original TypeScript feeder implementation. */
@@ -2179,7 +2184,8 @@ export class Engine {
   }
 
   private updateLogic() {
-    for (const item of this.logicItems) {
+    if (this.logicStepper) this.logicStepper.step(this.logicItems, this.boxes, this.triggers, this.signalState);
+    else for (const item of this.logicItems) {
       let signal = item.kind === "button" ? this.signalState.get(item.id) === true : false;
       if (item.kind === "laser") {
         const range = Math.max(0.5, num(item.props.range, 3)) / 2;

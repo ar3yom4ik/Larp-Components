@@ -152,3 +152,40 @@ export function createRustMachineStepper() {
     dispose() { if(!disposed) { disposed=true; free(statePtr,12); if(boxesPtr) free(boxesPtr,capacity); } },
   };
 }
+
+/** Experimental batched automation signals. The host owns scene properties,
+ * buttons and robot signals; ordered PLC/sensor evaluation runs in Rust. */
+export function createRustLogicStepper() {
+  if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.step_logic !== 'function') throw new Error('Rust logic stepper unavailable');
+  const memory=exports.memory;
+  const alloc=exports.alloc_f64 as (n:number)=>number;
+  const free=exports.free_f64 as (p:number,n:number)=>void;
+  const run=exports.step_logic as (n:number,nc:number,b:number,bc:number,s:number,sc:number,r:number,rc:number)=>void;
+  const ptr=[0,0,0,0], cap=[0,0,0,0];
+  let disposed=false;
+  function number(value:unknown, fallback:number) { const parsed=typeof value==='number'?value:Number(value); return Number.isFinite(parsed)?parsed:fallback; }
+  return {
+    step(items:readonly import('../../types').SceneItem[], boxes:readonly import('../engine').Box[], triggers:ReadonlyMap<string, import('../../types').SceneItem[]>, signals:Map<string,boolean>) {
+      if(disposed) throw new Error('Rust logic stepper has been disposed');
+      const ids=[...new Set(items.map(item=>item.id))], slots=new Map(ids.map((id,i)=>[id,i]));
+      const sourceLists=items.map(item=>(triggers.get(item.id)??[]).map(v=>slots.get(v.id)).filter((v):v is number=>v!==undefined));
+      const totalSources=sourceLists.reduce((n,v)=>n+v.length,0);
+      const lengths=[items.length*13,boxes.length*6,ids.length,totalSources];
+      for(let i=0;i<4;i++) if(!ptr[i] || lengths[i]>cap[i]) { if(ptr[i]) free(ptr[i],cap[i]); cap[i]=Math.max(1,lengths[i]); ptr[i]=alloc(cap[i]); }
+      const nodes=new Float64Array(memory.buffer,ptr[0],lengths[0]), bs=new Float64Array(memory.buffer,ptr[1],lengths[1]), ss=new Float64Array(memory.buffer,ptr[2],lengths[2]), refs=new Float64Array(memory.buffer,ptr[3],lengths[3]);
+      for(let i=0;i<ids.length;i++) ss[i]=signals.get(ids[i])===true?1:0;
+      let offset=0;
+      for(let i=0;i<items.length;i++) {
+        const v=items[i], list=sourceLists[i], yaw=v.rotation*Math.PI/180;
+        const range=Math.max(0.5,number(v.props.range,3))/2, c=Math.cos(yaw), sn=Math.sin(yaw);
+        const kind=v.kind==='button'?1:v.kind==='laser'?2:v.kind==='sensor'?3:v.kind==='plc'?4:0;
+        nodes.set([kind,v.position[0],v.position[2],Math.max(0.2,number(v.props.radius,0.8)),v.position[0]-range*c,v.position[2]+range*sn,v.position[0]+range*c,v.position[2]-range*sn,v.props.normallyClosed===true?1:0,v.props.signal===true?1:0,slots.get(v.id)!,offset,list.length],i*13);
+        refs.set(list,offset); offset+=list.length;
+      }
+      for(let i=0;i<boxes.length;i++) { const b=boxes[i]; bs.set([b.x,b.y,b.z,b.hy,b.r,b.state==='dead'?0:b.state==='dying'?1:2],i*6); }
+      run(ptr[0],items.length,ptr[1],boxes.length,ptr[2],ids.length,ptr[3],totalSources);
+      for(let i=0;i<ids.length;i++) signals.set(ids[i],ss[i]!==0);
+    },
+    dispose() { if(!disposed) { disposed=true; for(let i=0;i<4;i++) if(ptr[i]) free(ptr[i],cap[i]); } },
+  };
+}

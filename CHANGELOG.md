@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.5] - 2026-11-01 (prerelease)
+
+- Experimental Rust/Wasm automation signals for buttons, lasers, proximity sensors and PLCs (`?rustLogic=1`), with ordered signal propagation. Wiring, user input and robot signals remain host-managed. The default remains TypeScript.
+- Added 3,000 randomized circuit comparisons and an engine integration test. The full Rust migration, full-engine parity, browser behavior and performance remain unverified.
+
 ## [2.5.0-alpha.4] - 2026-11-01 (prerelease)
 
 - Experimental Rust/Wasm automatic machine workflow (`?rustMachineWorkflow=1`): selection, assembly and cycle decisions. The TypeScript host retains spatial candidate ordering, product mutations and explicit robot/human process calls. The default remains TypeScript.

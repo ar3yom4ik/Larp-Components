@@ -192,3 +192,66 @@ mod machine_tests {
         assert_eq!(machine[11], 1.);
     }
 }
+
+/// Evaluate button, laser, proximity sensor and PLC nodes in scene order.
+/// Node record: kind(1 button,2 laser,3 sensor,4 plc), x,z,radius, ax,az,bx,bz,
+/// normally_closed, constant_signal, signal_slot, source_offset, source_count.
+/// Box record: x,y,z,half_height,radius,state(0 dead,1 dying,2 other).
+/// Signals and source slots are indexed separately so duplicate IDs preserve
+/// the TypeScript Map's shared signal semantics.
+/// # Safety
+/// Pointers must refer to initialized, non-overlapping buffers of the declared
+/// sizes. Signal slots and source ranges must be valid for their buffers.
+#[no_mangle]
+pub unsafe extern "C" fn step_logic(nodes: *const f64, node_count: usize, boxes: *const f64, box_count: usize,
+                                    signals: *mut f64, signal_count: usize, sources: *const f64, source_count: usize) {
+    let nodes=std::slice::from_raw_parts(nodes,node_count*13);
+    let boxes=std::slice::from_raw_parts(boxes,box_count*6);
+    let signals=std::slice::from_raw_parts_mut(signals,signal_count);
+    let sources=std::slice::from_raw_parts(sources,source_count);
+    for n in nodes.chunks_exact(13) {
+        let slot=n[10] as usize;
+        let mut signal=false;
+        match n[0] as u32 {
+            1 => signal=signals[slot] != 0.0,
+            2 => {
+                let (dx,dz)=(n[6]-n[4],n[7]-n[5]);
+                let len2=dx*dx+dz*dz;
+                let denom=if len2==0.0 || len2.is_nan() {1.0} else {len2};
+                for b in boxes.chunks_exact(6) {
+                    if b[5] != 2.0 || !((b[1]+b[3]-1.0).abs() < 0.5) {continue;}
+                    let raw=((b[0]-n[4])*dx+(b[2]-n[5])*dz)/denom;
+                    // Math.max/min propagate NaN.
+                    let u=if raw.is_nan() {f64::NAN} else {raw.min(1.0).max(0.0)};
+                    if (b[0]-(n[4]+u*dx)).hypot(b[2]-(n[5]+u*dz)) < b[4]+0.06 {signal=true;break;}
+                }
+                if n[8]!=0.0 {signal=!signal;}
+            }
+            3 => signal=boxes.chunks_exact(6).any(|b| b[5]!=0.0 && (b[0]-n[1]).hypot(b[2]-n[2])<=n[3]),
+            4 => {
+                let start=n[11] as usize; let end=start+n[12] as usize;
+                signal=sources[start..end].iter().any(|&src| signals[src as usize]!=0.0) || n[9]!=0.0;
+            }
+            _ => {}
+        }
+        signals[slot]=if signal {1.0} else {0.0};
+    }
+}
+
+#[cfg(test)]
+mod logic_tests {
+    use super::step_logic;
+
+    #[test]
+    fn sequential_plc_and_laser() {
+        // Button slot 0 -> PLC slot 1; the laser is normally closed.
+        let nodes=[1.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,
+                   4.,0.,0.,0.,0.,0.,0.,0.,0.,0.,1.,0.,1.,
+                   2.,0.,0.,0.,-1.,0.,1.,0.,1.,0.,2.,1.,0.];
+        let boxes=[0.,0.87,0.,0.13,0.2,2.];
+        let mut signals=[1.,0.,1.];
+        let sources=[0.];
+        unsafe {step_logic(nodes.as_ptr(),3,boxes.as_ptr(),1,signals.as_mut_ptr(),3,sources.as_ptr(),1)};
+        assert_eq!(signals,[1.,1.,0.]);
+    }
+}
