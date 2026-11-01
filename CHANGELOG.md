@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.4] - 2026-11-01 (prerelease)
+
+- Experimental Rust/Wasm automatic machine workflow (`?rustMachineWorkflow=1`): selection, assembly and cycle decisions. The TypeScript host retains spatial candidate ordering, product mutations and explicit robot/human process calls. The default remains TypeScript.
+- Added generated-factory hybrid comparisons and machine edge-case/randomized tests. Browser behavior, performance and full-engine parity are not established; the Rust migration is still incomplete.
+
 ## [2.5.0-alpha.3] - 2026-11-01 (prerelease)
 
 - Experimental Rust/Wasm machine cycle clock, independently opt-in via `?rustMachines=1`. All machine decisions and product transitions still run in TypeScript; this is not a complete machine or engine port.

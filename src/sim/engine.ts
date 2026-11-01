@@ -672,7 +672,12 @@ export interface MachineClock {
   advance(machine: MachineRT, dt: number): void;
 }
 
+export interface MachineStepper {
+  step(machine: MachineRT, candidates: readonly Box[], dt: number): {action: number; first: Box | null; consumed: Box[]};
+}
+
 export class Engine {
+  machineStepper: MachineStepper | null = null;
   machineClock: MachineClock | null = null;
   /** Null uses the original TypeScript feeder implementation. */
   feederStepper: FeederStepper | null = null;
@@ -1385,6 +1390,23 @@ export class Engine {
   }
 
   private updateMachine(machine: MachineRT, dt: number) {
+    if (this.machineStepper) {
+      const t = machine.table();
+      const candidates = machine.busy ? [] : machine.kind === "assembly" ? this.boxes : this.boxIndex.query(t.x, t.z, this.grabScratch, 0.45);
+      const {action, first, consumed} = this.machineStepper.step(machine, candidates, dt);
+      if ((action === 1 || action === 2) && first) {
+        if (action === 2) {
+          consumed.forEach((p) => { p.state = "dying"; p.fade = 1; });
+          first.y = TABLE_TOP + first.hy + 0.002; first.x = t.x; first.z = t.z; first.assembly = true;
+        }
+        if (machine.busy) { machine.part = first; first.state = "inside"; first.claim = 0; }
+      } else if ((action === 3 || action === 4) && machine.part) {
+        const box = machine.part;
+        box.x = t.x; box.z = t.z;
+        if (action === 4) { this.finishMachineProduct(machine, box); machine.part = null; }
+      }
+      return;
+    }
     if (!machine.busy) {
       if (machine.kind === "assembly") {
         const t = machine.table();
@@ -1410,15 +1432,19 @@ export class Engine {
     const table = machine.table();
     box.x = table.x; box.z = table.z;
     if (machine.remaining <= 0) {
-      const product = getProduct(machine.outputProduct);
-      box.productId = product.id; box.color = machine.kind === "paint" ? parseInt(machine.paintColor.replace("#", ""), 16) : product.color;
-      [box.hx, box.hy, box.hz] = product.size.map((v) => v / 2) as V3;
-      box.r = Math.max(product.size[0], product.size[2]) * 0.55;
-      box.y = TABLE_TOP + box.hy + 0.002; box.vx = box.vy = box.vz = 0;
-      box.state = "free"; box.processed = true; box.lastMachine = machine.id;
-      if (machine.kind === "inspection") box.inspected = true;
+      this.finishMachineProduct(machine, box);
       machine.busy = false; machine.cycles += 1; machine.part = null;
     }
+  }
+
+  private finishMachineProduct(machine: MachineRT, box: Box) {
+    const product = getProduct(machine.outputProduct);
+    box.productId = product.id; box.color = machine.kind === "paint" ? parseInt(machine.paintColor.replace("#", ""), 16) : product.color;
+    [box.hx, box.hy, box.hz] = product.size.map((v) => v / 2) as V3;
+    box.r = Math.max(product.size[0], product.size[2]) * 0.55;
+    box.y = TABLE_TOP + box.hy + 0.002; box.vx = box.vy = box.vz = 0;
+    box.state = "free"; box.processed = true; box.lastMachine = machine.id;
+    if (machine.kind === "inspection") box.inspected = true;
   }
 
   /** Native visual workflows share the exact same IK pick/place primitives as code. */

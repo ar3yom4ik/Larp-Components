@@ -56,6 +56,22 @@ paint, inspection and assembly cycles. The generated-factory hybrid comparison
 also enables the clock. The systems and observables not represented in these
 tests remain unverified.
 
+## Experimental automatic machine workflow (alpha.4)
+
+`?rustMachineWorkflow=1` switches automatic machine input selection, assembly
+selection and active-cycle transitions to Rust/Wasm. It can be combined with
+`?rustFeeders=1`. Spatial-index candidate ordering, object references, product
+catalogue lookup and completion field updates still live in the TypeScript host;
+explicit robot/human `process` calls also remain TypeScript. When this workflow
+is enabled it replaces the alpha.3 machine-clock path, even if both flags are set.
+The default remains TypeScript. This is not a complete Rust engine, and the
+per-machine buffer copies have not been performance-tested in a browser.
+
+The hybrid tests compare selected fields for generated factories. Separate tests
+exercise four machine kinds, rejected/claimed inputs, assembly, empty/missing
+parts, and 500 randomized candidate scenes against the TypeScript reference.
+They do not cover every project, browser, or subsystem.
+
 ## Constraints for remaining migration
 
 - Preserve fixed-step simulation, pacing under load, saved projects, and all existing

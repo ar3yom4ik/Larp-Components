@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import { Engine } from '../src/sim/engine';
 import { DEFAULT_GEN, FACTORY_RECIPES, generateFactory } from '../src/sim/generator';
 import { makeItem } from '../src/data/library';
-import { createRustFeederStepper, createRustMachineClock } from '../src/sim/wasm/kernel';
+import { createRustFeederStepper, createRustMachineClock, createRustMachineStepper } from '../src/sim/wasm/kernel';
 import type { SceneItem } from '../src/types';
 
-// Each pair uses the *same* factory and input events. Feeder decisions and machine clock arithmetic are
+// Each pair uses the *same* factory and input events. Feeder decisions and automatic machine workflow are
 // switched to Rust; all other behavior remains the existing TS implementation.
 function state(engine: Engine) {
   return {
     time: engine.time, stats: engine.stats,
     feeders: [...engine.feeders.values()].map(f => ({id:f.id,timer:f.timer,supply:f.supply})),
-    boxes: engine.boxes.map(b => ({id:b.id,x:b.x,y:b.y,z:b.z,vx:b.vx,vy:b.vy,vz:b.vz,yaw:b.yaw,state:b.state,productId:b.productId,claim:b.claim,support:b.support,palletId:b.palletId})),
-    machines: [...engine.machines.values()].map(m=>({id:m.id,busy:m.busy,progress:m.progress,remaining:m.remaining,cycles:m.cycles})),
+    boxes: engine.boxes.map(b => ({id:b.id,x:b.x,y:b.y,z:b.z,vx:b.vx,vy:b.vy,vz:b.vz,yaw:b.yaw,state:b.state,productId:b.productId,claim:b.claim,support:b.support,palletId:b.palletId,processed:b.processed,inspected:b.inspected,assembly:b.assembly,lastMachine:b.lastMachine,color:b.color,fade:b.fade})),
+    machines: [...engine.machines.values()].map(m=>({id:m.id,busy:m.busy,busyTime:m.busyTime,progress:m.progress,remaining:m.remaining,cycles:m.cycles,part:m.part?.id ?? null})),
     robots: [...engine.robots.values()].map(r=>({id:r.itemId,status:r.status,cycles:r.cycles,tip:r.tip,joints:r.joints})),
     humans: [...engine.humans.values()].map(h=>({id:h.id,x:h.x,z:h.z,stage:h.stage,status:h.status,completed:h.completed})),
   };
@@ -21,6 +21,7 @@ async function compare(label:string, items:SceneItem[], seconds:number) {
   const js = new Engine(), hybrid = new Engine();
   const rust = createRustFeederStepper(); hybrid.feederStepper = rust;
   const clock = createRustMachineClock(); hybrid.machineClock = clock;
+  const machine = createRustMachineStepper(); hybrid.machineStepper = machine;
   js.stepBudgetMs=40; hybrid.stepBudgetMs=40;
   js.sync(structuredClone(items)); hybrid.sync(structuredClone(items));
   js.setRunning(true); hybrid.setRunning(true);
@@ -31,7 +32,7 @@ async function compare(label:string, items:SceneItem[], seconds:number) {
       assert.deepEqual(state(hybrid),state(js),`${label}: frame ${frame}`);
     }
     assert.deepEqual(state(hybrid),state(js),`${label}: final state`);
-  } finally { rust.dispose(); clock.dispose(); }
+  } finally { rust.dispose(); clock.dispose(); machine.dispose(); }
 }
 for (const recipe of FACTORY_RECIPES) {
   await compare(recipe.id,generateFactory({...DEFAULT_GEN,recipe:recipe.id,stages:recipe.id==='logistics'?0:1,fences:false,operators:false,cols:2,rows:2,layers:2}),60);
@@ -44,7 +45,7 @@ const f2=makeItem('feeder',[0.8,0,0],0,{props:{interval:2,active:true,product:'c
 const f3=makeItem('feeder',[2.5,0,0],0,{props:{interval:2,active:false,product:'carton'}});
 const f4=makeItem('feeder',[3,0,0],0,{props:{interval:2,active:true,requireSupply:true,product:'carton'}});
 await compare('overlapping/inactive feeders',[belt,f1,f2,f3,f4],30);
-console.log('Rust feeder hybrid vs TypeScript: 9 complete factories + feeder edge scenario matched every frame');
+console.log('Rust feeder and automatic machine hybrid vs TypeScript: 9 generated factories + feeder edge scenario matched selected state every frame');
 
 // JS user scripts and human walking still run in the host in both modes.
 const scriptLine = generateFactory({...DEFAULT_GEN,stages:1,operators:true,staff:2});

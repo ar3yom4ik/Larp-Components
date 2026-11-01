@@ -194,6 +194,20 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("rustMachineWorkflow") !== "1") return;
+    let cancelled = false;
+    let stepper: ReturnType<typeof import("./sim/wasm/kernel").createRustMachineStepper> | null = null;
+    void import("./sim/wasm/kernel").then(({ createRustMachineStepper }) => {
+      if (cancelled) return;
+      stepper = createRustMachineStepper(); sim.machineStepper = stepper;
+      sim.log("Experimental Rust automatic machine workflow active.", "info");
+    }).catch((error: unknown) => {
+      if (!cancelled) sim.log(`Rust machine workflow unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
+    });
+    return () => { cancelled = true; if (stepper && sim.machineStepper === stepper) sim.machineStepper = null; stepper?.dispose(); };
+  }, []);
+
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {

@@ -1,5 +1,6 @@
 import { KERNEL_BASE64 } from './kernelBytes';
 import type { Barrier, WalkObstacle } from '../navigation';
+import { TABLE_TOP } from '../engine';
 
 /** Small synchronous Wasm kernel, embedded so the standalone HTML stays offline.
  * Keep the JS implementation as a compatibility fallback for browsers that cannot
@@ -113,5 +114,41 @@ export function createRustMachineClock() {
       machine.busyTime = state[0]; machine.remaining = state[1]; machine.progress = state[2];
     },
     dispose() { if (!disposed) { disposed = true; free(ptr, 4); } },
+  };
+}
+
+/** Experimental automatic machine workflow. Product metadata, object ownership,
+ * spatial candidate ordering and externally requested `process` remain host-owned. */
+export function createRustMachineStepper() {
+  if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.step_machine !== 'function') throw new Error('Rust machine stepper unavailable');
+  const memory=exports.memory;
+  const alloc=exports.alloc_f64 as (count:number)=>number;
+  const free=exports.free_f64 as (ptr:number,count:number)=>void;
+  const run=exports.step_machine as (state:number,boxes:number,count:number,dt:number,top:number)=>void;
+  const statePtr=alloc(12);
+  let boxesPtr=0, capacity=0, disposed=false;
+  return {
+    step(machine:import('../engine').MachineRT, candidates:readonly import('../engine').Box[], dt:number) {
+      if(disposed) throw new Error('Rust machine stepper has been disposed');
+      const count=candidates.length, length=count*9;
+      if(!boxesPtr || length>capacity) {
+        if(boxesPtr) free(boxesPtr,capacity);
+        capacity=Math.max(9,length); boxesPtr=alloc(capacity);
+      }
+      const s=new Float64Array(memory.buffer,statePtr,12), b=new Float64Array(memory.buffer,boxesPtr,length);
+      const t=machine.table();
+      s.set([machine.busy?1:0,machine.cycle,machine.remaining,machine.busyTime,machine.progress,machine.requiredParts,machine.kind==='assembly'?1:0,t.x,t.z,machine.part?1:0,0,machine.cycles]);
+      for(let i=0;i<count;i++) {
+        const v=candidates[i];
+        b.set([v.x,v.y,v.z,v.hy,v.state==='free'?1:0,v.claim===0?1:0,v.lastMachine===machine.id?1:0,machine.inputProduct==='any'||v.productId===machine.inputProduct?1:0,0],i*9);
+      }
+      run(statePtr,boxesPtr,count,dt,TABLE_TOP);
+      machine.busy=s[0]!==0; machine.remaining=s[2]; machine.busyTime=s[3]; machine.progress=s[4]; machine.cycles=s[11];
+      let first:import('../engine').Box|null=null;
+      const consumed:import('../engine').Box[]=[];
+      for(let i=0;i<count;i++) { if(b[i*9+8]===1) first=candidates[i]; else if(b[i*9+8]===2) consumed.push(candidates[i]); }
+      return {action:s[10],first,consumed};
+    },
+    dispose() { if(!disposed) { disposed=true; free(statePtr,12); if(boxesPtr) free(boxesPtr,capacity); } },
   };
 }

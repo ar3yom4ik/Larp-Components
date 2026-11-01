@@ -116,3 +116,79 @@ pub unsafe extern "C" fn advance_machine_clock(state: *mut f64, dt: f64) {
     // JS Math.min propagates NaN, while Rust f64::min does not.
     s[2] = if progress.is_nan() { f64::NAN } else { 1.0_f64.min(progress) };
 }
+
+/// Advance one machine's automatic workflow. The host supplies candidate boxes in
+/// the same order as its spatial index (or scene order for assembly). Record:
+/// busy, cycle, remaining, busy_time, progress, required_parts, is_assembly,
+/// table_x, table_z, has_part, action, cycles. Box records: x,y,z,half_height,
+/// is_free, unclaimed, last_machine_matches, input_matches, result_marker.
+/// Actions: 0 idle, 1 ordinary start, 2 assembly attempt, 3 active, 4 completion,
+/// 5 missing part. Assembly markers are 1 for the first part, 2 for consumed parts.
+/// The host applies object identity, product metadata, and renderer-facing fields.
+/// # Safety
+/// Both pointers must reference non-overlapping initialized arrays of the lengths specified.
+#[no_mangle]
+pub unsafe extern "C" fn step_machine(s: *mut f64, boxes: *mut f64, count: usize, dt: f64, table_top: f64) {
+    let s = std::slice::from_raw_parts_mut(s, 12);
+    let boxes = std::slice::from_raw_parts_mut(boxes, count * 9);
+    s[10] = 0.0;
+    if s[0] != 0.0 {
+        s[3] += dt;
+        s[2] -= dt;
+        let progress = 1.0 - s[2] / s[1];
+        s[4] = if progress.is_nan() { f64::NAN } else { 1.0_f64.min(progress) };
+        if s[9] == 0.0 { s[0] = 0.0; s[10] = 5.0; return; }
+        if s[2] <= 0.0 { s[0] = 0.0; s[11] += 1.0; s[10] = 4.0; }
+        else { s[10] = 3.0; }
+        return;
+    }
+    let assembly = s[6] != 0.0;
+    let mut eligible = Vec::new();
+    for (i, b) in boxes.chunks_exact_mut(9).enumerate() {
+        b[8] = 0.0;
+        if b[4] == 0.0 { continue; }
+        if assembly && (b[5] == 0.0 || b[6] != 0.0) { continue; }
+        let radius = if assembly { 0.48 } else { 0.45 };
+        let vertical = if assembly { 0.12 } else { 0.09 };
+        if (b[0] - s[7]).hypot(b[2] - s[8]) < radius && (b[1] - b[3] - table_top).abs() < vertical {
+            eligible.push(i);
+            if !assembly { break; }
+        }
+    }
+    if assembly {
+        if (eligible.len() as f64) < s[5] { return; }
+        for (n, &i) in eligible.iter().enumerate() { boxes[i * 9 + 8] = if n == 0 { 1.0 } else { 2.0 }; }
+        s[10] = 2.0;
+    } else if eligible.is_empty() { return; }
+    let first = eligible[0] * 9;
+    if boxes[first + 5] == 0.0 || boxes[first + 6] != 0.0 || boxes[first + 7] == 0.0 { return; }
+    if !assembly { boxes[first + 8] = 1.0; s[10] = 1.0; }
+    s[0] = 1.0;
+    s[2] = if s[1].is_nan() { f64::NAN } else { s[1].max(0.5) };
+    s[4] = 0.0;
+}
+
+#[cfg(test)]
+mod machine_tests {
+    use super::step_machine;
+
+    #[test]
+    fn automatic_cycle_and_assembly_rejection() {
+        let mut machine = [0., 1., 0., 0., 0., 2., 1., 0., 0., 0., 0., 0.];
+        // Two eligible assembly parts. The first does not match the input product.
+        let mut boxes = [0., 1., 0., 0.05, 1., 1., 0., 0., 0.,
+                         0.1, 1., 0., 0.05, 1., 1., 0., 1., 0.];
+        unsafe { step_machine(machine.as_mut_ptr(), boxes.as_mut_ptr(), 2, 0.1, 0.95) };
+        assert_eq!(machine[10], 2.);
+        assert_eq!(machine[0], 0.);
+        assert_eq!((boxes[8], boxes[17]), (1., 2.));
+        boxes[7] = 1.;
+        unsafe { step_machine(machine.as_mut_ptr(), boxes.as_mut_ptr(), 2, 0.1, 0.95) };
+        assert_eq!(machine[0], 1.);
+        assert_eq!(machine[2], 1.);
+        machine[9] = 1.;
+        unsafe { step_machine(machine.as_mut_ptr(), boxes.as_mut_ptr(), 0, 1.0, 0.95) };
+        assert_eq!(machine[10], 4.);
+        assert_eq!(machine[11], 1.);
+    }
+}
