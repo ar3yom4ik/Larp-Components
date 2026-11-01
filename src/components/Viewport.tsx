@@ -9,6 +9,7 @@ import {
   Focus,
   Grid3X3,
   Layers3,
+  Cable,
   Maximize2,
   Pause,
   Play,
@@ -24,6 +25,8 @@ import { COMPONENTS, getDef } from "../data/library";
 import { PartIcon, partAccent } from "./PartIcon";
 import { FactoryEnvironment, FactoryModel, MODEL_HEIGHTS, type BuildingStyle } from "./FactoryModels";
 import { ImportedModel } from "./ImportedModel";
+import { SignalPortLayer } from "./SignalPortLayer";
+import { canSignalInput, canSignalOutput } from "../utils/signalPorts";
 import { WireLayer } from "./WireLayer";
 import { BoxesLayer } from "./ProductModels";
 import { PostEffects, RendererSettings } from "./GraphicsEffects";
@@ -719,6 +722,15 @@ export const Viewport = memo(function Viewport({
   const building: BuildingStyle = { ...buildingSettings };
   building.width = Math.max(building.width, Math.max(...xs, 8) - Math.min(...xs, -8) + 8);
   building.depth = Math.max(building.depth, Math.max(...zs, 6) - Math.min(...zs, -6) + 8);
+  const [signalMode, setSignalMode] = useState(false);
+  const [signalSource, setSignalSource] = useState<string | null>(null);
+  const sourceItem = items.find(item => item.id === signalSource && canSignalOutput(item));
+  const selectSignalTarget = (id: string) => {
+    const target = items.find(item => item.id === id);
+    if (!sourceItem || !target || !canSignalInput(target, sourceItem.id)) return;
+    onUpdateItem(sourceItem.id, {props: {...sourceItem.props, connectedTo: target.id}});
+    setSignalSource(null);
+  };
   const [gridVisible, setGridVisible] = useState(true);
   const [hudVisible, setHudVisible] = useState(true);
   const [dragActive, setDragActive] = useState(false);
@@ -885,6 +897,7 @@ export const Viewport = memo(function Viewport({
             building={building}
             onDuplicateItem={onDuplicateItem}
           />
+          {signalMode && <SignalPortLayer items={items} sourceId={sourceItem?.id ?? null} onSource={setSignalSource} onTarget={selectSignalTarget} />}
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[Math.max(80, Math.ceil(Math.max(building.width, building.depth) * 1.4)), 40, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
         {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows
@@ -929,8 +942,18 @@ export const Viewport = memo(function Viewport({
 
       {hudVisible && selected && mobile && <div className="absolute left-3 top-[63px] z-10 max-w-[calc(100%-24px)]"><SelectionHud item={selected} onDuplicate={() => onDuplicateItem(selected.id)} onDelete={() => onDeleteItem(selected.id)} /></div>}
 
+      {signalMode && <div className="absolute bottom-16 left-3 z-20 max-w-[280px] rounded border border-white/20 bg-[#20272c]/95 p-2 text-[11px] text-white shadow-lg" role="status">
+        <p>{sourceItem ? `${t("Choose an IN port for")}: ${sourceItem.name}` : t("Choose an OUT port on a sensor, button, laser or PLC.")}</p>
+        {sourceItem && <div className="mt-2 flex gap-2">
+          <button type="button" onClick={() => setSignalSource(null)} className="rounded border border-white/20 px-2 py-1">{t("Cancel")}</button>
+          {sourceItem.props.connectedTo && <button type="button" onClick={() => { onUpdateItem(sourceItem.id, {props: {...sourceItem.props, connectedTo: ''}}); setSignalSource(null); }} className="rounded border border-white/20 px-2 py-1">{t("Disconnect signal")}</button>}
+        </div>}
+        <p className="mt-1 text-white/50">{t("Signal links only; material flow is separate.")}</p>
+      </div>}
+
       {/* View controls */}
       <div className="view-controls absolute right-3 top-3 flex max-w-[calc(100%-24px)] items-center gap-1.5">
+        <button type="button" aria-label={t("Edit signal connections")} aria-pressed={signalMode} title={t("Edit signal connections")} onClick={() => { setSignalMode(value => !value); setSignalSource(null); }} className={cn("rounded border border-white/10 bg-[#2a2a2c]/90 p-1.5 shadow-lg", signalMode ? "text-[#f4c260]" : "text-white/60")}><Cable size={14} /></button>
         <div className="flex items-center rounded border border-white/10 bg-[#2a2a2c]/90 p-0.5 shadow-lg backdrop-blur">
           {viewButtons.map((button) => (
             <button

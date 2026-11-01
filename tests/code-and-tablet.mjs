@@ -16,6 +16,9 @@ await page.waitForFunction(()=>[...window.__larp.robots.values()][0].error?.incl
 await page.getByTitle('Language',{exact:true}).click();
 await page.getByTitle('API reference',{exact:true}).count().catch(()=>0);
 await page.screenshot({path:'tests/artifacts/code-russian.png'});
+// Release the first WebGL context before opening the tablet; software CI renderers
+// can otherwise starve the second page's animation frames.
+await page.close();
 const tablet=await browser.newPage({viewport:{width:1024,height:768},isMobile:true,hasTouch:true});tablet.on('pageerror',e=>errors.push(e.message));
 await tablet.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:2, graphics:'standard', gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:1}})));
 await tablet.goto(base,{waitUntil:'networkidle'});

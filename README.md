@@ -2,15 +2,15 @@
 
 [![CI](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml/badge.svg)](https://github.com/ar3yom4ik/Larp-Components/actions/workflows/ci.yml)
 
-A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Release **V2.4** of *Larp Components 5.1*.
+A browser-based 3D **factory layout editor and discrete-time simulator**, built with React, Three.js and React Three Fiber. Place machines, conveyors, robots, workers and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time. Prerelease **V3.0.0-alpha.1** of *Larp Components 5.1*.
 
 > Not affiliated with Visual Components. The simulator and safety guarding are illustrative only; they are **not** certified industrial, safety or robot-control tools.
 
 ## Features
 
 - **3D factory editor** — drag-and-drop components, snapping, selection with move/rotate tools, conveyor spline editing, undo/redo, and floor-map navigation.
-- **Simulation** — discrete-time engine (fixed 60 Hz physics step) with product flow, machine cycles, robot pick-and-place, feeders, pallets and pedestrian navigation around obstacles. Spatial indexing and a frame-aware time budget keep large plants (hundreds of components) smooth.
-- **Node-based AI Factory generator (local)** — describe the plant in English or Russian, then wire each section (prompt, recipe, process chain, line speed, robots, staff, safety, layout, pallet pattern, factory output) in a Blueprint/ComfyUI-style graph. Every node is a small, registrable plugin with typed ports; the generated factory follows the connections, and an explicit node setting always beats the sentence. Deterministic rules, no online AI service.
+- **Simulation** — discrete-time engine (fixed 60 Hz physics step) with product flow, machine cycles, robot pick-and-place, feeders, pallets and pedestrian navigation around obstacles. Spatial indexing and a frame-aware time budget help with larger plants; performance depends on the scene and device.
+- **Factory generator (local)** — wire physical feeder, conveyor, robot, human, machine and pallet nodes into supported linear or independent lines. The Form tab separately accepts English/Russian descriptions using deterministic local rules, not an online AI service. Branching and merging are not yet supported.
 - **3D model import** — GLB/glTF, FBX, OBJ+MTL, STL, PLY, DAE, 3MF, 3DS, USD, VRML, VTK, AMF, STEP/IGES/BREP, with Draco, Meshopt and KTX2 support where the browser allows.
 - **Materials** — per-instance material editing and texture replacement for imported models.
 - **Animated workers** — a bundled CC0 rigged human (idle / walk / work clips), custom rigged characters, and per-role animation uploads.
@@ -18,10 +18,12 @@ A browser-based 3D **factory layout editor and discrete-time simulator**, built 
 - **Skins** — Larp UI, Visual Components-inspired, R-pro, and a **Custom** skin whose colour scheme (accent, window, title bar, tabs, ribbon, panels, dock, viewport, status bar, chrome text) is fully editable.
 - **Dockable workspace** — resize, detach, move, close and reset the catalog, properties and output panels; the floor map opens as its own window.
 - **Worker cosmetics** — hard hat, cap, safety glasses, ear defenders and accessories modelled individually; the worker colour sets the T-shirt colour.
-- **Projects** — export/import as UTF-8 `.txt`, IndexedDB autosave, and optional File System Access saving.
-- **Responsive UI** — desktop layout and a touch-first phone/tablet layout with feature parity.
+- **Projects** — compressed `.lcmx` archives with embedded assets, legacy text projects, IndexedDB autosave and optional File System Access saving.
+- **Responsive UI** — desktop layout and a touch-first phone/tablet layout; some workflows need further touch testing.
 - **Bilingual UI** — English and Russian (`src/i18n.ts`).
 - **Offline standalone build** — the production build is a single self-contained HTML file.
+
+Release test coverage and known gaps: `docs/V3_PRERELEASE_CHECKS.md`.
 
 ## Quick start
 
@@ -40,7 +42,8 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | --- | --- |
 | `npm run dev` | Start the Vite dev server (port 5173 by default; the docs and tests use 4173). |
 | `npm run typecheck` | TypeScript type check with `tsc --noEmit`. |
-| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance and server-rendered UI tests (24 files, including experimental Wasm parity). |
+| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance and server-rendered UI tests (25 files, including experimental Wasm parity). |
+| `npm run test:signals-browser` | Playwright viewport signal-port editing checks against the development server. |
 | `npm run test:archive-browser` | Playwright `.LCMX` import/export and save/autosave checks against the development server. |
 | `npm run test:browser` | Four core Playwright UI suites against a running development server on port 4173. |
 | `npm run test:typescript-parity` | Compare selected simulation state against a Git baseline; see `docs/TYPESCRIPT_OPTIMIZATION.md`. |
@@ -103,3 +106,7 @@ No top-level license has been chosen for this repository yet. Bundled third-part
 ### Project archives
 
 Use **Save project** to select an `.lcmx` file when the browser supports the File System Access API, or **FILE → Export copy (.lcmx)** to download one. The compressed archive includes embedded custom models and worker assets. Browsers without writable file handles download a copy instead of autosaving to that file. Legacy `.txt` export and `.txt`/`.json` imports remain supported. See `docs/ROADMAP.md` for format, security and roadmap limitations.
+
+### Viewport signal connections
+
+Use the cable button in the viewport to edit **signal** connections. Select an OUT on an unlocked, visible button, sensor, laser or PLC, then an IN on a visible robot, conveyor or PLC. Select the output again to disconnect; edits support undo. Multiple sources can target one endpoint, but each source has one target. These are existing simulator signals—not material transport, arbitrary robot-controller I/O or multi-output routing. The cable overlay is a schematic, not an electrical routing model.

@@ -1,6 +1,13 @@
 # Changelog
 
-All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
+All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
+
+## [3.0.0-alpha.1] - 2026-11-01 (prerelease)
+
+- Added an opt-in viewport signal editor for existing button, sensor, laser and PLC outputs, with robot, conveyor and PLC inputs. Supports multiple sources per endpoint, disconnect, undo and project persistence; connections use existing simulation behavior.
+- Reduced signal wire lookup from repeated scene scans to a memoized ID map. No measured FPS improvement is claimed.
+- Documentation, packaged examples and release instructions refreshed for V3; clean build, unit, parity, offline and browser checks were run (see `docs/V3_PRERELEASE_CHECKS.md`).
+- This is not full material-flow or robot-controller I/O editing: each source still has one target, graph branching remains incomplete, and there is no wire-drag gesture. See `docs/ROADMAP.md`.
 
 ## [2.5.0-alpha.14] - 2026-11-01 (prerelease)
 

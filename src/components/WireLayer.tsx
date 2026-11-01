@@ -28,6 +28,11 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
 }
 
 export function WireLayer({ items }: { items: SceneItem[] }) {
-  const wires = items.filter((item) => typeof item.props.connectedTo === 'string' && item.props.connectedTo).map((source) => ({ source, target: items.find((i) => i.id === source.props.connectedTo) })).filter((w): w is { source: SceneItem; target: SceneItem } => !!w.target);
+  const wires = useMemo(() => {
+    const byId = new Map(items.map((item) => [item.id, item]));
+    return items.filter((item) => typeof item.props.connectedTo === 'string' && item.props.connectedTo)
+      .map((source) => ({ source, target: byId.get(String(source.props.connectedTo)) }))
+      .filter((wire): wire is { source: SceneItem; target: SceneItem } => !!wire.target);
+  }, [items]);
   return <>{wires.map((w) => <Wire key={`${w.source.id}-${w.target.id}`} source={w.source} target={w.target} />)}</>;
 }

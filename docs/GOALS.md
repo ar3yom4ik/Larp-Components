@@ -1,6 +1,6 @@
 # Goals and hand-off
 
-Branch: `arena/bb17885b-larp-components`. Release **V2.1** (see `CHANGELOG.md`).
+Historical V2.1/V2.2 handoff. For V3.0.0-alpha.1 current status and known limitations see `README.md`, `CHANGELOG.md`, `USER_GUIDE.md` and `ROADMAP.md`.
 
 This issue is the hand-off list. Each item says what was done, how it was checked, and what remains.
 

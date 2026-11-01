@@ -1,8 +1,10 @@
-# Larp Factory V2 — independent AI/developer handoff
+# Larp Factory V3 prerelease — independent AI/developer handoff
 
-**Release date:** 2026-10-31 (V2.4)  
+**Current release:** V3.0.0-alpha.1, 2026-11-01
 **Audience:** a developer or another AI starting without any prior conversation.  
-**Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V2 is the numbered release of this work.
+**Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V3 is the current prerelease number.
+
+> **Current-state correction:** This document also records historical V2 work below. The default generator is now a physical component graph; linear and independent lines work, but branching/merging and full viewport material I/O are incomplete. The Form tab owns prompt-based generation. The viewport signal editor is limited to the existing single-target signal model. LCMX archives and their browser save limitations are described in `ROADMAP.md`. Continue in TypeScript; do not pursue a Rust rewrite. Historical descriptions below are not proof of current functionality.
 
 ## 1. Goal and acceptance criteria
 
@@ -14,10 +16,10 @@ Do not regress V1's visible floor shadows and graphics controls, approximate GI,
 
 ## 2. Distribution and quick start
 
-- Release ZIP (built separately from this repository): `Larp_Factory_V2.html` (single offline file), platform launchers, quick README, `examples/`, these docs and `THIRD_PARTY_LICENSES/`. The repository root is the buildable source tree (`package.json`, `src/`, `tests/`, `scripts/`).
+- Release ZIP (built separately from this repository): `Larp_Factory_V3.html` (single offline file), `examples/`, these docs and `THIRD_PARTY_LICENSES/`. The repository root is the buildable source tree (`package.json`, `src/`, `tests/`, `scripts/`).
 - Double-click the HTML or use a launcher. A current WebGL-capable browser and hardware acceleration are recommended; no Node.js, account, server, or internet is required for the standalone app.
 - An embedded/sandboxed file viewer may forbid storage, downloads, Web Workers or fullscreen. The tested sandbox `allow-scripts` can render and import a STEP file, but browser/platform policies differ. Download the HTML and open it in a regular browser when in doubt.
-- Projects are explicitly exported/imported as UTF-8 `.txt` (JSON inside a `LARP COMPONENTS 5.1` header). Simulation counters and in-flight items reset after load. Imported assets are embedded, so backup files can become large and can contain licensed source assets. The user should keep exported backups.
+- Projects support `.lcmx` ZIP archives containing the existing project text, and legacy UTF-8 `.txt`/`.json` imports and `.txt` exports. Simulation counters and in-flight items reset after load. Imported assets are embedded, so backup files can become large and can contain licensed source assets. The user should keep exported backups.
 
 For source development use Node.js **20.19+ or 22.12+** and npm:
 
@@ -168,7 +170,9 @@ friendly errors for 429/503) and `utils/polyhavenImport.ts` downloads a glTF set
 `tests/v3-graphics.ts` covers presets, sanitising, the status store, the build stamp, the shortcut
 set and the catalogue filter.
 
-### Node-based factory generator (V2.4)
+### Historical settings graph architecture (V2.4)
+
+The following describes the earlier settings-graph path, not the default physical component graph in V3. See `src/gen/graph/componentCompile.ts` and `tests/component-graph.ts` for the current graph and its restrictions.
 
 The generator is now a data-flow graph, not a form. The reference points were Unreal
 Blueprints (typed, colour-coded data pins; pure nodes with no exec chain) and ComfyUI
@@ -294,7 +298,7 @@ node tests/v2-autosave-safety.mjs
 node tests/v2-handle-safety.mjs
 node tests/v2-script-confirmation.mjs
 node tests/v2-example.mjs
-LARP_BUNDLE=/path/to/extracted/release node tests/v2-packaged-launch.mjs # needs a release folder containing Larp_Factory_V2.html
+LARP_BUNDLE=/path/to/extracted/release node tests/v2-packaged-launch.mjs # accepts V3 or legacy V2 HTML
 node tests/v2-mobile.mjs
 node tests/v2-standalone.mjs
 ```

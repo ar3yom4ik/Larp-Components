@@ -17,6 +17,7 @@ export function useLanguage() {
 
 // Program identifiers, code and user-authored names remain unchanged in both languages.
 export const RU: Record<string, string> = {
+  "Edit signal connections": "Редактировать сигнальные соединения", "Signal output": "Выход сигнала", "Signal input": "Вход сигнала", "Disconnect signal": "Отключить сигнал", "Choose an IN port for": "Выберите вход для", "Choose an OUT port on a sensor, button, laser or PLC.": "Выберите выход датчика, кнопки, лазера или ПЛК.", "Signal links only; material flow is separate.": "Только сигналы; поток изделий подключается отдельно.",
   "Export copy (.lcmx)": "Экспорт копии (.lcmx)", "Import project (.lcmx / .txt / .json)": "Импорт проекта (.lcmx / .txt / .json)",
   "Video": "Видео", "Graphics quality": "Качество графики", "Lighting": "Освещение",
   "Interface & colours": "Интерфейс и цвета", "Keybinds": "Горячие клавиши", "Settings backup": "Резервная копия настроек",

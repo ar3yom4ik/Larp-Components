@@ -35,6 +35,8 @@ await desktop.getByTitle('Language',{exact:true}).click();
 await desktop.waitForTimeout(600);
 if(!await right.getByRole('button',{name:'Свойства',exact:true}).isVisible()) throw new Error('Russian localization failed');
 await desktop.screenshot({path:'tests/artifacts/russian.png'});
+// Avoid starving the mobile page's software WebGL rendering with two live scenes.
+await desktop.close();
 
 const phone=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}); watch(phone);
 await phone.goto(base,{waitUntil:'networkidle'}); await phone.waitForTimeout(2500);

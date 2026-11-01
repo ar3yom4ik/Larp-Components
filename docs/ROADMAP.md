@@ -8,7 +8,11 @@ TypeScript and Three.js remain the supported application stack. The requested Ru
 
 Save offers a file picker where supported, then autosaves to that selected file while permission is granted. Other browsers download an `.lcmx` copy; they cannot silently update that downloaded file. Import through a file input does **not** attach a writable file handle; use Save and choose a destination again. Browser sandboxes do not allow the application to create or select a default folder in an arbitrary local Larp directory. Browser storage autosave remains separate. Archive compression is synchronous and can temporarily use significant CPU/memory for large assets; 180 MB uncompressed limit applies. Archives with extra files, ZIP64, encryption, data descriptors or a nonmatching checksum are rejected. Treat executable robot scripts in imported projects as untrusted: existing confirmation remains in place.
 
-## Recommended next milestones
+## Viewport signal editing (V3 prerelease 1)
+
+A viewport toggle exposes OUT markers on visible unlocked buttons, sensors, lasers and PLCs and IN markers on visible robots, conveyors and PLCs. Connections use the existing simulator `connectedTo` field, support many sources to one target, undo and archive persistence. Selection and disconnection use clicks, not wire dragging. Each source still has one target; these ports are not physical robot-controller I/O or material-routing ports. Sensors, lasers and buttons can gate a robot visual workflow via its robot or source conveyor; PLC signals are queryable in scripts and feed other PLCs, but are not currently included in that visual-workflow gate. This does not implement factory graph branching, robot I/O programming or full 3D material-flow editing.
+
+## Deferred roadmap (paused during V3 polish)
 
 1. **Factory topology:** implement actual fan-out/merge routing with explicit port types and deterministic product handling; make graph and viewport connections editable, add pallet outputs and pallet transport. Cover disconnected components, branching, flow and save/load in tests.
 2. **Workpieces and assemblies:** model part attachment, placement compatibility, completed assembly reuse/export and custom model input before coupling these to the generator. Define failure behavior for mismatched parts.

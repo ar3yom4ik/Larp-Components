@@ -1,23 +1,17 @@
-# Larp Factory Simulator — V2
+# Larp Factory Simulator — V3 prerelease 1
 
-An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V2** is the release number; the interface retains the existing **Larp Components 5.1** branding.
+An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.1** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
 
 ## Start in under a minute
 
-1. Extract the ZIP and open **`Larp_Factory_V2.html`** in a current desktop browser with WebGL enabled. No installation, account, server or internet connection is needed to run the standalone file. The supplied Windows, macOS and Linux launchers open the same HTML.
+1. Extract the ZIP and open **`Larp_Factory_V3.html`** in a current desktop browser with WebGL enabled. No installation, account, server or internet connection is needed to run the standalone file.
 2. The sample layout loads automatically. Try orbit/zoom, select a component and inspect its properties. On a phone or touch tablet use the bottom navigation and sheets.
-3. For the requested steel factory, choose **FILE → Import project** and open `examples/Metalworking_demo_V2.txt`. On touch devices choose **Project → Import TXT**. The sample has two U-shaped lines, cutting, milling and inspection, parallel-jaw grippers, seven workers, feeders set to 12 parts/min and a 3 × 2 × 4 pallet pattern. Guarding is illustrative.
-4. For editable generation, open **AI Factory**, paste `examples/Russian_factory_prompt.txt` and press **Build factory**. Interpretation uses local rules, not an online AI service. The feed setting is not a guarantee of finished output.
+3. For the requested steel factory, choose **FILE → Import project** and open `examples/Metalworking_demo_V2.txt`. On touch devices choose **Project → Import project**. The sample has two U-shaped lines, cutting, milling and inspection, parallel-jaw grippers, seven workers, feeders set to 12 parts/min and a 3 × 2 × 4 pallet pattern. Guarding is illustrative.
+4. Open **AI Factory**. In **Node graph**, the starter graph connects actual feeder, conveyor, robot, machine and pallet parts. Select a node to edit its settings, or use **Add node** to find more physical parts. Connect compatible material ports to change the built line; disconnected nodes are inactive. Independent linear lines work, but material branches and merges are currently rejected. The separate **Form** tab accepts a description such as `examples/Russian_factory_prompt.txt`; interpretation uses local rules, not an online AI service. The feed setting is not a guarantee of finished output.
 
-   The generator opens as a **node graph** (the *Form* tab has the old settings dialog):
+To connect existing signals in the 3D viewport, use the cable button. Pick an OUT on a sensor, button, laser or PLC, then an IN on a robot, conveyor or PLC. Re-select an output to disconnect. Multiple sources can target one endpoint, but each source has only one target; this is signal editing, not material routing or physical robot-controller I/O.
 
-   - Type the description into the **Prompt** node. Its tags appear under the preview, together with notes such as "a kiln was requested, so the brick recipe was selected".
-   - Each other node is one section of the plant: recipe and products, process chain, line speed, robot and tool, staff, safety, line layout, pallet pattern. **Drag from an output port to an input port** to feed a section; click a wire to delete it.
-   - Select a node to edit it on the right. A value you change is marked **set** and overrides the sentence; values you leave alone follow the prompt and then the defaults, so the prompt and the settings never fight.
-   - Anything the graph cannot build is listed with the node that caused it, and **Build factory** stays disabled while an error remains.
-   - **Expand** / **Collapse** (double-click) tidy the canvas, the download and upload buttons save and load the graph as JSON, and the reset button restores the starter graph.
-
-For reliable saving, run the downloaded HTML in a regular browser rather than the in-app file viewer. Sandboxed previews may block browser storage, downloads or fullscreen. Use **Export copy (.txt)** frequently and keep your backup. Storage can be cleared by the browser, be quota-limited, or be isolated between browsers and file paths.
+For reliable saving, open the downloaded HTML in a regular browser rather than the in-app file viewer. Use **Save project** to select an `.lcmx` file where supported, or **Export copy (.lcmx)** to download a compressed backup including imported assets. Browsers without file-handle access cannot autosave into a downloaded copy. Legacy `.txt` export and `.txt`/`.json` imports remain available. Imported projects can contain executable scripts: only open trusted files. See `ROADMAP.md` for archive and browser limitations.
 
 ## Import a model and edit materials
 
@@ -106,4 +100,4 @@ See `AI_DEVELOPER_HANDOFF.md` for the complete standalone architecture, build, t
 
 ## Кратко по-русски
 
-Распакуйте архив и откройте `Larp_Factory_V2.html` в браузере с WebGL. Для готового примера выберите **FILE → Import project** и файл `examples/Metalworking_demo_V2.txt`. Для импорта своей модели нажмите **Import 3D model**, выбрав модель вместе с текстурами; её единицы, ось и материалы доступны в свойствах. Чтобы заменить человека, выберите оператора в дереве сцены и в разделе **Animated worker** импортируйте модель со скелетом. Кнопка с шестерёнкой на панели плеера открывает настройки симуляции вниз от панели (на телефоне — вверх, там панель внизу). Симуляция и 3D-вид делят бюджет кадра: на большой фабрике симуляция отдаёт часть процессорного времени отрисовке, поэтому вид не «дёргается»; на слабом устройстве при большом ускорении просто прокручивается меньше модельного времени за секунду, но события не пропускаются и не подменяются. Встроенный персонаж — CC0-модель Quaternius с совместимыми именами костей, а не персонаж Adobe Mixamo. Сохраняйте резервные копии через **Export copy (.txt)**.
+Распакуйте архив и откройте `Larp_Factory_V3.html` в браузере с WebGL. Для готового примера выберите **FILE → Import project** и файл `examples/Metalworking_demo_V2.txt`. Для импорта своей модели нажмите **Import 3D model**, выбрав модель вместе с текстурами; её единицы, ось и материалы доступны в свойствах. Чтобы заменить человека, выберите оператора в дереве сцены и в разделе **Animated worker** импортируйте модель со скелетом. Кнопка с шестерёнкой на панели плеера открывает настройки симуляции вниз от панели (на телефоне — вверх, там панель внизу). Симуляция и 3D-вид делят бюджет кадра: на большой фабрике симуляция отдаёт часть процессорного времени отрисовке, поэтому вид не «дёргается»; на слабом устройстве при большом ускорении просто прокручивается меньше модельного времени за секунду, но события не пропускаются и не подменяются. Встроенный персонаж — CC0-модель Quaternius с совместимыми именами костей, а не персонаж Adobe Mixamo. Сохраняйте резервные копии через **Export copy (.lcmx)** или **Export copy (.txt)**.
