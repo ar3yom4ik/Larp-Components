@@ -175,6 +175,25 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("rustMachines") !== "1") return;
+    let cancelled = false;
+    let clock: ReturnType<typeof import("./sim/wasm/kernel").createRustMachineClock> | null = null;
+    void import("./sim/wasm/kernel").then(({ createRustMachineClock }) => {
+      if (cancelled) return;
+      clock = createRustMachineClock();
+      sim.machineClock = clock;
+      sim.log("Experimental Rust machine clock active; machine behavior remains host-managed.", "info");
+    }).catch((error: unknown) => {
+      if (!cancelled) sim.log(`Rust machine clock unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
+    });
+    return () => {
+      cancelled = true;
+      if (clock && sim.machineClock === clock) sim.machineClock = null;
+      clock?.dispose();
+    };
+  }, []);
+
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {

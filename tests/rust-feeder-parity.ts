@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { Engine } from '../src/sim/engine';
 import { DEFAULT_GEN, FACTORY_RECIPES, generateFactory } from '../src/sim/generator';
 import { makeItem } from '../src/data/library';
-import { createRustFeederStepper } from '../src/sim/wasm/kernel';
+import { createRustFeederStepper, createRustMachineClock } from '../src/sim/wasm/kernel';
 import type { SceneItem } from '../src/types';
 
-// Each pair uses the *same* factory and input events. Only feeder decisions are
-// switched to Rust; every other subsystem remains the existing TS implementation.
+// Each pair uses the *same* factory and input events. Feeder decisions and machine clock arithmetic are
+// switched to Rust; all other behavior remains the existing TS implementation.
 function state(engine: Engine) {
   return {
     time: engine.time, stats: engine.stats,
@@ -20,6 +20,7 @@ function state(engine: Engine) {
 async function compare(label:string, items:SceneItem[], seconds:number) {
   const js = new Engine(), hybrid = new Engine();
   const rust = createRustFeederStepper(); hybrid.feederStepper = rust;
+  const clock = createRustMachineClock(); hybrid.machineClock = clock;
   js.stepBudgetMs=40; hybrid.stepBudgetMs=40;
   js.sync(structuredClone(items)); hybrid.sync(structuredClone(items));
   js.setRunning(true); hybrid.setRunning(true);
@@ -30,7 +31,7 @@ async function compare(label:string, items:SceneItem[], seconds:number) {
       assert.deepEqual(state(hybrid),state(js),`${label}: frame ${frame}`);
     }
     assert.deepEqual(state(hybrid),state(js),`${label}: final state`);
-  } finally { rust.dispose(); }
+  } finally { rust.dispose(); clock.dispose(); }
 }
 for (const recipe of FACTORY_RECIPES) {
   await compare(recipe.id,generateFactory({...DEFAULT_GEN,recipe:recipe.id,stages:recipe.id==='logistics'?0:1,fences:false,operators:false,cols:2,rows:2,layers:2}),60);

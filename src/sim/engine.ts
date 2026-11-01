@@ -667,7 +667,13 @@ export interface FeederStepper {
   step(feeders: Iterable<FeederRT>, boxes: readonly Box[], dt: number, spawn: (feeder: FeederRT) => void, maxBoxes: number): void;
 }
 
+/** Experimental machine clock; product transitions remain host-owned. */
+export interface MachineClock {
+  advance(machine: MachineRT, dt: number): void;
+}
+
 export class Engine {
+  machineClock: MachineClock | null = null;
   /** Null uses the original TypeScript feeder implementation. */
   feederStepper: FeederStepper | null = null;
   items: SceneItem[] = [];
@@ -1394,8 +1400,11 @@ export class Engine {
       if (box && box.claim === 0 && box.lastMachine !== machine.id) this.process(machine, box);
       return;
     }
-    machine.busyTime += dt; machine.remaining -= dt;
-    machine.progress = Math.min(1, 1 - machine.remaining / machine.cycle);
+    if (this.machineClock) this.machineClock.advance(machine, dt);
+    else {
+      machine.busyTime += dt; machine.remaining -= dt;
+      machine.progress = Math.min(1, 1 - machine.remaining / machine.cycle);
+    }
     const box = machine.part;
     if (!box) { machine.busy = false; return; }
     const table = machine.table();

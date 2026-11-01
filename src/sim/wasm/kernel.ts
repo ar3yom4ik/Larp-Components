@@ -94,3 +94,24 @@ export function createRustFeederStepper() {
     dispose() { if (!disposed) { disposed=true; if(fp) free(fp,fc); if(bp) free(bp,bc); } },
   };
 }
+
+/** Experimental machine cycle clock. The host still handles machine selection and products. */
+export function createRustMachineClock() {
+  if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.advance_machine_clock !== 'function') throw new Error('Rust machine clock unavailable');
+  const memory = exports.memory;
+  const alloc = exports.alloc_f64 as (count: number) => number;
+  const free = exports.free_f64 as (ptr: number, count: number) => void;
+  const run = exports.advance_machine_clock as (state: number, dt: number) => void;
+  const ptr = alloc(4);
+  let disposed = false;
+  return {
+    advance(machine: import('../engine').MachineRT, dt: number) {
+      if (disposed) throw new Error('Rust machine clock has been disposed');
+      const state = new Float64Array(memory.buffer, ptr, 4);
+      state.set([machine.busyTime, machine.remaining, machine.progress, machine.cycle]);
+      run(ptr, dt);
+      machine.busyTime = state[0]; machine.remaining = state[1]; machine.progress = state[2];
+    },
+    dispose() { if (!disposed) { disposed = true; free(ptr, 4); } },
+  };
+}

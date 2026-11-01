@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.3] - 2026-11-01 (prerelease)
+
+- Experimental Rust/Wasm machine cycle clock, independently opt-in via `?rustMachines=1`. All machine decisions and product transitions still run in TypeScript; this is not a complete machine or engine port.
+- Added numerical edge-case and actual machine-cycle comparisons, and enabled the clock in the hybrid factory tests. Browser behavior and performance remain unverified.
+- The full Rust engine migration, full-engine parity, physical graph branching/merging and 3D I/O editing remain unfinished.
+
 ## [2.5.0-alpha.2] - 2026-11-01 (prerelease)
 
 - Experimental batched Rust/Wasm feeder decisions can be enabled with `?rustFeeders=1`; the default remains TypeScript. The rest of the factory simulation still runs in TypeScript with Three.js rendering.

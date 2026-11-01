@@ -101,3 +101,18 @@ mod tests {
         assert!(distance_sq_to_segment(f64::NAN, 0.0, 0.0, 0.0, 1.0, 1.0).is_nan());
     }
 }
+
+/// Advance an active machine's cycle clock. Host retains ownership of products and
+/// applies completion side effects in machine iteration order.
+/// Record: busy time, remaining time, progress, cycle duration.
+/// # Safety
+/// `state` must point to four initialized f64 values.
+#[no_mangle]
+pub unsafe extern "C" fn advance_machine_clock(state: *mut f64, dt: f64) {
+    let s = std::slice::from_raw_parts_mut(state, 4);
+    s[0] += dt;
+    s[1] -= dt;
+    let progress = 1.0 - s[1] / s[3];
+    // JS Math.min propagates NaN, while Rust f64::min does not.
+    s[2] = if progress.is_nan() { f64::NAN } else { 1.0_f64.min(progress) };
+}

@@ -42,6 +42,20 @@ multi-cell cases, plus 2,000 randomized feeder cases. Both sides share the same
 TypeScript systems except feeder decisions. These checks do not establish full
 engine or universal project parity, or validate the browser and renderer.
 
+## Experimental machine clock (alpha.3)
+
+`?rustMachines=1` opts in to Rust/Wasm arithmetic for active machine cycle
+clocks. This is only the clock calculation, **not a machine subsystem port**:
+part selection, assembly, completion, product changes and all other simulation
+logic are still implemented by TypeScript. It can be combined with
+`?rustFeeders=1&rustMachines=1`. The host calls Wasm for each active machine,
+so there is no performance claim. Browser behavior has not been validated.
+
+`tests/rust-machine-clock.ts` compares numerical edge cases and actual CNC,
+paint, inspection and assembly cycles. The generated-factory hybrid comparison
+also enables the clock. The systems and observables not represented in these
+tests remain unverified.
+
 ## Constraints for remaining migration
 
 - Preserve fixed-step simulation, pacing under load, saved projects, and all existing
