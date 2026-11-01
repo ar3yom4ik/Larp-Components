@@ -134,6 +134,15 @@ scenarios tested, but the hybrid was slower in all three measured Node scenes.
 See `docs/RUST_HYBRID_BENCHMARK.md` for methodology, numbers and limitations.
 The Rust port remains incomplete; the tests do not establish full-engine parity.
 
+## Experimental bridge optimization (alpha.10)
+
+The feeder, machine, robot and product bridges now reuse Wasm views and avoid
+per-record temporary arrays. Views are refreshed when shared Wasm memory grows,
+including during a kernel call or feeder spawn callback. A regression test forces
+repeated growth. See `docs/RUST_HYBRID_BENCHMARK.md` for an interleaved comparison
+with the alpha.9 bridge, pre-Rust engine and current TypeScript engine. The port
+is still incomplete and default execution is still TypeScript.
+
 ## Constraints for remaining migration
 
 - Preserve fixed-step simulation, pacing under load, saved projects, and all existing

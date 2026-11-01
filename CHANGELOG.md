@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.10] - 2026-11-01 (prerelease)
+
+- Reduced temporary allocations in the experimental feeder, machine, robot and product Wasm bridges and refreshed views after shared-memory growth, including growth in feeder callbacks.
+- Added forced-memory-growth regression coverage and an interleaved comparison against the alpha.9 bridge. In one Node run the optimized bridge was 5–9% faster than alpha.9, but remained slower than the pre-Rust and current TypeScript engines in those scenes. Results are noisy and do not establish browser performance.
+- The full Rust port and complete parity remain unfinished. See `docs/RUST_HYBRID_BENCHMARK.md`.
+
 ## [2.5.0-alpha.9] - 2026-11-01 (prerelease)
 
 - Added reproducible side-by-side Node benchmarks of the historical pre-Rust engine, current TypeScript engine, and combined experimental Rust hybrid, plus per-frame selected-state hybrid comparisons. The historical engine is linked to current shared dependencies.

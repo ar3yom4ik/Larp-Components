@@ -73,23 +73,38 @@ export function createRustFeederStepper() {
   const free = exports.free_f64 as (ptr: number, count: number) => void;
   const run = exports.step_feeders as (feeders: number, count: number, boxes: number, boxCount: number, dt: number, maxBoxes: number) => void;
   let fp = 0, fc = 0, bp = 0, bc = 0, disposed = false;
+  let fs: Float64Array | null = null, bs: Float64Array | null = null;
+  function views() {
+    if (!fs || fs.buffer !== memory.buffer || fs.byteOffset !== fp || fs.length !== fc) fs = new Float64Array(memory.buffer, fp, fc);
+    if (!bs || bs.buffer !== memory.buffer || bs.byteOffset !== bp || bs.length !== bc) bs = new Float64Array(memory.buffer, bp, bc);
+    return [fs, bs] as const;
+  }
   return {
     step(feeders: Iterable<import('../engine').FeederRT>, boxes: readonly import('../engine').Box[], dt: number, spawn: (feeder: import('../engine').FeederRT) => void, maxBoxes: number) {
       if (disposed) throw new Error('Rust feeder stepper has been disposed');
       const list = Array.from(feeders), nf = list.length * 8, nb = boxes.length * 4;
       if (nf > fc || !fp) { if (fp) free(fp,fc); fc = Math.max(8,nf); fp = alloc(fc); }
       if (nb > bc || !bp) { if (bp) free(bp,bc); bc = Math.max(4,nb); bp = alloc(bc); }
-      const fs = new Float64Array(memory.buffer,fp,nf), bs = new Float64Array(memory.buffer,bp,nb);
+      let [fdata, bdata] = views();
       for (let i=0;i<list.length;i++) {
-        const f=list[i]; fs.set([f.x,f.z,f.interval,f.timer,f.active?1:0,f.supply,f.requireSupply?1:0,0],i*8);
+        const f=list[i], n=i*8;
+        fdata[n]=f.x; fdata[n+1]=f.z; fdata[n+2]=f.interval; fdata[n+3]=f.timer;
+        fdata[n+4]=f.active?1:0; fdata[n+5]=f.supply; fdata[n+6]=f.requireSupply?1:0; fdata[n+7]=0;
       }
       for (let i=0;i<boxes.length;i++) {
-        const b=boxes[i]; bs.set([b.x,b.y,b.z,b.state === 'dead'?0:1],i*4);
+        const b=boxes[i], n=i*4;
+        bdata[n]=b.x; bdata[n+1]=b.y; bdata[n+2]=b.z; bdata[n+3]=b.state === 'dead'?0:1;
       }
       run(fp,list.length,bp,boxes.length,dt,maxBoxes);
+      // Rust allocations may grow Wasm memory and detach all existing views.
+      [fdata, bdata] = views();
       for (let i=0;i<list.length;i++) {
-        const f=list[i]; f.timer=fs[i*8+3]; f.supply=fs[i*8+5];
-        if (fs[i*8+7] !== 0) spawn(f);
+        const f=list[i]; f.timer=fdata[i*8+3]; f.supply=fdata[i*8+5];
+        if (fdata[i*8+7] !== 0) {
+          spawn(f);
+          // A host callback may itself allocate in the shared Wasm memory.
+          if (fdata.buffer !== memory.buffer) [fdata, bdata] = views();
+        }
       }
     },
     dispose() { if (!disposed) { disposed=true; if(fp) free(fp,fc); if(bp) free(bp,bc); } },
@@ -127,6 +142,12 @@ export function createRustMachineStepper() {
   const run=exports.step_machine as (state:number,boxes:number,count:number,dt:number,top:number)=>void;
   const statePtr=alloc(12);
   let boxesPtr=0, capacity=0, disposed=false;
+  let state:Float64Array|null=null, boxData:Float64Array|null=null;
+  function views() {
+    if(!state || state.buffer!==memory.buffer) state=new Float64Array(memory.buffer,statePtr,12);
+    if(!boxData || boxData.buffer!==memory.buffer || boxData.byteOffset!==boxesPtr || boxData.length!==capacity) boxData=new Float64Array(memory.buffer,boxesPtr,capacity);
+    return [state,boxData] as const;
+  }
   return {
     step(machine:import('../engine').MachineRT, candidates:readonly import('../engine').Box[], dt:number) {
       if(disposed) throw new Error('Rust machine stepper has been disposed');
@@ -135,14 +156,19 @@ export function createRustMachineStepper() {
         if(boxesPtr) free(boxesPtr,capacity);
         capacity=Math.max(9,length); boxesPtr=alloc(capacity);
       }
-      const s=new Float64Array(memory.buffer,statePtr,12), b=new Float64Array(memory.buffer,boxesPtr,length);
+      let [s,b]=views();
       const t=machine.table();
-      s.set([machine.busy?1:0,machine.cycle,machine.remaining,machine.busyTime,machine.progress,machine.requiredParts,machine.kind==='assembly'?1:0,t.x,t.z,machine.part?1:0,0,machine.cycles]);
+      s[0]=machine.busy?1:0; s[1]=machine.cycle; s[2]=machine.remaining; s[3]=machine.busyTime;
+      s[4]=machine.progress; s[5]=machine.requiredParts; s[6]=machine.kind==='assembly'?1:0;
+      s[7]=t.x; s[8]=t.z; s[9]=machine.part?1:0; s[10]=0; s[11]=machine.cycles;
       for(let i=0;i<count;i++) {
-        const v=candidates[i];
-        b.set([v.x,v.y,v.z,v.hy,v.state==='free'?1:0,v.claim===0?1:0,v.lastMachine===machine.id?1:0,machine.inputProduct==='any'||v.productId===machine.inputProduct?1:0,0],i*9);
+        const v=candidates[i], n=i*9;
+        b[n]=v.x; b[n+1]=v.y; b[n+2]=v.z; b[n+3]=v.hy; b[n+4]=v.state==='free'?1:0;
+        b[n+5]=v.claim===0?1:0; b[n+6]=v.lastMachine===machine.id?1:0;
+        b[n+7]=machine.inputProduct==='any'||v.productId===machine.inputProduct?1:0; b[n+8]=0;
       }
       run(statePtr,boxesPtr,count,dt,TABLE_TOP);
+      [s,b]=views();
       machine.busy=s[0]!==0; machine.remaining=s[2]; machine.busyTime=s[3]; machine.progress=s[4]; machine.cycles=s[11];
       let first:import('../engine').Box|null=null;
       const consumed:import('../engine').Box[]=[];
@@ -226,18 +252,22 @@ export function createRustRobotKinematics() {
   const solve=exports.solve_robot as (input:number,output:number)=>void;
   const reachable=exports.robot_reachable as (input:number)=>number;
   const ptr=alloc(11);
-  let disposed=false;
+  let disposed=false, data:Float64Array|null=null;
+  function view() {
+    if(!data || data.buffer!==memory.buffer) data=new Float64Array(memory.buffer,ptr,11);
+    return data;
+  }
   function input(local:import('../engine').V3,spec:import('../engine').RobotSpec) {
     if(disposed) throw new Error('Rust robot kinematics has been disposed');
-    const data=new Float64Array(memory.buffer,ptr,11);
-    data.set([local[0],local[1],local[2],spec.shoulder,spec.L1,spec.L2,spec.Lw]);
-    return data;
+    const a=view();
+    a[0]=local[0]; a[1]=local[1]; a[2]=local[2]; a[3]=spec.shoulder; a[4]=spec.L1; a[5]=spec.L2; a[6]=spec.Lw;
   }
   return {
     reach(local:import('../engine').V3,spec:import('../engine').RobotSpec) {input(local,spec);return reachable(ptr)!==0;},
     solve(local:import('../engine').V3,spec:import('../engine').RobotSpec) {
-      const data=input(local,spec);solve(ptr,ptr+7*8);
-      return {waist:data[7],shoulder:data[8],elbow:data[9],wrist:data[10]};
+      input(local,spec);solve(ptr,ptr+7*8);
+      const a=view();
+      return {waist:a[7],shoulder:a[8],elbow:a[9],wrist:a[10]};
     },
     dispose(){if(!disposed){disposed=true;free(ptr,11);}},
   };
@@ -249,14 +279,21 @@ export function createRustProductIntegrator() {
   if (!exports || !(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc_f64 !== 'function' || typeof exports.free_f64 !== 'function' || typeof exports.integrate_product !== 'function') throw new Error('Rust product integration unavailable');
   const memory=exports.memory, alloc=exports.alloc_f64 as (n:number)=>number, free=exports.free_f64 as (p:number,n:number)=>void;
   const run=exports.integrate_product as (state:number,support:number,dt:number)=>number;
-  const ptr=alloc(25);let disposed=false;
+  const ptr=alloc(25);let disposed=false, data:Float64Array|null=null;
+  function view() {
+    if(!data || data.buffer!==memory.buffer) data=new Float64Array(memory.buffer,ptr,25);
+    return data;
+  }
   return {
     integrate(b:import('../engine').Box,s:import('../engine').ProductSupport,dt:number) {
       if(disposed) throw new Error('Rust product integrator has been disposed');
-      const a=new Float64Array(memory.buffer,ptr,25);
-      a.set([b.x,b.y,b.z,b.vx,b.vy,b.vz,b.yaw,b.tilt,b.tiltV,b.ax,b.az,b.hy,b.r,b.support,
-        s.top,s.kind,s.conveyor?1:0,s.lat,s.tx,s.tz,s.along,s.speed,s.blocked?1:0,s.stopper?1:0,s.length]);
+      let a=view();
+      a[0]=b.x;a[1]=b.y;a[2]=b.z;a[3]=b.vx;a[4]=b.vy;a[5]=b.vz;a[6]=b.yaw;
+      a[7]=b.tilt;a[8]=b.tiltV;a[9]=b.ax;a[10]=b.az;a[11]=b.hy;a[12]=b.r;a[13]=b.support;
+      a[14]=s.top;a[15]=s.kind;a[16]=s.conveyor?1:0;a[17]=s.lat;a[18]=s.tx;a[19]=s.tz;
+      a[20]=s.along;a[21]=s.speed;a[22]=s.blocked?1:0;a[23]=s.stopper?1:0;a[24]=s.length;
       const grounded=run(ptr,ptr+14*8,dt)!==0;
+      a=view();
       b.x=a[0];b.y=a[1];b.z=a[2];b.vx=a[3];b.vy=a[4];b.vz=a[5];b.yaw=a[6];b.tilt=a[7];b.tiltV=a[8];b.ax=a[9];b.az=a[10];b.support=a[13] as import('../engine').Box['support'];
       return grounded;
     },
