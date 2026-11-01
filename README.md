@@ -40,7 +40,9 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | --- | --- |
 | `npm run dev` | Start the Vite dev server (port 5173 by default; the docs and tests use 4173). |
 | `npm run typecheck` | TypeScript type check with `tsc --noEmit`. |
-| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance and server-rendered UI tests (9 suites). |
+| `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance and server-rendered UI tests (23 files, including experimental Wasm parity). |
+| `npm run test:browser` | Four core Playwright UI suites against a running development server on port 4173. |
+| `npm run test:typescript-parity` | Compare selected simulation state against a Git baseline; see `docs/TYPESCRIPT_OPTIMIZATION.md`. |
 | `npm run build` | Production build **plus** the asset embedder; writes `dist/index.html` (standalone, ~10 MB). |
 | `npm run preview` | Serve the production build locally. |
 
@@ -53,7 +55,7 @@ The scripts in `tests/*.mjs` drive the app with Playwright against a running dev
 ```sh
 npm run dev -- --host 127.0.0.1 --port 4173 --strictPort   # in one terminal
 npx playwright install chromium                            # once
-node tests/browser.mjs
+npm run test:browser                                       # core UI suites
 ```
 
 Screenshots are written to `tests/artifacts/` (git-ignored). Some tests need an extracted release folder or a local Mixamo fixture; the handoff documents each one.

@@ -99,6 +99,18 @@ for (const box of engine.boxes) {
   assert(Number.isFinite(box.x) && Number.isFinite(box.y) && Number.isFinite(box.z), 'a product has a non-finite position');
 }
 
+// A low product populates the reusable fence scratch array. A later product
+// above the collision cutoff must not reuse those stale fence candidates.
+const fence = makeItem('fence', [0, 0, 0], 0, { points: [[0, -2], [0, 2]], props: { height: 2, gateOpen: false } });
+const fenceEngine = new Engine();
+fenceEngine.sync([fence]);
+const low = fenceEngine.spawn('carton', -0.05, 0.13, 0);
+const overhead = fenceEngine.spawn('carton', -0.05, 2.5, 0);
+fenceEngine.setRunning(true);
+fenceEngine.step(1 / 60);
+assert(low.x < -0.05, 'low product failed to collide with fence');
+assert(Math.abs(overhead.x + 0.05) < 1e-10, 'high product collided with stale fence candidates');
+
 /* ------------------------------------------------------------------ */
 /*  Conveyor query: local cell search equals the full segment scan     */
 /* ------------------------------------------------------------------ */

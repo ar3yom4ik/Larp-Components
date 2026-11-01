@@ -47,9 +47,11 @@ if(!await phone.getByRole('button',{name:'Visual builder',exact:true}).isVisible
 await phone.getByRole('button',{name:'Close sheet',exact:true}).click();
 await phone.getByRole('button',{name:'AI Factory',exact:true}).click();
 await phone.waitForTimeout(400);
-await phone.getByRole('button',{name:'Cookie bakery',exact:true}).click();
+if(!await phone.getByText('Factory parts', {exact:true}).isVisible()) throw new Error('Factory graph editor missing');
 await phone.screenshot({path:'tests/artifacts/mobile-generator.png'});
 await phone.getByRole('button',{name:'Build factory',exact:true}).click();
+await phone.getByRole('button',{name:'Build factory',exact:true}).waitFor({state:'hidden'});
+if(!await phone.evaluate(()=>window.__larp.items.some(i=>i.kind==='feeder'))) throw new Error('Factory graph did not build a feeder');
 await phone.waitForTimeout(600);
 await phone.getByTitle('Language',{exact:true}).click();
 await phone.getByRole('navigation').getByRole('button',{name:'Проект',exact:true}).count().catch(()=>0);

@@ -2492,6 +2492,7 @@ export class Engine {
         b.y += b.vy * dt;
         b.z += b.vz * dt;
       }
+      if (b.y >= 2.1) this.barrierScratch.length = 0;
       const nearby = b.y < 2.1 ? this.barrierIndex.query(b.x, b.z, this.barrierScratch, b.r + 0.5) : this.barrierScratch;
       for (let k = 0; k < nearby.length; k += 1) {
         const barrier = nearby[k];

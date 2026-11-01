@@ -25,6 +25,7 @@ const aoFull = await image({ aoIntensity: 2.5 });
 if (aoZero.equals(aoFull)) throw new Error('Screen-space occlusion has no visual effect');
 // Exercise a real UI control while the simulation is paused.
 await page.getByTitle('Settings', { exact: true }).click();
+await page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Lighting', exact: true }).click();
 await page.getByLabel('Exposure', { exact: true }).fill('0.6');
 await page.waitForFunction(() => Math.abs(window.__larpRenderer.gl.toneMappingExposure - .6) < .01);
 await page.evaluate(() => window.__larpTheme.setBuilding({ floorColor: '#7b8993' }));

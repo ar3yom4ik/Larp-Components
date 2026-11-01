@@ -45,3 +45,19 @@ rendering, memory, or real-device results. The timing excludes scene setup,
 comparison, and microtask yields. Another run showed different small-scene
 results; do not interpret these figures as guaranteed speedups. Browser and
 large-user-project profiling remain important next steps.
+
+## Subsequent audit (alpha.13)
+
+The benchmark baseline can be selected without checking out another branch, for
+example `TS_BENCH_BASELINE=73bbab3 npm run test:typescript-parity` or
+`TS_BENCH_BASELINE=73bbab3 npm run bench:typescript`. The referenced Git commit
+must be available locally. Only its engine and spatial index are loaded; all
+other simulation dependencies are shared from the working tree. The default
+remains the original `a806f3b` baseline.
+
+A point-query specialization and reduced trigonometric calls were each evaluated
+against alpha.12 and not retained: neither showed a consistent improvement in
+the measured dense scenarios. The only simulation change in alpha.13 fixes stale
+fence collision candidates for products above the collision height; it is not a
+performance claim. Four-scenario selected-state parity against alpha.12 passed,
+while a dedicated regression test verifies the intentional behavioral fix.

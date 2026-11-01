@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory V2 release numbering.
 
+## [2.5.0-alpha.13] - 2026-11-01 (prerelease)
+
+- Fixed high products incorrectly colliding with a fence after a lower product populated the reusable collision buffer; added a regression test.
+- Updated four browser suites to the current graph, worker cosmetics and settings UI; added a command to run them together. Localized settings navigation labels in Russian. The former generator-form reach-control browser check no longer applies to the graph UI.
+- Added a selectable Git baseline to the TypeScript parity/benchmark harness. Two proposed optimizations were rejected after inconclusive measurements; no new simulation speedup is claimed.
+- Graph branching/merging and 3D I/O remain incomplete; see `docs/AUDIT_2.5.0-alpha.12.md` and `docs/TYPESCRIPT_OPTIMIZATION.md` for limitations.
+
 ## [2.5.0-alpha.12] - 2026-11-01 (prerelease)
 
 - Updated vulnerable fflate, Vite and esbuild dependencies; `npm audit` reported zero vulnerabilities after a clean install.

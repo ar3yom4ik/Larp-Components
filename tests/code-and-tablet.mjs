@@ -24,6 +24,7 @@ await tablet.getByTitle('Language',{exact:true}).click();
 await tablet.reload({waitUntil:'networkidle'});
 if(!await tablet.getByRole('navigation').getByRole('button',{name:'Свойства',exact:true}).isVisible())throw new Error('Russian preference did not persist');
 await tablet.getByRole('button',{name:'Проект',exact:true}).click();
+await tablet.getByRole('navigation',{name:'Настройки'}).getByRole('button',{name:'Интерфейс и цвета',exact:true}).click();
 await tablet.getByRole('button',{name:'Компьютер',exact:true}).click();
 if(await tablet.locator('.touch-workspace').count())throw new Error('Interface override did not take effect');
 console.log('Custom code, loop guard, touch tablet detection, persistent Russian, desktop override: PASS');

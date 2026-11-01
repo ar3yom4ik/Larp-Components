@@ -40,7 +40,7 @@ async function run(items:SceneItem[], prepare?: (engine:Engine, items:SceneItem[
     return {before:summary(bt),after:summary(at),mismatch,beforeStats:before.stats,afterStats:after.stats,beforeTime:before.time,afterTime:after.time,boxes:after.boxes.length};
   }finally{before.setRunning(false);after.setRunning(false);}
 }
-console.log(JSON.stringify({node:process.version,cpu:os.cpus()[0]?.model,mode:parity?'per-frame parity':'timing',baseline:'a806f3b',note:'Engine.step only; no rendering, browser, GPU, initialization or parity checks; tolerance 1e-8.'}));
+console.log(JSON.stringify({node:process.version,cpu:os.cpus()[0]?.model,mode:parity?'per-frame parity':'timing',baseline:process.env.TS_BENCH_BASELINE || 'a806f3b',note:'Engine.step only; no rendering, browser, GPU, initialization or parity checks; tolerance 1e-8.'}));
 for(const scenario of cases){const items=scenario.items();for(let trial=1;trial<=(parity?1:3);trial++){
   const result=await run(items,scenario.prepare);console.log(JSON.stringify({scene:scenario.name,itemCount:items.length,trial,...result}));
   if(result.mismatch){process.exitCode=1;}
