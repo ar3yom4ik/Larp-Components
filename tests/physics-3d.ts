@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { makeItem } from '../src/data/library';
-import { Engine, BELT_TOP } from '../src/sim/engine';
+import { Engine, ConveyorRT, BELT_TOP, DT } from '../src/sim/engine';
 import { RigidBodyWorld } from '../src/sim/rigidBodies';
 import { Vec3 as CannonVec3, Box as CannonBox } from 'cannon-es';
 import { samplePath } from '../src/sim/spline';
@@ -75,6 +75,75 @@ for (const heights of [[0, 2], [2, 0]]) {
   engine.rigidBodies.body(cabinet.id)!.applyImpulse(new CannonVec3(100,0,0));
   tick(engine, .2); assert.ok(engine.getPhysicsPose(cabinet.id)!.position[0] > .02, 'an impulse wakes a sleeping body');
   engine.setRunning(false); engine.reset(); near(engine.getPhysicsPose(cabinet.id)!.position[1], 6, 1e-8, 'reset pose');
+}
+
+// A dynamic belt or roller must keep driving its workpiece, including while
+// falling. Solver friction must not cancel the specialized conveyor motor.
+for (const kind of ['conveyor', 'roller'] as const) {
+  const belt = makeItem(kind, [0, 3, 0], 0, {points:[[-2,0],[2,0]], props:{speed:.6, active:true, stopper:true, physicsMode:'dynamic', physicsMass:100}});
+  const engine = new Engine(); engine.sync([belt]);
+  const part = engine.spawn('carton', -1, 3 + BELT_TOP + .13, 0);
+  tick(engine, .5);
+  const fallingPose = engine.getPhysicsPose(belt.id)!;
+  near(part.y - part.hy, fallingPose.position[1] + BELT_TOP, .04, `${kind} workpiece follows the falling support`);
+  tick(engine, 2.5);
+  const rt = engine.conveyors.get(belt.id)!, pose = engine.getPhysicsPose(belt.id)!;
+  assert.ok(pose.position[1] < .2, `${kind} falls and lands`);
+  assert.ok(part.x > .5 && part.x < 1, `${kind} still transports its part with physics enabled: ${part.x}`);
+  assert.equal(part.support, 2, `${kind} still supports the part`);
+  near(part.y - part.hy, rt.query(part.x, part.z)!.y, .04, `${kind} part rests on live belt`);
+  engine.sync([{...belt, props:{...belt.props, active:false}}]);
+  const stoppedAt = part.x; tick(engine, 1);
+  assert.ok(Math.abs(part.x - stoppedAt) < .06, `${kind} motor still stops`);
+  engine.sync([{...belt, props:{...belt.props, active:true}}]);
+  tick(engine, 5);
+  assert.ok(part.x < 1.9 && part.x > 1.5, `${kind} stopper retains part after restart`);
+}
+
+// Adaptive support refresh also considers rotation at the far end of a long
+// moving conveyor, rather than only displacement of its origin.
+{
+  const belt = makeItem('conveyor', [0,5,0], 0, {points:[[-6,0],[6,0]], props:{active:false, physicsMode:'dynamic', physicsMass:500}});
+  const engine = new Engine(); engine.sync([belt]);
+  const part = engine.spawn('carton', 5, 5 + BELT_TOP + .13, 0);
+  engine.rigidBodies.body(belt.id)!.angularVelocity.set(0, 0, .4);
+  engine.setRunning(true);
+  for (let i=0; i<30; i++) {
+    engine.step(DT);
+    const live = new ConveyorRT({...belt, ...engine.getPhysicsPose(belt.id)!});
+    const surface = live.query(part.x, part.z, part.y - part.hy);
+    assert.ok(surface?.inside, 'workpiece remains over rotating belt');
+    near(part.y - part.hy, surface.y, .04, 'workpiece follows rotating belt');
+  }
+}
+
+// The friction exemption is pair-specific: ordinary supports still slow a
+// sliding workpiece, while the belt/workpiece contact stays tangentially free.
+for (const kind of ['cabinet', 'conveyor', 'roller'] as const) {
+  const isBelt = kind !== 'cabinet';
+  const support = makeItem(kind, [0,0,0], 0, {props:{physicsMode:isBelt ? 'dynamic' : 'kinematic', physicsMass:100000, active:false}});
+  const engine = new Engine(); engine.sync([support]);
+  const top = isBelt ? BELT_TOP : 2;
+  const part = engine.spawn('carton', -.3, top + .131, 0); part.vx = .8;
+  // Advance a simple gravity prediction, then let the real contact bridge
+  // correct it; no conveyor motor or other app-level damping is involved.
+  for (let i=0; i<20; i++) {
+    part.vy -= 9.81 * DT; part.x += part.vx * DT; part.y += part.vy * DT;
+    engine.rigidBodies.step(DT, [part], () => 1);
+  }
+  near(part.y - part.hy, top, .04, `${kind} contact still supports workpiece`);
+  assert.ok(isBelt ? part.vx > .7 : Math.abs(part.vx) < .1, `${kind} has the intended workpiece friction: ${part.vx}`);
+}
+// Belt surfaces do not become frictionless to other equipment.
+for (const kind of ['cabinet', 'conveyor'] as const) {
+  const top = kind === 'cabinet' ? 2 : BELT_TOP;
+  const support = makeItem(kind, [0,0,0], 0, {props:{physicsMode:'kinematic', active:false}});
+  const load = makeItem('cabinet', [0,top,0], 0, {scale:.2, props:{physicsMode:'dynamic', physicsMass:5}});
+  const engine = new Engine(); engine.sync([support, load]);
+  for (let i=0; i<30; i++) engine.rigidBodies.step(DT, [], () => 1);
+  const body = engine.rigidBodies.body(load.id)!; body.velocity.set(.8, 0, 0); body.wakeUp();
+  for (let i=0; i<20; i++) engine.rigidBodies.step(DT, [], () => 1);
+  assert.ok(Math.abs(engine.getPhysicsPose(load.id)!.position[0]) < .04, `${kind} retains equipment-to-equipment friction`);
 }
 
 // Explicitly kinematic colliders affect workpieces too; collision impulses

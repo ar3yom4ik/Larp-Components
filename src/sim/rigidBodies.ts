@@ -12,6 +12,12 @@ const GROUP_DYNAMIC = 1, GROUP_FIXED = 2, GROUP_PRODUCT = 4;
 const G = 9.81;
 const bodyMaterial = new CANNON.Material({friction: .6, restitution: .03});
 const walkerMaterial = new CANNON.Material({friction: 0, restitution: 0});
+// Belt-driven workpieces already get tangential motion from the conveyor
+// integrator. Ordinary solver friction would fight that motor to a standstill.
+// Unspecified per-material friction lets this pair-specific setting apply while
+// contacts involving equipment and other equipment keep normal friction.
+const beltMaterial = new CANNON.Material("conveyor");
+const productMaterial = new CANNON.Material({friction: .6, restitution: .03});
 const v3 = (v: Vec3) => new CANNON.Vec3(v[0], v[1], v[2]);
 const n = (value: unknown, fallback: number, min = 0.01, max = 1000) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : fallback));
 const qItem = (item: SceneItem) => new THREE.Quaternion().setFromEuler(new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, "XYZ"));
@@ -108,6 +114,7 @@ export class RigidBodyWorld {
     this.world.broadphase = new CANNON.SAPBroadphase(this.world);
     this.world.defaultContactMaterial.friction = .35;
     this.world.defaultContactMaterial.restitution = .03;
+    this.world.addContactMaterial(new CANNON.ContactMaterial(beltMaterial, productMaterial, {friction: 0, restitution: .03}));
     (this.world.solver as CANNON.GSSolver).iterations = 10;
     const floor = new CANNON.Body({ mass: 0, material: bodyMaterial, collisionFilterGroup: GROUP_FIXED, collisionFilterMask: GROUP_DYNAMIC });
     floor.addShape(new CANNON.Plane()); floor.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
@@ -148,7 +155,8 @@ export class RigidBodyWorld {
           const ratio = s.size[0] * s.size[1] * s.size[2] / total;
           center.x += s.center[0] * ratio; center.y += s.center[1] * ratio; center.z += s.center[2] * ratio;
         }
-        const body = new CANNON.Body({material: item.kind === "operator" || item.kind === "mobile-robot" ? walkerMaterial : bodyMaterial, mass: dynamic ? n(item.props.physicsMass, item.kind === "imported-model" ? 1 : 10, .01, 1_000_000) : 0,
+        const material = item.kind === "operator" || item.kind === "mobile-robot" ? walkerMaterial : item.kind === "conveyor" || item.kind === "roller" ? beltMaterial : bodyMaterial;
+        const body = new CANNON.Body({material, mass: dynamic ? n(item.props.physicsMass, item.kind === "imported-model" ? 1 : 10, .01, 1_000_000) : 0,
           type: dynamic ? CANNON.Body.DYNAMIC : CANNON.Body.KINEMATIC,
           collisionFilterGroup: dynamic ? GROUP_DYNAMIC : GROUP_FIXED,
           collisionFilterMask: dynamic ? GROUP_DYNAMIC | GROUP_FIXED | GROUP_PRODUCT : GROUP_DYNAMIC | (this.productCollider(item) ? GROUP_PRODUCT : 0),
@@ -238,7 +246,7 @@ export class RigidBodyWorld {
       let body = this.products.get(part.id);
       if (body && this.productShapes.get(body) !== shapeKey) { this.world.removeBody(body); this.products.delete(part.id); body = undefined; }
       if (!body) {
-        body = new CANNON.Body({material: bodyMaterial, mass: n(mass, 1, .01, 1_000_000), fixedRotation: true, linearDamping: 0, angularDamping: 0,
+        body = new CANNON.Body({material: productMaterial, mass: n(mass, 1, .01, 1_000_000), fixedRotation: true, linearDamping: 0, angularDamping: 0,
           collisionFilterGroup: GROUP_PRODUCT, collisionFilterMask: GROUP_DYNAMIC | GROUP_FIXED, allowSleep: false});
         body.addShape(new CANNON.Box(new CANNON.Vec3(part.hx, part.hy, part.hz))); this.productShapes.set(body, shapeKey);
         this.world.addBody(body); this.products.set(part.id, body);

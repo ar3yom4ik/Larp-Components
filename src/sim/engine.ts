@@ -817,6 +817,8 @@ export class Engine {
   readonly rigidBodies = new RigidBodyWorld();
   private rigidTick = 0;
   private rigidWasAwake = false;
+  private carriedBeltScratch = new Map<string, number>();
+  private hasDynamicConveyors = false;
   getPhysicsPose(id: string) { return this.rigidBodies.pose(id); }
   getLiveItem(id: string) { return this.itemById.get(id); }
   running = false;
@@ -919,7 +921,11 @@ export class Engine {
   /* ----- scene sync ----- */
 
   sync(items: SceneItem[], physicsUpdate = false) {
-    if (!physicsUpdate) { this.authoredItems = items; this.rigidBodies.sync(items); }
+    if (!physicsUpdate) {
+      this.authoredItems = items;
+      this.hasDynamicConveyors = items.some((item) => item.visible !== false && item.props.physicsMode === "dynamic" && (item.kind === "conveyor" || item.kind === "roller"));
+      this.rigidBodies.sync(items);
+    }
     if (this.rigidBodies.dynamicCount) items = items.map((item) => {
       const pose = this.rigidBodies.pose(item.id);
       return pose ? { ...item, ...pose } : item;
@@ -2406,6 +2412,33 @@ export class Engine {
     this.lastStepMs = performance.now() - started;
   }
 
+  /** Refresh fast-moving belt supports sooner than the usual four-step index
+   * interval. Otherwise a carried part visibly floats above a falling belt. */
+  private carriedBeltNeedsRefresh(): boolean {
+    const carried = this.carriedBeltScratch;
+    carried.clear();
+    for (const part of this.boxes) {
+      if (part.state !== "free" || part.support !== 2) continue;
+      const item = this.itemById.get(part.convId);
+      if (!item || item.props.physicsMode !== "dynamic") continue;
+      // A small rotation can move the end of a long belt significantly. Use
+      // the furthest carried product as a conservative angular-motion radius.
+      const radius = Math.hypot(part.x - item.position[0], part.y - item.position[1], part.z - item.position[2]);
+      if (radius > (carried.get(part.convId) ?? -1)) carried.set(part.convId, radius);
+    }
+    for (const [id, radius] of carried) {
+      const item = this.itemById.get(id)!;
+      const pose = this.rigidBodies.pose(id);
+      if (!pose) continue;
+      const translation = Math.hypot(pose.position[0] - item.position[0], pose.position[1] - item.position[1], pose.position[2] - item.position[2]);
+      const angle = Math.abs(wrapQuarter((pose.rotationX - (item.rotationX ?? 0)) * DEG)) +
+        Math.abs(wrapQuarter((pose.rotation - item.rotation) * DEG)) +
+        Math.abs(wrapQuarter((pose.rotationZ - (item.rotationZ ?? 0)) * DEG));
+      if (translation + radius * angle > .03) return true;
+    }
+    return false;
+  }
+
   private sub(dt: number) {
     this.time += dt;
     this.guard = 0;
@@ -2491,7 +2524,7 @@ export class Engine {
       // follow moving equipment without rebuilding the whole scene at 60 Hz.
       if (this.rigidBodies.dynamicCount) {
         const awake = this.rigidBodies.hasAwakeBodies();
-        if ((++this.rigidTick % 4 === 0 && awake) || (this.rigidWasAwake && !awake)) this.sync(this.authoredItems, true);
+        if ((++this.rigidTick % 4 === 0 && awake) || (awake && this.hasDynamicConveyors && this.carriedBeltNeedsRefresh()) || (this.rigidWasAwake && !awake)) this.sync(this.authoredItems, true);
         this.rigidWasAwake = awake;
       } else this.rigidWasAwake = false;
     }
