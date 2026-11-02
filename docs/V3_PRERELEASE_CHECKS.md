@@ -14,3 +14,12 @@ Date: 2026-11-01. This is a historical prerelease validation, not a claim of com
 The tests sample workflows and formats; they cannot establish that nothing is broken. Software Chromium is not a substitute for hardware-GPU/WebGPU testing, other browsers, real devices, visual comparison of all presets, or live Poly Haven service testing. The Vite build reports existing browser externalization warnings from OCCT for Node `path` and `crypto`; tested offline CAD imports passed. The application and executable project scripts are not a security or industrial-safety boundary.
 
 The physical factory graph supports independent linear lines, not material-flow branching/merging. The viewport signal editor is a limited single-target-per-source signal interface, not a general 3D material connection or controller I/O editor. KUKA/FANUC controller program export/import, Visual Components library conversion, and the remaining deferred roadmap are not implemented. Runtime script confirmations, browser storage limits and archive limitations are described in `USER_GUIDE.md` and `ROADMAP.md`.
+
+## Prerelease asset automation
+
+For a same-repository pull request, CI can attach `Larp_Factory_V3.html` to an
+already-published prerelease after tests pass. The upload job runs only if the
+package version is a prerelease, that release is published, and its tag resolves
+exactly to the PR head commit. Forks and unmatched tags are skipped; the normal
+build job retains read-only permissions. If the release is published after CI
+finishes, re-run CI to attach the asset.
