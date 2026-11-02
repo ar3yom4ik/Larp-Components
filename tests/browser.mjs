@@ -6,6 +6,7 @@ const errors = [];
 function watch(page) { page.on('pageerror', e => errors.push(e.message)); page.on('console', m => { if(m.type()==='error') errors.push(m.text()); }); }
 const desktop = await browser.newPage({ viewport: { width: 1600, height: 1000 }, acceptDownloads: true });
 watch(desktop);
+await desktop.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4, graphics:'low', gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
 await desktop.goto(base, {waitUntil:'networkidle'});
 await desktop.waitForTimeout(4000);
 await desktop.screenshot({path:'tests/artifacts/desktop.png'});
@@ -39,6 +40,7 @@ await desktop.screenshot({path:'tests/artifacts/russian.png'});
 await desktop.close();
 
 const phone=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}); watch(phone);
+await phone.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4, graphics:'low', gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
 await phone.goto(base,{waitUntil:'networkidle'}); await phone.waitForTimeout(2500);
 if(!await phone.locator('.touch-workspace').count()) throw new Error('Phone not detected');
 await phone.screenshot({path:'tests/artifacts/mobile.png'});

@@ -4,6 +4,7 @@ const browser=await chromium.launch({args:['--enable-unsafe-swiftshader']});
 try {
   const page=await browser.newPage({viewport:{width:1600,height:1000}});const errors=[];
   page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({ graphicsRevision: 4, graphics: 'low', gfx: { shadows: false, contactShadows: false, ao: false, pixelRatio: 0.5 } })));
   await page.goto(process.env.TEST_URL||'http://127.0.0.1:4173',{waitUntil:'networkidle',timeout:120000});
   const id=await page.evaluate(async()=>{const {makeItem}=await import('/src/data/library.ts');const item=makeItem('sensor',[0,0,0],0,{name:'Gizmo target'});window.__larpProject.setItems([item]);window.__larpProject.select(item.id);window.__larp.setRunning(false);return item.id;});
   await page.getByTitle('Move (M)').click();
@@ -43,7 +44,7 @@ try {
   await page.waitForFunction(id=>Math.abs(window.__larpProject.getItems().find(i=>i.id===id).rotationX??0)>1,id);
   const turned=await page.evaluate(id=>window.__larpProject.getItems().find(i=>i.id===id),id);
   assert.ok(Math.abs(turned.rotationX/15-Math.round(turned.rotationX/15))<0.02,'rotation snaps to 15 degrees');
-  assert.ok((await page.getByText('Tilted equipment is displayed in 3D; simulation collisions and operations use an upright approximation.').count())>0);
+  assert.equal(await page.getByLabel('Physics mode').inputValue(), 'legacy');
   const serialized=await page.evaluate(()=>window.__larpProject.getText());
   assert.ok(serialized.includes('rotationX'));
   await page.keyboard.press('Control+z');await page.waitForFunction(id=>Math.abs(window.__larpProject.getItems().find(i=>i.id===id).rotationX??0)<0.1,id);

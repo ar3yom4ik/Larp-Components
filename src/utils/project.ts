@@ -100,7 +100,7 @@ type StoredModel = Partial<ImportedModelData> & {assetId?: string};
 function cleanModel(model: StoredModel | undefined, assets: Map<string, ModelAsset>): ImportedModelData {
   const asset = model?.assetId ? assets.get(model.assetId) : model?.asset ? cleanAsset(model.asset) : undefined;
   if (!model || !asset || !Array.isArray(model.materials) || model.materials.length > 2000) throw new Error("Imported model is missing its asset or material data");
-  return {asset, axis: model.axis === "z" ? "z" : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
+  return {asset, axis: model.axis === "z" ? "z" : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), sourceSize: Array.isArray(model.sourceSize) && model.sourceSize.length === 3 && model.sourceSize.every((n) => finite(n) && n >= 0 && n <= 1_000_000) ? model.sourceSize as [number, number, number] : undefined, rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
 }
 function cleanWorker(value: unknown, assets: Map<string, ModelAsset>): WorkerSettings {
   const worker = value as WorkerSettings & {model?: StoredModel};
@@ -144,6 +144,11 @@ export function parseProject(text: string): ProjectFile {
       points = [[-half, 0], [half, 0]];
     }
     if (points && (points.length < 2 || points.length > 100)) throw new Error("Invalid path");
+    let pointHeights: number[] | undefined;
+    if (item.pointHeights !== undefined) {
+      if (!points || !Array.isArray(item.pointHeights) || item.pointHeights.length !== points.length || !item.pointHeights.every(finite)) throw new Error("Invalid path heights");
+      pointHeights = item.pointHeights.map((height) => Math.max(-200, Math.min(200, height)));
+    }
     let program: RobotProgram | undefined;
     if (item.program) {
       const p = item.program;
@@ -157,7 +162,7 @@ export function parseProject(text: string): ProjectFile {
     const worker = item.kind === "operator" && item.worker ? cleanWorker(item.worker, assets) : undefined;
     if (item.signalTargets !== undefined && (!Array.isArray(item.signalTargets) || item.signalTargets.length > 500 || item.signalTargets.some((id) => typeof id !== "string" || !id || id.length > 1024))) throw new Error("Invalid signal destinations");
     const signalTargets = item.signalTargets?.length ? [...new Set(item.signalTargets)] : undefined;
-    return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, points, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
+    return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
   });
   return { version: "5.1", projectName: String(data.projectName || "Untitled factory").slice(0, 120), layoutName: String(data.layoutName || data.projectName || "Imported factory").slice(0, 120), activeLayoutId: typeof data.activeLayoutId === "string" ? data.activeLayoutId : null, items };
 }

@@ -6,6 +6,7 @@ async function center(locator) { const r = await locator.boundingBox(); assert.o
 try {
   const page = await browser.newPage({viewport:{width:1600,height:1000}});
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
   await page.goto(url,{waitUntil:'networkidle',timeout:120000});
   const ids=await page.evaluate(async()=>{const {makeItem}=await import('/src/data/library.ts');const source=makeItem('button',[-4,0,0],0,{name:'Drag source'}), robot=makeItem('robot',[0,0,0],0,{name:'Drag robot'}), feeder=makeItem('feeder',[4,0,0],0,{name:'Drag feeder'});window.__larpProject.setItems([source,robot,feeder]);return {source:source.id,robot:robot.id,feeder:feeder.id}});
   await page.getByRole('button',{name:'Edit signal connections'}).click();
@@ -31,6 +32,7 @@ try {
   // Real touch events (not a synthetic click) exercise pointer capture and the
   // IN hit test while dragging from one HTML port to another.
   const phone=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  await phone.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
   await phone.goto(url,{waitUntil:'networkidle',timeout:120000});
   const touch=await phone.evaluate(async()=>{const {makeItem}=await import('/src/data/library.ts');const a=makeItem('sensor',[-2,0,0],0,{name:'Touch drag source'}),b=makeItem('robot',[2,0,0],0,{name:'Touch drag robot'});window.__larpProject.setItems([a,b]);return {a:a.id,b:b.id}});
   await phone.getByRole('button',{name:'Edit signal connections'}).click();

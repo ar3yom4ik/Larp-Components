@@ -164,8 +164,9 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
     const rt = sim.humans.get(item.id), node = outer.current;
     if (!rt || !node) return;
     const itemScale = Number.isFinite(item.scale) && Math.abs(item.scale) > 1e-4 ? item.scale : 1;
-    const rot = item.rotation * Math.PI / 180, dx = rt.x - item.position[0], dz = rt.z - item.position[2];
-    node.position.set((dx * Math.cos(rot) - dz * Math.sin(rot)) / itemScale, 0, (dx * Math.sin(rot) + dz * Math.cos(rot)) / itemScale);
+    const pose = sim.getPhysicsPose(item.id) ?? item;
+    const rot = pose.rotation * Math.PI / 180, dx = rt.x - pose.position[0], dz = rt.z - pose.position[2];
+    node.position.set((dx * Math.cos(rot) - dz * Math.sin(rot)) / itemScale, (rt.y - pose.position[1]) / itemScale, (dx * Math.sin(rot) + dz * Math.cos(rot)) / itemScale);
     const target = rt.yaw - rot, diff = Math.atan2(Math.sin(target - node.rotation.y), Math.cos(target - node.rotation.y));
     if (sim.running) node.rotation.y += diff * (1 - Math.exp(-Math.min(delta, .1) * 10));
     const state = animation.current;

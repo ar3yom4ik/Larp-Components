@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { ContactShadows, OrbitControls, PerformanceMonitor, TransformControls } from "@react-three/drei";
 import * as THREE from "three";
@@ -314,7 +314,7 @@ function ConveyorHandles({
       {pts.map((p, index) => {
         const active = selectedPoint === index;
         return (
-          <group key={index} userData={{ splineHandleFor: item.id, pointIndex: index }} position={[p[0], item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2, p[1]]} onPointerDown={(event) => onGrab(event, index)}>
+          <group key={index} userData={{ splineHandleFor: item.id, pointIndex: index }} position={[p[0], item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), p[1]]} onPointerDown={(event) => onGrab(event, index)}>
             <mesh renderOrder={20}>
               <sphereGeometry args={[active ? 0.2 : 0.15, 16, 12]} />
               <meshBasicMaterial color={active ? TEAL_3D : "#ffffff"} depthTest={false} transparent opacity={0.96} toneMapped={false} />
@@ -338,6 +338,7 @@ function ObjectGizmo({ item, tool, snap, onBeginEdit, onUpdateItem, onActive }: 
 }) {
   const anchor = useMemo(() => { const node = new THREE.Object3D(); node.name = `transform-anchor-${item.id}`; return node; }, [item.id]);
   const active = useRef(false);
+  const wasPhysical = useRef(false);
   const control = useRef<TransformControlsImpl>(null);
   useEffect(() => {
     if (active.current) return;
@@ -346,6 +347,19 @@ function ObjectGizmo({ item, tool, snap, onBeginEdit, onUpdateItem, onActive }: 
     anchor.updateMatrixWorld(true);
   }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ]);
   useEffect(() => () => { if (active.current) onActive(false); }, [onActive]);
+  useFrame(() => {
+    const pose = sim.getPhysicsPose(item.id);
+    if (active.current) return;
+    if (pose) {
+      wasPhysical.current = true;
+      anchor.position.set(...pose.position);
+      anchor.rotation.set(pose.rotationX * Math.PI / 180, pose.rotation * Math.PI / 180, pose.rotationZ * Math.PI / 180, 'XYZ');
+    } else if (wasPhysical.current) {
+      wasPhysical.current = false;
+      anchor.position.set(...item.position);
+      anchor.rotation.set((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+    }
+  });
   const degrees = (radians: number) => Math.round(radians * 1800 / Math.PI) / 10;
   return <>
     <primitive object={anchor} />
@@ -365,6 +379,80 @@ function ObjectGizmo({ item, tool, snap, onBeginEdit, onUpdateItem, onActive }: 
       }}
     />
   </>;
+}
+
+/** The selected spline handle has its own world-space gizmo; converting back
+ * through the item's full rotation keeps point editing correct on tilted belts. */
+function PointGizmo({ item, index, snap, onBeginEdit, onUpdateItem, onActive }: {
+  item: SceneItem; index: number; snap: boolean; onBeginEdit: () => void;
+  onUpdateItem: ViewportProps["onUpdateItem"]; onActive: (active: boolean) => void;
+}) {
+  const anchor = useMemo(() => { const node = new THREE.Object3D(); node.name = `spline-transform-anchor-${item.id}-${index}`; return node; }, [item.id, index]);
+  const active = useRef(false);
+  const wasPhysical = useRef(false);
+  const control = useRef<TransformControlsImpl>(null);
+  const point = item.points?.[index];
+  const rotation = (base: Pick<SceneItem, 'rotationX' | 'rotation' | 'rotationZ'> = item) => new THREE.Quaternion().setFromEuler(new THREE.Euler((base.rotationX ?? 0) * Math.PI / 180, base.rotation * Math.PI / 180, (base.rotationZ ?? 0) * Math.PI / 180, 'XYZ'));
+  useEffect(() => {
+    if (active.current || !point) return;
+    anchor.position.set(point[0], BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), point[1]).applyQuaternion(rotation()).add(new THREE.Vector3(...item.position));
+    anchor.updateMatrixWorld(true);
+  }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ, item.points, item.pointHeights, index]);
+  useEffect(() => () => { if (active.current) onActive(false); }, [onActive]);
+  useFrame(() => {
+    const pose = sim.getPhysicsPose(item.id);
+    if (active.current || !point) return;
+    if (pose) wasPhysical.current = true;
+    else if (!wasPhysical.current) return;
+    else wasPhysical.current = false;
+    const base = pose ?? item;
+    anchor.position.set(point[0], BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), point[1]).applyQuaternion(rotation(base)).add(new THREE.Vector3(...base.position));
+  });
+  if (!point) return null;
+  const clamp = (value: number) => Math.max(-200, Math.min(200, Math.round(value * 1000) / 1000));
+  return <>
+    <primitive object={anchor} />
+    <TransformControls ref={control} object={anchor} mode="translate" space="world" size={0.85} translationSnap={snap ? 0.25 : null}
+      onChange={() => { if (!active.current) onActive(!!(control.current as unknown as {axis: string | null} | null)?.axis); }}
+      onMouseDown={() => { active.current = true; onActive(true); onBeginEdit(); }}
+      onMouseUp={() => { active.current = false; onActive(false); }}
+      onObjectChange={() => {
+        if (!active.current || !item.points) return;
+        const base = sim.getPhysicsPose(item.id) ?? item;
+        const local = anchor.position.clone().sub(new THREE.Vector3(...base.position)).applyQuaternion(rotation(base).invert());
+        const snapLocal = (value: number) => clamp(snap ? Math.round(value * 4) / 4 : value);
+        const points = item.points.map((p, i) => i === index ? [snapLocal(local.x), snapLocal(local.z)] as [number, number] : p);
+        const pointHeights = item.points.map((_, i) => i === index ? snapLocal(local.y - BELT_Y - 0.2) : item.pointHeights?.[i] ?? 0);
+        onUpdateItem(item.id, { points, pointHeights }, false);
+      }} />
+  </>;
+}
+
+/** Renderer reads solver poses directly; the authored layout is left intact. */
+function PhysicalItemGroup({ item, onPointerDown, onDuplicate, children }: {
+  item: SceneItem; onPointerDown: (event: ThreeEvent<PointerEvent>, item: SceneItem) => void;
+  onDuplicate: (id: string) => void; children: ReactNode;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const wasPhysical = useRef(false);
+  useFrame(() => {
+    const node = ref.current, pose = sim.getPhysicsPose(item.id);
+    if (!node) return;
+    if (pose) wasPhysical.current = true;
+    else if (!wasPhysical.current) return;
+    else wasPhysical.current = false;
+    const base = pose ?? item;
+    node.position.set(...base.position);
+    node.rotation.set((base.rotationX ?? 0) * Math.PI / 180, base.rotation * Math.PI / 180, (base.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+  });
+  const isPath = ['conveyor', 'roller', 'fence'].includes(item.kind);
+  return <group ref={ref} userData={{ sceneItemId: item.id }} position={item.position}
+    rotation={[(item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180]}
+    scale={isPath ? 1 : item.scale}
+    onPointerDown={(event) => onPointerDown(event, sim.getPhysicsPose(item.id) ? { ...item, ...sim.getPhysicsPose(item.id)! } : item)}
+    onDoubleClick={(event) => { if (!event.ctrlKey && !event.metaKey) return; event.stopPropagation(); if (!item.locked) onDuplicate(item.id); }}>
+    {children}
+  </group>;
 }
 
 interface SceneContentProps {
@@ -404,7 +492,10 @@ function SceneContent({
     gizmoActive.current = active;
     // Native TransformControls and the scene's legacy pointer handler see the
     // same press. Whichever fires first, never run both drags at once.
-    if (active && drag.current) drag.current = null;
+    // Selecting a spline sphere mounts its gizmo while that same sphere-drag
+    // is already in progress; a hover over the newly mounted arrows must not
+    // cancel the legacy drag. Gizmo presses suppress grabPoint before it starts.
+    if (active && drag.current?.type === "item") drag.current = null;
   }, []);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -446,6 +537,7 @@ function SceneContent({
   const grabPoint = useCallback(
     (event: ThreeEvent<PointerEvent>, id: string, index: number) => {
       event.stopPropagation();
+      if (gizmoActive.current) return;
       onSelect(id);
       onSelectPoint(index);
       const item = itemsRef.current.find((candidate) => candidate.id === id);
@@ -471,7 +563,7 @@ function SceneContent({
       const current = drag.current;
       const item = current?.type === "point" ? itemsRef.current.find((i) => i.id === current.id) : null;
       if (item) {
-        const height = item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2;
+        const height = item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2 + (item.pointHeights?.[current?.type === "point" ? current.index : 0] ?? 0);
         const rotation = new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
         const q = new THREE.Quaternion().setFromEuler(rotation);
         const origin = new THREE.Vector3(0, height, 0).applyQuaternion(q).add(new THREE.Vector3(...item.position));
@@ -539,32 +631,24 @@ function SceneContent({
         const selected = item.id === selectedId;
         const isConveyor = item.kind === "conveyor" || item.kind === "roller" || item.kind === "fence";
         return (
-          <group
-            key={item.id}
-            position={item.position}
-            rotation={[(item.rotationX ?? 0) * Math.PI / 180, (item.rotation * Math.PI) / 180, (item.rotationZ ?? 0) * Math.PI / 180]}
-            scale={isConveyor ? 1 : item.scale}
-            onPointerDown={(event) => startDrag(event, item)}
-            // Visual Components: Ctrl + double-click duplicates the object in place.
-            onDoubleClick={(event) => {
-              if (!event.ctrlKey && !event.metaKey) return;
-              event.stopPropagation();
-              if (!item.locked) onDuplicateItem(item.id);
-            }}
-          >
-            {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} />}
+          <PhysicalItemGroup key={item.id} item={item} onPointerDown={startDrag} onDuplicate={onDuplicateItem}>
+            {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} onMeasure={(sourceSize) => { if (!item.imported?.sourceSize) onUpdateItem(item.id, { imported: { ...item.imported!, sourceSize } }, false); }} /> : <FactoryModel item={item} productItems={item.kind === "crates" ? items : undefined} />}
             {selected && <SelectionMarker item={item} />}
             {selected && isConveyor && (
               <ConveyorHandles item={item} selectedPoint={selectedPoint} onGrab={(event, index) => grabPoint(event, item.id, index)} />
             )}
-          </group>
+          </PhysicalItemGroup>
         );
       })}
       {(() => {
         const selected = items.find((item) => item.id === selectedId && item.visible !== false && !item.locked);
-        return selected && tool !== 'select' ? <ObjectGizmo item={selected} tool={tool} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} /> : null;
+        if (!selected || tool === 'select') return null;
+        if (tool === 'move' && selectedPoint !== null && ['conveyor', 'roller'].includes(selected.kind) && selected.points?.[selectedPoint]) {
+          return <PointGizmo item={selected} index={selectedPoint} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} />;
+        }
+        return <ObjectGizmo item={selected} tool={tool} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} />;
       })()}
-      <BoxesLayer />
+      <BoxesLayer items={items} />
       <WireLayer items={items} />
     </>
   );

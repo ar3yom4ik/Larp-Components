@@ -389,6 +389,7 @@ export default function App() {
         props: { ...source.props },
         signalTargets: source.signalTargets ? [...source.signalTargets] : undefined,
         points: source.points ? source.points.map((p) => [...p] as [number, number]) : undefined,
+        pointHeights: source.pointHeights ? [...source.pointHeights] : undefined,
         script: source.script,
         program: source.program ? { ...source.program } : undefined,
         imported: source.imported,
@@ -428,7 +429,7 @@ export default function App() {
     if (!selectedId) { notify("Select a component first", "info"); return; }
     const source = itemsRef.current.find((item) => item.id === selectedId);
     if (!source) return;
-    clipboard.current = { ...source, position: [...source.position] as Vec3, props: { ...source.props }, signalTargets: source.signalTargets ? [...source.signalTargets] : undefined, points: source.points?.map((p) => [...p] as [number, number]), program: source.program ? { ...source.program } : undefined };
+    clipboard.current = { ...source, position: [...source.position] as Vec3, props: { ...source.props }, signalTargets: source.signalTargets ? [...source.signalTargets] : undefined, points: source.points?.map((p) => [...p] as [number, number]), pointHeights: source.pointHeights ? [...source.pointHeights] : undefined, program: source.program ? { ...source.program } : undefined };
     notify(`${source.name} copied`);
   }, [notify, selectedId]);
 
@@ -438,7 +439,7 @@ export default function App() {
     const item = makeItem(source.kind, [source.position[0] + 0.8, source.position[1], source.position[2] + 0.8], source.rotation, {
       name: `${source.name} copy`, rotationX: source.rotationX, rotationZ: source.rotationZ, scale: source.scale, color: source.color, props: { ...source.props },
       signalTargets: source.signalTargets ? [...source.signalTargets] : undefined,
-      points: source.points?.map((p) => [...p] as [number, number]), script: source.script,
+      points: source.points?.map((p) => [...p] as [number, number]), pointHeights: source.pointHeights ? [...source.pointHeights] : undefined, script: source.script,
       program: source.program ? { ...source.program } : undefined, imported: source.imported, worker: source.worker,
     });
     const next = [...itemsRef.current, item];
@@ -640,19 +641,20 @@ export default function App() {
   /* ----- spline editing ----- */
 
   const editPoints = useCallback(
-    (mutate: (points: [number, number][], index: number | null) => { points: [number, number][]; select: number | null } | null) => {
+    (mutate: (points: [number, number][], index: number | null, heights: number[]) => { points: [number, number][]; heights: number[]; select: number | null } | null) => {
       const item = itemsRef.current.find((candidate) => candidate.id === selectedId);
       if (!item || !item.points) { notify("Select a path component first", "info"); return; }
-      const result = mutate(item.points, selectedPoint);
+      const heights = item.points.map((_, i) => item.pointHeights?.[i] ?? 0);
+      const result = mutate(item.points, selectedPoint, heights);
       if (!result) return;
-      updateItem(item.id, { points: result.points }, true);
+      updateItem(item.id, { points: result.points, ...(["conveyor", "roller"].includes(item.kind) ? { pointHeights: result.heights } : {}) }, true);
       setSelectedPoint(result.select);
     },
     [notify, selectedId, selectedPoint, updateItem],
   );
 
   const addPoint = () =>
-    editPoints((points, index) => {
+    editPoints((points, index, heights) => {
       let seg = index ?? -1;
       if (seg < 0) {
         let best = 0;
@@ -670,21 +672,23 @@ export default function App() {
         const b = points[points.length - 1];
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
         next.push([Math.round((b[0] + ((b[0] - a[0]) / len) * 1.5) * 100) / 100, Math.round((b[1] + ((b[1] - a[1]) / len) * 1.5) * 100) / 100]);
-        return { points: next, select: next.length - 1 };
+        heights.push(heights[heights.length - 1] ?? 0);
+        return { points: next, heights, select: next.length - 1 };
       }
       const a = points[seg];
       const b = points[seg + 1];
       next.splice(seg + 1, 0, [Math.round(((a[0] + b[0]) / 2) * 100) / 100, Math.round(((a[1] + b[1]) / 2) * 100) / 100]);
-      return { points: next, select: seg + 1 };
+      heights.splice(seg + 1, 0, (heights[seg] + heights[seg + 1]) / 2);
+      return { points: next, heights, select: seg + 1 };
     });
 
   const removePoint = () =>
-    editPoints((points, index) => {
+    editPoints((points, index, heights) => {
       if (index === null || points.length <= 2) return null;
-      return { points: points.filter((_, i) => i !== index), select: null };
+      return { points: points.filter((_, i) => i !== index), heights: heights.filter((_, i) => i !== index), select: null };
     });
 
-  const reversePath = () => editPoints((points) => ({ points: [...points].reverse(), select: null }));
+  const reversePath = () => editPoints((points, _index, heights) => ({ points: [...points].reverse(), heights: [...heights].reverse(), select: null }));
 
   /* ----- programs ----- */
 

@@ -5,6 +5,8 @@ import { distanceToSegment, navigate, pointIsFree, projectToFree, type Barrier, 
 import { SpatialHash } from "./spatial";
 import { isLogicSource, isSignalSource, signalTargets } from "../utils/signalPorts";
 import { itemLocalToWorld, rotateVector, rotationMatrix, unrotateVector } from "../utils/transform";
+import { RigidBodyWorld } from "./rigidBodies";
+import { upperFloorDimensions } from "../utils/upperFloor";
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                               */
@@ -114,6 +116,9 @@ interface Query {
   s: number;
   lat: number;
   inside: boolean;
+  /** World-space support height and horizontal fraction of 3D belt speed. */
+  y: number;
+  speedFactor: number;
   tx: number;
   tz: number;
 }
@@ -125,7 +130,9 @@ export class ConveyorRT {
   active: boolean;
   stopper: boolean;
   x: number[] = [];
+  y: number[] = [];
   z: number[] = [];
+  sideSlope: number[] = [];
   s: number[] = [];
   tx: number[] = [];
   tz: number[] = [];
@@ -136,6 +143,8 @@ export class ConveyorRT {
   maxZ = 0;
   top = BELT_TOP;
   half = BELT_HALF;
+  /** Exact legacy fast path for level, unbanked belts. */
+  level = true;
 
   constructor(item: SceneItem) {
     this.id = item.id;
@@ -143,23 +152,25 @@ export class ConveyorRT {
     this.speed = num(item.props.speed, 0.6);
     this.active = item.props.active !== false;
     this.stopper = item.props.stopper === true;
-    this.top = item.position[1] + BELT_TOP;
     const local = (item.points && item.points.length >= 2 ? item.points : [[-2, 0], [2, 0]]) as P2[];
-    const path = samplePath(local, 0.1);
-    const rot = item.rotation * DEG;
-    const c = Math.cos(rot);
-    const sn = Math.sin(rot);
+    const path = samplePath(local, 0.1, item.pointHeights);
+    const matrix = rotationMatrix(item.rotationX ?? 0, item.rotation, item.rotationZ ?? 0);
     this.length = path.length;
     this.s = path.s;
     for (let i = 0; i < path.x.length; i += 1) {
-      const lx = path.x[i];
-      const lz = path.z[i];
-      this.x.push(item.position[0] + lx * c + lz * sn);
-      this.z.push(item.position[2] - lx * sn + lz * c);
-      const tx = path.tx[i];
-      const tz = path.tz[i];
-      this.tx.push(tx * c + tz * sn);
-      this.tz.push(-tx * sn + tz * c);
+      // Belt group is unscaled in the viewport, including for old projects.
+      const world = itemLocalToWorld(item, [path.x[i], BELT_TOP + path.y[i], path.z[i]], false);
+      this.x.push(world[0]); this.y.push(world[1]); this.z.push(world[2]);
+      const side = rotateVector(matrix, [-path.tz[i], 0, path.tx[i]]);
+      this.sideSlope.push(side[1] / (Math.hypot(side[0], side[2]) || 1));
+    }
+    this.top = this.y[0]; // legacy convenience; use pointAt/query for a sloped path
+    this.level = Math.abs(item.rotationX ?? 0) < 1e-12 && Math.abs(item.rotationZ ?? 0) < 1e-12 && path.y.every((height) => Math.abs(height - path.y[0]) < 1e-12);
+    for (let i = 0; i < path.x.length; i += 1) {
+      const a = Math.max(0, i - 1), b = Math.min(path.x.length - 1, i + 1);
+      const dx = this.x[b] - this.x[a], dz = this.z[b] - this.z[a];
+      const horizontal = Math.hypot(dx, dz) || 1;
+      this.tx.push(dx / horizontal); this.tz.push(dz / horizontal);
     }
     this.minX = Math.min(...this.x) - 0.6;
     this.maxX = Math.max(...this.x) + 0.6;
@@ -185,7 +196,7 @@ export class ConveyorRT {
   /** Segment indices per one-metre cell; see the constructor. */
   private segments = new Map<number, number[]>();
 
-  query(px: number, pz: number): Query | null {
+  query(px: number, pz: number, height?: number): Query | null {
     if (px < this.minX || px > this.maxX || pz < this.minZ || pz > this.maxZ) return null;
     const cell = 1;
     const local = this.segments.get((Math.floor(px / cell) + 4096) * 8192 + (Math.floor(pz / cell) + 4096));
@@ -206,8 +217,16 @@ export class ConveyorRT {
       const qx = this.x[i] + sx * u;
       const qz = this.z[i] + sz * u;
       const d2 = (px - qx) * (px - qx) + (pz - qz) * (pz - qz);
-      if (d2 < best) {
-        best = d2;
+      // Prefer the actual storey when one path crosses itself at different heights,
+      // but do not bias ordinary sloping belts away from their nearest XZ point.
+      let score = d2;
+      if (!this.level && height !== undefined) {
+        const y = this.y[i] + (this.y[i + 1] - this.y[i]) * u;
+        const verticalGap = Math.max(0, Math.abs(y - height) - 0.18);
+        score += Math.min(0.0001, verticalGap * verticalGap * 0.01);
+      }
+      if (score < best) {
+        best = score;
         bi = i;
         bu = u;
         braw = raw;
@@ -227,7 +246,15 @@ export class ConveyorRT {
     let inside = Math.abs(lat) <= this.half;
     if (bi === 0 && braw < 0) inside = false;
     if (bi === n - 2 && braw > 1) inside = false;
-    return { s, lat, inside, tx: ntx, tz: ntz };
+    if (this.level) return { s, lat, inside, y: this.top, speedFactor: 1, tx: ntx, tz: ntz };
+    const centerY = this.y[bi] + (this.y[bi + 1] - this.y[bi]) * bu;
+    const sideSlope = this.sideSlope[bi] + (this.sideSlope[bi + 1] - this.sideSlope[bi]) * bu;
+    const horizontalLength = Math.hypot(this.x[bi + 1] - this.x[bi], this.z[bi + 1] - this.z[bi]);
+    const verticalLength = this.y[bi + 1] - this.y[bi];
+    // On a flat segment retain exactly the legacy horizontal belt speed;
+    // sampled chord length is slightly shorter than the arc on curves.
+    const speedFactor = Math.abs(verticalLength) < 1e-12 ? 1 : horizontalLength / (Math.hypot(horizontalLength, verticalLength) || 1);
+    return { s, lat, inside, y: centerY + lat * sideSlope, speedFactor, tx: ntx, tz: ntz };
   }
 
   pointAt(d: number) {
@@ -240,7 +267,8 @@ export class ConveyorRT {
     const z = this.z[i] + (this.z[i + 1] - this.z[i]) * u;
     const tx = this.tx[i];
     const tz = this.tz[i];
-    return { x, y: this.top, z, yaw: Math.atan2(-tz, tx) };
+    const y = this.y[i] + (this.y[i + 1] - this.y[i]) * u;
+    return { x, y, z, yaw: Math.atan2(-tz, tx) };
   }
 }
 
@@ -254,6 +282,35 @@ interface Rect {
   top: number;
   palletId: string | null;
   collectorId?: string | null;
+  /** Oriented surface basis; used by vertical ray/support tests on tilted equipment. */
+  surface?: { center: V3; axisX: V3; axisZ: V3; normal: V3 };
+  walkable?: boolean;
+}
+
+function surfaceRect(item: SceneItem, localCenter: V3, hw: number, hd: number, palletId: string | null = null, collectorId: string | null = null, walkable = false): Rect {
+  const center = itemLocalToWorld(item, localCenter);
+  const rect: Rect = { id: item.id, cx: center[0], cz: center[2], hw, hd, yaw: item.rotation * DEG, top: center[1], palletId, collectorId, walkable };
+  if (Math.abs(item.rotationX ?? 0) < 1e-12 && Math.abs(item.rotationZ ?? 0) < 1e-12) return rect;
+  const matrix = rotationMatrix(item.rotationX ?? 0, item.rotation, item.rotationZ ?? 0);
+  rect.surface = { center, axisX: rotateVector(matrix, [1, 0, 0]), axisZ: rotateVector(matrix, [0, 0, 1]), normal: rotateVector(matrix, [0, 1, 0]) };
+  return rect;
+}
+
+/** Intersect a vertical ray with a rotated rectangular face. Faces pointing
+ * down or nearly vertical cannot support an upright workpiece. */
+function surfaceHeight(rect: Rect, x: number, z: number): number | null {
+  const surface = rect.surface;
+  if (!surface) {
+    const dx = x - rect.cx, dz = z - rect.cz, c = Math.cos(rect.yaw), s = Math.sin(rect.yaw);
+    return Math.abs(dx * c - dz * s) <= rect.hw && Math.abs(dx * s + dz * c) <= rect.hd ? rect.top : null;
+  }
+  const { center, axisX, axisZ, normal } = surface;
+  if (normal[1] < 0.05) return null;
+  const dx = x - center[0], dz = z - center[2];
+  const dy = -(normal[0] * dx + normal[2] * dz) / normal[1];
+  const lx = dx * axisX[0] + dy * axisX[1] + dz * axisX[2];
+  const lz = dx * axisZ[0] + dy * axisZ[1] + dz * axisZ[2];
+  return Math.abs(lx) <= rect.hw && Math.abs(lz) <= rect.hd ? center[1] + dy : null;
 }
 
 export class PalletRT {
@@ -273,10 +330,14 @@ export class PalletRT {
   gap: number;
   width: number;
   depth: number;
+  private item: SceneItem;
+  private products: readonly SceneItem[];
 
-  constructor(item: SceneItem, prev?: PalletRT) {
+  constructor(item: SceneItem, prev?: PalletRT, products: readonly SceneItem[] = []) {
     this.id = item.id;
     this.name = item.name;
+    this.item = item;
+    this.products = products;
     this.x = item.position[0];
     this.y = item.position[1];
     this.z = item.position[2];
@@ -287,7 +348,7 @@ export class PalletRT {
     this.layers = Math.max(1, Math.round(num(item.props.layers, 4)));
     this.productId = String(item.props.product || "carton");
     this.gap = num(item.props.gap, 0.04);
-    [this.width, this.depth] = palletSize(item.props).map((v) => v * this.scale) as [number, number];
+    [this.width, this.depth] = palletSize(item.props, products).map((v) => v * this.scale) as [number, number];
     if (prev) {
       this.cursor = prev.cursor;
       this.shipped = prev.shipped;
@@ -299,7 +360,7 @@ export class PalletRT {
   }
 
   slot(i: number, productId = this.productId) {
-    const size = getProduct(productId).size;
+    const size = getProduct(productId, this.products).size;
     const per = this.cols * this.rows;
     const layer = Math.floor(i / per) % this.layers;
     const idx = i % per;
@@ -307,8 +368,8 @@ export class PalletRT {
     const row = Math.floor(idx / this.cols);
     const lx = (col - (this.cols - 1) / 2) * (size[0] + this.gap);
     const lz = (row - (this.rows - 1) / 2) * (size[2] + this.gap);
-    const [x, z] = toWorld(this.x, this.z, this.yaw, lx * this.scale, lz * this.scale);
-    return { x, y: this.y + PALLET_TOP * this.scale + layer * size[1] + 0.002, z, yaw: this.yaw };
+    const [x, y, z] = itemLocalToWorld(this.item, [lx, PALLET_TOP + (layer * size[1] + 0.002) / this.scale, lz]);
+    return { x, y, z, yaw: this.yaw };
   }
 }
 
@@ -389,6 +450,8 @@ interface FeederSignalState {
 export class HumanRT {
   id: string;
   x: number;
+  y: number;
+  baseY: number;
   z: number;
   yaw = 0;
   origin: [number, number];
@@ -407,7 +470,7 @@ export class HumanRT {
   projectionKey = "";
   projection: [number, number] | null = null;
   constructor(item: SceneItem, claim: number) {
-    this.id = item.id; this.x = item.position[0]; this.z = item.position[2];
+    this.id = item.id; this.x = item.position[0]; this.y = this.baseY = item.position[1]; this.z = item.position[2];
     this.origin = [this.x, this.z]; this.yaw = item.rotation * DEG; this.claim = -claim;
   }
 }
@@ -749,6 +812,13 @@ export class Engine {
   /** Null uses the original TypeScript feeder implementation. */
   feederStepper: FeederStepper | null = null;
   items: SceneItem[] = [];
+  /** Authored poses stay separate from transient simulation poses and reset cleanly. */
+  private authoredItems: SceneItem[] = [];
+  readonly rigidBodies = new RigidBodyWorld();
+  private rigidTick = 0;
+  private rigidWasAwake = false;
+  getPhysicsPose(id: string) { return this.rigidBodies.pose(id); }
+  getLiveItem(id: string) { return this.itemById.get(id); }
   running = false;
   speed = 1;
   time = 0;
@@ -811,6 +881,7 @@ export class Engine {
   private barrierIndex = new SpatialHash<Barrier>(2);
   private boxIndex = new SpatialHash<Box>(2);
   private supportScratch: { conv: ConveyorRT | null; rect: Rect | null }[] = [];
+  private hasWalkableFloors = false;
   private boxScratch: Box[] = [];
   private boxScratchContact: Box[] = [];
   private grabScratch: Box[] = [];
@@ -847,11 +918,18 @@ export class Engine {
 
   /* ----- scene sync ----- */
 
-  sync(items: SceneItem[]) {
+  sync(items: SceneItem[], physicsUpdate = false) {
+    if (!physicsUpdate) { this.authoredItems = items; this.rigidBodies.sync(items); }
+    if (this.rigidBodies.dynamicCount) items = items.map((item) => {
+      const pose = this.rigidBodies.pose(item.id);
+      return pose ? { ...item, ...pose } : item;
+    });
     const previousItems = this.itemById;
     const previousSignals = this.signalState;
     this.items = items;
-    this.structureVersion += 1;
+    // A moving person does not change the static navigation topology; keep
+    // routes cached. Moving machinery can change it and must invalidate them.
+    if (!physicsUpdate || items.some((item) => item.visible !== false && item.props.physicsMode === "dynamic" && item.kind !== "operator" && item.kind !== "mobile-robot")) this.structureVersion += 1;
     const conveyors = new Map<string, ConveyorRT>();
     const pallets = new Map<string, PalletRT>();
     const machines = new Map<string, MachineRT>();
@@ -866,25 +944,16 @@ export class Engine {
       switch (item.kind) {
         case "conveyor":
         case "roller": {
-          const signature = JSON.stringify([item.position, item.rotation, item.points, item.props]);
+          const signature = JSON.stringify([item.position, item.rotation, item.rotationX, item.rotationZ, item.points, item.pointHeights, item.props]);
           const previous = this.conveyors.get(item.id);
           conveyors.set(item.id, previous && this.conveyorSignatures.get(item.id) === signature ? previous : new ConveyorRT(item));
           this.conveyorSignatures.set(item.id, signature);
           break;
         }
         case "crates": {
-          const pallet = new PalletRT(item, this.pallets.get(item.id));
+          const pallet = new PalletRT(item, this.pallets.get(item.id), items);
           pallets.set(item.id, pallet);
-          rects.push({
-            id: item.id,
-            cx: pallet.x,
-            cz: pallet.z,
-            hw: pallet.width / 2,
-            hd: pallet.depth / 2,
-            yaw: pallet.yaw,
-            top: pallet.y + PALLET_TOP * pallet.scale,
-            palletId: item.id,
-          });
+          rects.push(surfaceRect(item, [0, PALLET_TOP, 0], pallet.width / 2, pallet.depth / 2, item.id));
           break;
         }
         case "cnc":
@@ -901,8 +970,7 @@ export class Engine {
           const prev = this.machines.get(item.id);
           const machine = prev ? Object.assign(prev, new MachineRT(item, prev)) : new MachineRT(item);
           machines.set(item.id, machine);
-          const t = machine.table();
-          rects.push({ id: item.id, cx: t.x, cz: t.z, hw: 0.4 * machine.scale, hd: 0.32 * machine.scale, yaw: machine.yaw, top: t.y - 0.002, palletId: null });
+          rects.push(surfaceRect(item, [TABLE_LOCAL[0], TABLE_TOP, TABLE_LOCAL[1]], 0.4 * machine.scale, 0.32 * machine.scale));
           break;
         }
         case "feeder": {
@@ -949,10 +1017,13 @@ export class Engine {
         case "mobile-robot": {
           const previous = this.humans.get(item.id);
           const human = previous ?? new HumanRT(item, this.nextRobot++);
-          if (previous && (human.origin[0] !== item.position[0] || human.origin[1] !== item.position[2])) {
+          if (previous && !physicsUpdate && item.props.physicsMode !== "dynamic" && (human.origin[0] !== item.position[0] || human.origin[1] !== item.position[2])) {
             human.x = item.position[0]; human.z = item.position[2]; human.route = []; human.targetKey = "";
           }
-          human.origin = [item.position[0], item.position[2]];
+          if (!physicsUpdate) {
+            if (human.baseY !== item.position[1]) { human.y += item.position[1] - human.baseY; human.baseY = item.position[1]; }
+            human.origin = [item.position[0], item.position[2]];
+          }
           humans.set(item.id, human);
           break;
         }
@@ -960,10 +1031,22 @@ export class Engine {
           const width = Math.max(0.4, num(item.props.width, 1)), depth = Math.max(0.4, num(item.props.depth, 0.8));
           const prev = this.collectors.get(item.id);
           this.collectors.set(item.id, { count: prev?.count ?? 0, capacity: Math.max(1, num(item.props.capacity, 500)) });
-          rects.push({ id: item.id, cx: item.position[0], cz: item.position[2], hw: width / 2, hd: depth / 2, yaw: item.rotation * DEG, top: item.position[1] + 0.08 * item.scale, palletId: null, collectorId: item.id });
+          rects.push(surfaceRect(item, [0, 0.08, 0], width * item.scale / 2, depth * item.scale / 2, null, item.id));
+          break;
+        }
+        case "platform": {
+          const {width, depth, height} = upperFloorDimensions(item);
+          rects.push(surfaceRect(item, [0, height, 0], width * item.scale / 2, depth * item.scale / 2, null, null, true));
+          break;
+        }
+        case "stairs": {
+          const {width, length, height, steps} = upperFloorDimensions(item);
+          const run = length / steps, rise = height / steps;
+          for (let i = 0; i < steps; i++) rects.push(surfaceRect(item, [-length / 2 + (i + 0.5) * run, (i + 1) * rise, 0], run * item.scale / 2, width * item.scale / 2, null, null, true));
           break;
         }
         case "fence": {
+          if (Math.abs(item.rotationX ?? 0) > 1e-6 || Math.abs(item.rotationZ ?? 0) > 1e-6) break;
           const pts = item.points ?? [[-1.5, 0], [1.5, 0]];
           for (let i = 0; i < pts.length - 1; i += 1) {
             if (item.props.gateOpen === true && i === Number(item.props.gateSegment ?? 0)) continue;
@@ -1002,7 +1085,7 @@ export class Engine {
           const lx = dx * Math.cos(oldYaw) - dz * Math.sin(oldYaw);
           const lz = dx * Math.sin(oldYaw) + dz * Math.cos(oldYaw);
           [b.x, b.z] = toWorld(to.x, to.z, nextYaw, lx, lz);
-          b.y += nextBelt.top - oldBelt.top;
+          b.y += to.y - from.y;
         }
       }
     }
@@ -1048,6 +1131,7 @@ export class Engine {
     // of one another. Also performed after reset, which restores the origins.
     this.placeHumansSafely();
     this.rects = rects;
+    this.hasWalkableFloors = rects.some((rect) => rect.walkable);
     this.rebuildIndices(conveyors, rects, barriers);
     this.syncFeederSignals();
     this.syncRobotSignals();
@@ -1089,7 +1173,8 @@ export class Engine {
     });
     for (const rect of rects) {
       const c = Math.abs(Math.cos(rect.yaw)), s = Math.abs(Math.sin(rect.yaw));
-      const extentX = rect.hw * c + rect.hd * s, extentZ = rect.hw * s + rect.hd * c;
+      const extentX = rect.surface ? rect.hw * Math.abs(rect.surface.axisX[0]) + rect.hd * Math.abs(rect.surface.axisZ[0]) : rect.hw * c + rect.hd * s;
+      const extentZ = rect.surface ? rect.hw * Math.abs(rect.surface.axisX[2]) + rect.hd * Math.abs(rect.surface.axisZ[2]) : rect.hw * s + rect.hd * c;
       this.supportIndex.insert({ conv: null, rect }, rect.cx - extentX, rect.cz - extentZ, rect.cx + extentX, rect.cz + extentZ);
     }
 
@@ -1119,12 +1204,16 @@ export class Engine {
     for (const item of this.items) {
       const targetId = typeof item.props.mergeTargetId === "string" ? item.props.mergeTargetId : "";
       const source = conveyors.get(item.id), target = conveyors.get(targetId);
-      if (!source || !target || source === target || Math.abs(source.top - target.top) > 0.05) continue;
+      if (!source || !target || source === target) continue;
       const last = source.x.length - 1;
-      const end = target.query(source.x[last], source.z[last]);
-      if (!end?.inside) continue;
+      const end = target.query(source.x[last], source.z[last], source.y[last]);
+      if (!end?.inside || Math.abs(end.y - source.y[last]) > 0.05) continue;
       let first = last;
-      while (first > 0 && target.query(source.x[first-1], source.z[first-1])?.inside) first--;
+      while (first > 0) {
+        const q = target.query(source.x[first - 1], source.z[first - 1], source.y[first - 1]);
+        if (!q?.inside || Math.abs(q.y - source.y[first - 1]) > 0.05) break;
+        first--;
+      }
       let group = this.mergeGroups.get(target.id);
       if (!group) { group = { target, reservation: null, candidates: [], targetBoxes: [] }; this.mergeGroups.set(target.id, group); }
       this.mergeRoutes.set(source.id, { source, target, handoff: source.s[first], entry: end.s, group });
@@ -1144,7 +1233,7 @@ export class Engine {
       if (!reservation) continue;
       const { box, route } = reservation;
       const onTarget = box.support === 2 && box.convId === group.target.id;
-      const current = onTarget ? group.target.query(box.x, box.z) : null;
+      const current = onTarget ? group.target.query(box.x, box.z, box.y - box.hy) : null;
       if (!this.mergePresent.has(box) || !route.source.active || !group.target.active ||
           (box.support !== 2 || (box.convId !== route.source.id && box.convId !== group.target.id)) ||
           (current && current.s > route.entry + box.r + 0.35)) group.reservation = null;
@@ -1154,7 +1243,7 @@ export class Engine {
       this.mergeGroups.get(box.convId)?.targetBoxes.push(box);
       const route = this.mergeRoutes.get(box.convId);
       if (!route || route.group.reservation || !route.source.active || !route.target.active) continue;
-      const q = route.source.query(box.x, box.z);
+      const q = route.source.query(box.x, box.z, box.y - box.hy);
       if (q?.inside && q.s >= route.handoff - box.r - 0.45) route.group.candidates.push(box);
     }
     for (const group of this.mergeGroups.values()) {
@@ -1169,7 +1258,7 @@ export class Engine {
       // reach the junction before a main-line product arrives there.
       const occupied = group.targetBoxes.some((other) => {
         if (other === chosen) return false;
-        const q = group.target.query(other.x, other.z);
+        const q = group.target.query(other.x, other.z, other.y - other.hy);
         if (!q?.inside) return false;
         const distance = q.s-route.entry;
         const clearance = chosen.r+other.r+0.18;
@@ -1307,6 +1396,7 @@ export class Engine {
     if (on === this.running) return;
     this.running = on;
     if (on) this.startPrograms();
+    else if (this.rigidBodies.dynamicCount) this.sync(this.authoredItems, true);
   }
 
   setSpeed(speed: number) {
@@ -1314,6 +1404,10 @@ export class Engine {
   }
 
   reset() {
+    this.rigidBodies.reset(this.authoredItems);
+    this.rigidTick = 0;
+    this.rigidWasAwake = false;
+    this.sync(this.authoredItems, true);
     this.boxes = [];
     this.time = 0;
     this.acc = 0;
@@ -1346,7 +1440,7 @@ export class Engine {
       const item = this.items.find((i) => i.id === conv.id);
       conv.speed = num(item?.props.speed, 0.6); conv.active = item?.props.active !== false;
     });
-    this.humans.forEach((human) => { human.x = human.origin[0]; human.z = human.origin[1]; human.completed = 0; human.stage = 0; human.dwell = 0; human.route = []; human.targetKey = ""; human.stuck = 0; human.walking = false; human.held = null; });
+    this.humans.forEach((human) => { human.x = human.origin[0]; human.y = human.baseY; human.z = human.origin[1]; human.completed = 0; human.stage = 0; human.dwell = 0; human.route = []; human.targetKey = ""; human.stuck = 0; human.walking = false; human.held = null; });
     this.placeHumansSafely();
     this.robots.forEach((robot) => {
       this.stopProgram(robot);
@@ -1457,7 +1551,7 @@ export class Engine {
       },
       home: () => run(this.homeGen(robot)),
       moveTo: (x: number, y: number, z: number) => run(this.moveGen(robot, [x, y, z])),
-      waitForPart: (zone: { x: number; z: number; r?: number }) => run(this.waitPartGen(robot, zone)),
+      waitForPart: (zone: { x: number; y?: number; z: number; r?: number }) => run(this.waitPartGen(robot, zone)),
       waitForSignal: (target?: string) => run(this.waitSignalGen(robot, target || robot.itemId)),
       pick: (box: Box) => run(this.pickGen(robot, box)),
       place: (slot: { x: number; y: number; z: number; yaw?: number }) => run(this.placeGen(robot, slot)),
@@ -1481,7 +1575,7 @@ export class Engine {
           end: (back = 0.35, r = 0.55) => {
             const p = get().pointAt(get().length - back);
             void p;
-            return { get x() { return get().pointAt(get().length - back).x; }, get y() { return get().top; }, get z() { return get().pointAt(get().length - back).z; }, r };
+            return { get x() { return get().pointAt(get().length - back).x; }, get y() { return get().pointAt(get().length - back).y; }, get z() { return get().pointAt(get().length - back).z; }, r };
           },
           startPoint: (distance = 0.4) => this.liveConveyorPoint(id, distance),
           at: (distance: number) => this.liveConveyorPoint(id, distance),
@@ -1623,14 +1717,14 @@ export class Engine {
     const engine = this;
     return {
       get x() { return engine.conveyors.get(id)?.pointAt(distance).x ?? 0; },
-      get y() { return engine.conveyors.get(id)?.top ?? BELT_TOP; },
+      get y() { return engine.conveyors.get(id)?.pointAt(distance).y ?? BELT_TOP; },
       get z() { return engine.conveyors.get(id)?.pointAt(distance).z ?? 0; },
       get yaw() { return engine.conveyors.get(id)?.pointAt(distance).yaw ?? 0; },
     };
   }
 
   canGrip(robot: RobotRT, box: Box) {
-    const product = getProduct(box.productId);
+    const product = getProduct(box.productId, this.items);
     return product.mass <= robot.payload && (robot.gripper !== "magnetic" || product.magnetic === true);
   }
 
@@ -1643,7 +1737,7 @@ export class Engine {
   }
 
   /** Closest unclaimed product within `radius`, using the substep index. */
-  private findFreeNear(x: number, z: number, radius: number, uninspectedOnly = false): Box | null {
+  private findFreeNear(x: number, z: number, radius: number, uninspectedOnly = false, height?: number): Box | null {
     const nearby = this.boxIndex.query(x, z, this.pickupScratch, radius);
     let best: Box | null = null;
     let bestD = Infinity;
@@ -1651,6 +1745,7 @@ export class Engine {
       const b = nearby[i];
       if (b.state !== "free" || b.claim !== 0) continue;
       if (uninspectedOnly && b.inspected) continue;
+      if (height !== undefined && Math.abs(b.y - b.hy - height) > 0.2) continue;
       const d = Math.hypot(b.x - x, b.z - z);
       if (d < radius && d < bestD) { best = b; bestD = d; }
     }
@@ -1725,7 +1820,7 @@ export class Engine {
   }
 
   private finishMachineProduct(machine: MachineRT, box: Box) {
-    const product = getProduct(machine.outputProduct);
+    const product = getProduct(machine.outputProduct, this.items);
     box.productId = product.id; box.color = machine.kind === "paint" ? parseInt(machine.paintColor.replace("#", ""), 16) : product.color;
     [box.hx, box.hy, box.hz] = product.size.map((v) => v / 2) as V3;
     box.r = Math.max(product.size[0], product.size[2]) * 0.55;
@@ -1951,12 +2046,12 @@ export class Engine {
       const table = machine.table();
       if (human.stage === 0) {
         if (!this.walkHuman(human, pickPoint.x, pickPoint.z + 0.55, speed, dt)) return;
-        const part = this.findFreeNear(pickPoint.x, pickPoint.z, 0.7);
+        const part = this.findFreeNear(pickPoint.x, pickPoint.z, 0.7, false, pickPoint.y);
         if (!part) { human.status = "waiting"; return; }
         human.held = part; part.state = "held"; part.claim = human.claim; human.stage = 1; human.status = "carrying";
       } else if (human.stage === 1) {
         const part = human.held; if (!part) { human.stage = 0; return; }
-        part.x = human.x; part.z = human.z; part.y = item.position[1] + 1.0;
+        part.x = human.x; part.z = human.z; part.y = human.y + 1.0;
         if (!this.walkHuman(human, table.x, table.z + 0.45, speed * 0.85, dt)) return;
         part.x = table.x; part.z = table.z; part.y = table.y + part.hy;
         part.state = "free"; part.claim = 0; human.held = null; human.stage = 2; human.dwell = 0;
@@ -1969,7 +2064,7 @@ export class Engine {
         }
       } else {
         const part = human.held; if (!part) { human.stage = 0; return; }
-        part.x = human.x; part.z = human.z; part.y = item.position[1] + 1.0;
+        part.x = human.x; part.z = human.z; part.y = human.y + 1.0;
         const out = output.pointAt(0.5);
         if (!this.walkHuman(human, out.x, out.z + 0.4, speed * 0.85, dt)) return;
         part.x = out.x; part.z = out.z; part.y = out.y + part.hy + 0.002; part.state = "free"; part.claim = 0;
@@ -2007,7 +2102,7 @@ export class Engine {
       if (targetPallet && targetPallet.cursor >= targetPallet.capacity) { human.walking = false; return; }
       if (!this.walkHuman(human, pickup.x, pickup.z + 0.65, speed, dt)) return;
       human.walking = false;
-      const b = this.findFreeNear(pickup.x, pickup.z, 0.7, task === "inspect");
+      const b = this.findFreeNear(pickup.x, pickup.z, 0.7, task === "inspect", 'y' in pickup ? pickup.y : undefined);
       if (!b) return;
       human.dwell += dt;
       if (human.dwell < 1.5) return;
@@ -2018,7 +2113,7 @@ export class Engine {
     }
     const b = human.held;
     if (!b || !dest) return;
-    b.x = human.x + Math.sin(human.yaw) * 0.32; b.z = human.z + Math.cos(human.yaw) * 0.32; b.y = 0.94;
+    b.x = human.x + Math.sin(human.yaw) * 0.32; b.z = human.z + Math.cos(human.yaw) * 0.32; b.y = human.y + 0.94;
     b.vx = b.vy = b.vz = 0; b.tilt = 0;
     const pallet = this.pallets.get(dest.id);
     const out = this.conveyors.get(dest.id);
@@ -2188,7 +2283,7 @@ export class Engine {
     robot.holdYaw = null;
   }
 
-  private findPart(robot: RobotRT, zone: { x: number; z: number; r?: number }): Box | null {
+  private findPart(robot: RobotRT, zone: { x: number; y?: number; z: number; r?: number }): Box | null {
     const radius = zone.r ?? 0.55;
     let best: Box | null = null;
     let bestD = Infinity;
@@ -2197,6 +2292,7 @@ export class Engine {
       const box = nearby[i];
       if (box.state !== "free" || (box.claim !== 0 && box.claim !== robot.id) || box.support === 0 || !this.canGrip(robot, box)) continue;
       if (Math.hypot(box.vx, box.vz) > 0.9) continue;
+      if (typeof zone.y === "number" && Math.abs(box.y - box.hy - zone.y) > 0.2) continue;
       const d = Math.hypot(box.x - zone.x, box.z - zone.z);
       if (d <= radius && d < bestD && robot.reach(this.approach(robot, [box.x, box.y + box.hy, box.z], 0.35))) {
         best = box;
@@ -2213,7 +2309,7 @@ export class Engine {
     return !!robot;
   }
 
-  private *waitPartGen(robot: RobotRT, zone: { x: number; z: number; r?: number }): Generator<Cmd, Box | null, unknown> {
+  private *waitPartGen(robot: RobotRT, zone: { x: number; y?: number; z: number; r?: number }): Generator<Cmd, Box | null, unknown> {
     let found: Box | null = null;
     yield this.waiter(() => {
       const box = this.findPart(robot, zone);
@@ -2369,11 +2465,36 @@ export class Engine {
     this.captureRobotSignals();
     this.robots.forEach((robot) => this.updateRobot(robot, dt));
     this.machines.forEach((machine) => this.updateMachine(machine, dt));
-    this.humans.forEach((human) => this.updateHuman(human, dt));
+    this.humans.forEach((human) => {
+      this.updateHuman(human, dt);
+      if (this.hasWalkableFloors && (!this.rigidBodies.dynamicCount || !this.rigidBodies.pose(human.id))) this.updateHumanFloor(human, dt);
+    });
     this.updateLogic();
     this.robots.forEach((robot) => { robot.outputPulse = Math.max(0, robot.outputPulse - dt); });
     this.prepareMergeReservations();
     this.physics(dt);
+    if (this.rigidBodies.active) {
+      this.humans.forEach((human) => {
+        if (this.rigidBodies.pose(human.id)) {
+          if (human.walking) this.rigidBodies.drive(human.id, human.x, human.z, dt, this.walkerStepHeight(human));
+        } else {
+          const item = this.itemById.get(human.id);
+          if (item) this.rigidBodies.followWalker(human.id, item, human.x, human.y, human.z, human.yaw);
+        }
+      });
+      this.rigidBodies.step(dt, this.boxes, (id) => getProduct(id, this.items).mass);
+      this.humans.forEach((human) => {
+        const pose = this.rigidBodies.pose(human.id);
+        if (pose) { human.x = pose.position[0]; human.y = pose.position[1]; human.z = pose.position[2]; }
+      });
+      // Spatial supports, signal anchors, robot bases and feeder drop points
+      // follow moving equipment without rebuilding the whole scene at 60 Hz.
+      if (this.rigidBodies.dynamicCount) {
+        const awake = this.rigidBodies.hasAwakeBodies();
+        if ((++this.rigidTick % 4 === 0 && awake) || (this.rigidWasAwake && !awake)) this.sync(this.authoredItems, true);
+        this.rigidWasAwake = awake;
+      } else this.rigidWasAwake = false;
+    }
   }
 
   private updateSignalFeeder(feeder: FeederRT, state: FeederSignalState, dt: number) {
@@ -2423,7 +2544,7 @@ export class Engine {
   }
 
   spawn(productId: string, x: number, y: number, z: number, yaw = 0): Box {
-    const product = getProduct(productId);
+    const product = getProduct(productId, this.items);
     const [w, h, d] = product.size;
     const box: Box = {
       id: this.nextBox++, x, y, z, vx: 0, vy: 0, vz: 0, yaw,
@@ -2590,10 +2711,10 @@ export class Engine {
       const entry = supports[i];
       const conv = entry.conv;
       if (conv) {
-        if (bottom < conv.top - 0.14 || bottom > conv.top + 0.1) continue;
-        const q = conv.query(b.x, b.z);
-        if (q && q.inside && conv.top >= out.top) {
-          out.top = conv.top;
+        if (conv.level && (bottom < conv.top - 0.14 || bottom > conv.top + 0.1)) continue;
+        const q = conv.query(b.x, b.z, bottom);
+        if (q && q.inside && bottom >= q.y - 0.14 && bottom <= q.y + 0.1 && q.y >= out.top) {
+          out.top = q.y;
           out.kind = 2;
           out.conv = conv;
           out.q = q;
@@ -2601,15 +2722,11 @@ export class Engine {
         continue;
       }
       const rect = entry.rect;
-      if (!rect || bottom < rect.top - 0.14 || bottom > rect.top + 0.1 || rect.top < out.top) continue;
-      const dx = b.x - rect.cx;
-      const dz = b.z - rect.cz;
-      const c = Math.cos(rect.yaw);
-      const s = Math.sin(rect.yaw);
-      const lx = dx * c - dz * s;
-      const lz = dx * s + dz * c;
-      if (Math.abs(lx) <= rect.hw && Math.abs(lz) <= rect.hd) {
-        out.top = rect.top;
+      if (!rect) continue;
+      if (!rect.surface && (bottom < rect.top - 0.14 || bottom > rect.top + 0.1 || rect.top < out.top)) continue;
+      const top = surfaceHeight(rect, b.x, b.z);
+      if (top !== null && bottom >= top - 0.14 && bottom <= top + 0.1 && top >= out.top) {
+        out.top = top;
         out.kind = 3;
         out.conv = null;
         out.q = null;
@@ -2620,12 +2737,12 @@ export class Engine {
     // Stay on the incoming head until its reservation reaches the actual
     // overlap; other coincident conveyor surfaces must not steal the product.
     const route = this.mergeRoutes.size && b.support === 2 ? this.mergeRoutes.get(b.convId) : undefined;
-    if (route && bottom >= route.source.top - 0.14 && bottom <= route.source.top + 0.1 && out.top <= route.source.top) {
-      const sourceQuery = route.source.query(b.x, b.z);
-      if (sourceQuery?.inside) {
-        const targetQuery = route.target.query(b.x, b.z);
-        const canTransfer = route.group.reservation?.box === b && sourceQuery.s >= route.handoff - 0.11 && targetQuery?.inside;
-        out.top = route.source.top; out.kind = 2;
+    if (route) {
+      const sourceQuery = route.source.query(b.x, b.z, bottom);
+      if (sourceQuery?.inside && bottom >= sourceQuery.y - 0.14 && bottom <= sourceQuery.y + 0.1 && out.top <= sourceQuery.y + 0.05) {
+        const targetQuery = route.target.query(b.x, b.z, bottom);
+        const canTransfer = route.group.reservation?.box === b && sourceQuery.s >= route.handoff - 0.11 && targetQuery?.inside && Math.abs(targetQuery.y - sourceQuery.y) <= 0.05;
+        out.top = canTransfer && targetQuery ? targetQuery.y : sourceQuery.y; out.kind = 2;
         out.conv = canTransfer ? route.target : route.source;
         out.q = canTransfer ? targetQuery : sourceQuery;
         out.palletId = null; out.collectorId = null;
@@ -2678,6 +2795,38 @@ export class Engine {
     }
   }
 
+  /** Look just in front of a dynamic walker's feet for a reachable stair tread.
+   * This is a small step-up motor, not a teleport to an arbitrary upper floor. */
+  private walkerStepHeight(human: HumanRT): number | undefined {
+    const pose = this.rigidBodies.pose(human.id);
+    if (!pose || !human.walking) return undefined;
+    const dx = human.x - pose.position[0], dz = human.z - pose.position[2], distance = Math.hypot(dx, dz);
+    if (distance < 1e-6) return undefined;
+    const x = pose.position[0] + dx / distance * 0.27, z = pose.position[2] + dz / distance * 0.27;
+    let target = pose.position[1];
+    for (const entry of this.supportIndex.query(x, z, this.supportScratch)) {
+      if (!entry.rect?.walkable) continue;
+      const top = surfaceHeight(entry.rect, x, z);
+      if (top !== null && top > target && top <= pose.position[1] + 0.26) target = top;
+    }
+    return target > pose.position[1] + .005 ? target : undefined;
+  }
+
+  /** Follow nearby stair treads/decks without snapping through an upper floor.
+   * Navigation remains planar; the height is chosen only from reachable treads. */
+  private updateHumanFloor(human: HumanRT, dt: number) {
+    let target = 0;
+    const supports = this.supportIndex.query(human.x, human.z, this.supportScratch);
+    for (const entry of supports) {
+      const rect = entry.rect;
+      if (!rect?.walkable) continue;
+      const height = surfaceHeight(rect, human.x, human.z);
+      if (height !== null && height <= human.y + 0.3 && height >= human.y - 0.35 && height > target) target = height;
+    }
+    const maxMove = 3 * dt;
+    human.y += Math.max(-maxMove, Math.min(maxMove, target - human.y));
+  }
+
   private conveyorBoxGroups = new Map<string, Box[]>();
   private conveyorBoxPool: Box[][] = [];
   private emptyConveyorBoxes: Box[] = [];
@@ -2717,6 +2866,7 @@ export class Engine {
       }
       const prev = b.support;
       const sup = this.findSupport(b);
+      if (prev === 2 && sup.kind === 2 && sup.conv?.id === b.convId && b.vy <= 0.05 && Math.abs(b.y - b.hy - sup.top) < 0.14) b.y = sup.top + b.hy;
       const bottom = b.y - b.hy;
       if (this.productIntegrator) {
         const grounded = bottom <= sup.top + 0.004 && b.vy <= 0.05;
@@ -2734,7 +2884,7 @@ export class Engine {
         const gateLength = this.mergeRoutes.size && conv && q ? this.mergeStopLength(b, conv, q) : null;
         const landed = this.productIntegrator.integrate(b, {
           top: sup.top, kind: sup.kind, conveyor: !!(conv && q), lat: q?.lat ?? 0, tx: q?.tx ?? 0, tz: q?.tz ?? 0,
-          along: q?.s ?? 0, speed: conv?.active ? conv.speed : 0, blocked, stopper: (conv?.stopper ?? false) || gateLength !== null,
+          along: q?.s ?? 0, speed: conv?.active ? conv.speed * (q?.speedFactor ?? 1) : 0, blocked, stopper: (conv?.stopper ?? false) || gateLength !== null,
           length: gateLength === null ? (conv?.length ?? 0) : Math.min(conv?.stopper ? conv.length : Infinity, gateLength),
         }, dt);
         if (landed && !(conv && q)) this.recordProductSupport(b, sup, dt);
@@ -2759,7 +2909,7 @@ export class Engine {
               break;
             }
           }
-          const sp = conv.active && !blocked ? conv.speed : 0;
+          const sp = conv.active && !blocked ? conv.speed * q.speedFactor : 0;
           const vlat = Math.max(-0.5, Math.min(0.5, -q.lat * 4));
           const dvx = q.tx * sp + -q.tz * vlat;
           const dvz = q.tz * sp + q.tx * vlat;

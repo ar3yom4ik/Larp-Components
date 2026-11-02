@@ -1,9 +1,27 @@
 import { Html } from '@react-three/drei';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
+import { sim } from '../sim/engine';
 import type { SceneItem } from '../types';
 import { canSignalInput, canSignalOutput, signalTargets, signalWireColor } from '../utils/signalPorts';
 import { MODEL_HEIGHTS } from './FactoryModels';
 import { t } from '../i18n';
+
+function PortAnchor({item, height, children}: {item: SceneItem; height: number; children: ReactNode}) {
+  const group = useRef<THREE.Group>(null);
+  const wasPhysical = useRef(false);
+  useFrame(() => {
+    const pose = sim.getPhysicsPose(item.id);
+    if (!group.current) return;
+    if (pose) wasPhysical.current = true;
+    else if (!wasPhysical.current) return;
+    else wasPhysical.current = false;
+    const position = (pose ?? item).position;
+    group.current.position.set(position[0], position[1] + height, position[2]);
+  });
+  return <group ref={group} position={[item.position[0], item.position[1] + height, item.position[2]]}><Html center zIndexRange={[30, 20]}>{children}</Html></group>;
+}
 
 interface Gesture {
   pointerId: number;
@@ -96,12 +114,12 @@ export function SignalPortLayer({ items, sourceId, targets, onSource, onTarget, 
       const connected = sourceId ? targets.includes(item.id) : incoming.length > 0;
       const dragSource = sourceId ? (targets.includes(item.id) ? sourceId : null) : incoming.length === 1 ? incoming[0].id : null;
       const height = Math.max(1.2, (MODEL_HEIGHTS[item.kind] ?? 1) * item.scale + 0.4);
-      return <Html key={item.id} position={[item.position[0], item.position[1] + height, item.position[2]]} center zIndexRange={[30, 20]}>
+      return <PortAnchor key={item.id} item={item} height={height}>
         <div className="flex items-center gap-1 whitespace-nowrap rounded bg-[#1d252c]/95 px-1 py-1 shadow-lg" onPointerDown={event => event.stopPropagation()}>
           {output && <button type="button" data-signal-output={item.id} aria-label={`${t('Signal output')}: ${item.name}`} title={`${t('Signal output')}: ${item.name} — ${t('drag to an IN port')}`} onPointerDown={event => begin(event, item.id)} onClick={event => {event.stopPropagation(); if (!suppressClick.current) onSource(item.id);}} style={{touchAction:'none'}} className={`rounded px-1.5 py-1 text-[10px] font-bold ${sourceId === item.id ? 'bg-[#f4c260] text-black' : 'bg-[#357b8f] text-white'}`}>OUT</button>}
           {input && <button type="button" data-signal-input={item.id} aria-label={`${t('Signal input')}: ${item.name}`} aria-pressed={connected} title={incoming.length > 1 && !sourceId ? t('Select an OUT to choose which connection to disconnect.') : `${t('Signal input')}: ${item.name}`} onPointerDown={event => { if (dragSource) begin(event, dragSource, item.id); }} onClick={event => {event.stopPropagation(); if (!suppressClick.current && sourceId) onTarget(item.id);}} style={{touchAction:'none'}} className={`rounded px-1.5 py-1 text-[10px] font-bold text-white ${connected ? 'bg-[#bd8735]' : 'bg-[#3a7655]'}`}>IN{connected ? ' ✓' : ''}{incoming.length > 1 ? ` ${incoming.length}` : ''}</button>}
         </div>
-      </Html>;
+      </PortAnchor>;
     })}
     {preview && <Html portal={portal} calculatePosition={() => [0, 0]} zIndexRange={[999999, 999999]} style={{pointerEvents:'none'}}>
       <svg aria-label={t('Signal wire preview')} style={{position:'fixed', inset:0, width:'100vw', height:'100vh', pointerEvents:'none'}}>

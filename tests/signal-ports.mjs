@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 const b=await chromium.launch({args:['--enable-unsafe-swiftshader']});
 try {
   const page=await b.newPage({viewport:{width:1600,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
   await page.goto(process.env.TEST_URL||'http://127.0.0.1:4173',{waitUntil:'networkidle',timeout:120000});
   const ids=await page.evaluate(async()=>{
     const {makeItem}=await import('/src/data/library.ts');
@@ -30,6 +31,7 @@ try {
   assert.deepEqual(errors,[]);
   await page.close();
   const phone=await b.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  await phone.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
   await phone.goto(process.env.TEST_URL||'http://127.0.0.1:4173',{waitUntil:'networkidle',timeout:120000});
   const phoneIds=await phone.evaluate(async()=>{const {makeItem}=await import('/src/data/library.ts');const sensor=makeItem('sensor',[-2,0,0],0,{name:'Touch Sensor'}),robot=makeItem('robot',[2,0,0],0,{name:'Touch Robot'});window.__larpProject.setItems([sensor,robot]);return {sensor:sensor.id,robot:robot.id};});
   await phone.getByRole('button',{name:'Edit signal connections'}).click();

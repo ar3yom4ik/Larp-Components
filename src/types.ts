@@ -45,7 +45,9 @@ export type ComponentKind =
   | "grinder"
   | "light-panel"
   | "light-flood"
-  | "imported-model";
+  | "imported-model"
+  | "platform"
+  | "stairs";
 
 export type Vec3 = [number, number, number];
 
@@ -100,6 +102,8 @@ export interface ImportedModelData {
   materials: ImportedMaterial[];
   meshCount: number;
   triangleCount: number;
+  /** Source-space bounds before the axis/unit conversion; absent on older imports. */
+  sourceSize?: Vec3;
   rigged?: boolean;
   animationNames?: string[];
 }
@@ -134,6 +138,8 @@ export interface SceneItem {
   signalTargets?: string[];
   /** Spline control points in item-local XZ coordinates (conveyors). */
   points?: [number, number][];
+  /** Local Y offsets for conveyor/roller spline points; absent in legacy projects. */
+  pointHeights?: number[];
   /** Robot program (JavaScript using the Larp robot API). */
   script?: string;
   program?: RobotProgram;

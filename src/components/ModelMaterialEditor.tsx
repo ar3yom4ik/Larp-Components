@@ -83,7 +83,7 @@ export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneI
       <label className="block text-[10px] text-white/55">{t("Up axis")}
         <select aria-label={t("Up axis")} value={model.axis} disabled={item.locked} onChange={(e) => updateModel({axis:e.target.value as "y"|"z"})} className={`${field} mt-1`}><option value="y">Y-up</option><option value="z">Z-up</option></select>
       </label>
-      <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("The model is placed on the floor. Imported geometry is visual only; it does not automatically become a robot, conveyor or collision obstacle.")}</p>
+      <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("Imported models can be workpieces or simplified physics bodies; they do not automatically become machines or detailed navigation obstacles.")}</p>
     </section>
     {material && <section className="border-b border-white/[0.08] px-3 py-3" aria-label={t("Materials and textures")}>
       <div className="mb-2 flex items-center justify-between gap-1"><h4 className="text-[10.5px] font-medium uppercase tracking-[0.12em] text-[#a8a8ad]">{t("Materials & textures")}</h4><button type="button" onClick={() => void resetMaterial()} disabled={item.locked} className="flex items-center gap-1 text-[10px] text-[var(--app-accent-bright)]" title={t("Restore source material")}><RotateCcw size={11}/>{t("Reset")}</button></div>

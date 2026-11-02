@@ -182,11 +182,12 @@ export function beltGeometry(path: Path, width: number, y: number) {
     const nx = -path.tz[i];
     const nz = path.tx[i];
     const h = width / 2;
-    pos.set([path.x[i] + nx * h, y, path.z[i] + nz * h], i * 6);
-    pos.set([path.x[i] - nx * h, y, path.z[i] - nz * h], i * 6 + 3);
+    pos.set([path.x[i] + nx * h, y + path.y[i], path.z[i] + nz * h], i * 6);
+    pos.set([path.x[i] - nx * h, y + path.y[i], path.z[i] - nz * h], i * 6 + 3);
     uv.set([path.s[i] / 0.5, 0], i * 4);
     uv.set([path.s[i] / 0.5, 1], i * 4 + 2);
-    nor.set([0, 1, 0, 0, 1, 0], i * 6);
+    const up = Math.sqrt(Math.max(0, 1 - path.ty[i] * path.ty[i]));
+    nor.set([-path.tx[i] * path.ty[i], up, -path.tz[i] * path.ty[i], -path.tx[i] * path.ty[i], up, -path.tz[i] * path.ty[i]], i * 6);
   }
   const index: number[] = [];
   for (let i = 0; i < n - 1; i += 1) {
@@ -219,7 +220,7 @@ export function extrudeBox(path: Path, l0: number, l1: number, y0: number, y1: n
   const normals: number[] = [];
   const point = (i: number, c: [number, number]): [number, number, number] => [
     path.x[i] + -path.tz[i] * c[0],
-    c[1],
+    c[1] + path.y[i],
     path.z[i] + path.tx[i] * c[0],
   ];
   for (let f = 0; f < 4; f += 1) {
@@ -241,9 +242,10 @@ export function extrudeBox(path: Path, l0: number, l1: number, y0: number, y1: n
         const cz = e1[0] * e2[1] - e1[1] * e2[0];
         const flip = cx * nx + cy * oy + cz * nz < 0;
         const order = flip ? [p[0], p[2], p[1]] : p;
+        const normalLength = Math.hypot(cx, cy, cz) || 1, sign = flip ? -1 : 1;
         order.forEach((v) => {
           positions.push(v[0], v[1], v[2]);
-          normals.push(nx, oy, nz);
+          normals.push(sign * cx / normalLength, sign * cy / normalLength, sign * cz / normalLength);
         });
       };
       tri([a, b, c]);
@@ -291,7 +293,7 @@ export function buildConveyorGeometry(path: Path, stopper: boolean, openings: Ra
         const end = i;
         if (end > start) {
           const cut = (values: number[]) => values.slice(start, end + 1);
-          const segment: Path = { x: cut(path.x), z: cut(path.z), s: cut(path.s), tx: cut(path.tx), tz: cut(path.tz), length: path.s[end] - path.s[start] };
+          const segment: Path = { x: cut(path.x), y: cut(path.y), z: cut(path.z), s: cut(path.s), tx: cut(path.tx), ty: cut(path.ty), tz: cut(path.tz), length: path.s[end] - path.s[start] };
           steelParts.push(extrudeBox(segment, l0, l1, BELT_Y - 0.1, BELT_Y + 0.07));
         }
         if (open) start = i + 1;
@@ -304,15 +306,16 @@ export function buildConveyorGeometry(path: Path, stopper: boolean, openings: Ra
     const g = new THREE.CylinderGeometry(0.1, 0.1, BELT_WIDTH + 0.02, 14);
     g.rotateX(Math.PI / 2);
     g.rotateY(Math.atan2(-path.tz[i], path.tx[i]) + Math.PI / 2 - Math.PI / 2);
-    g.translate(path.x[i], BELT_Y - 0.08, path.z[i]);
+    g.translate(path.x[i], BELT_Y + path.y[i] - 0.08, path.z[i]);
     return g;
   };
   steelParts.push(endCap(0), endCap(last));
   for (let s = 0.5; s < path.length - 0.2; s += 1.4) {
     const idx = Math.min(last, Math.round((s / path.length) * last));
     for (const side of [-1, 1]) {
-      const leg = new THREE.BoxGeometry(0.08, BELT_Y - 0.22, 0.08);
-      leg.translate(0, (BELT_Y - 0.22) / 2, 0);
+      const legHeight = Math.max(0.04, BELT_Y + path.y[idx] - 0.22);
+      const leg = new THREE.BoxGeometry(0.08, legHeight, 0.08);
+      leg.translate(0, legHeight / 2, 0);
       const px = path.x[idx] + -path.tz[idx] * side * 0.27;
       const pz = path.z[idx] + path.tx[idx] * side * 0.27;
       leg.translate(px, 0, pz);
@@ -326,7 +329,7 @@ export function buildConveyorGeometry(path: Path, stopper: boolean, openings: Ra
   if (stopper) {
     const plate = new THREE.BoxGeometry(0.05, 0.3, BELT_WIDTH + 0.08);
     plate.rotateY(Math.atan2(-path.tz[last], path.tx[last]));
-    plate.translate(path.x[last] - path.tx[last] * 0.03, BELT_Y + 0.15, path.z[last] - path.tz[last] * 0.03);
+    plate.translate(path.x[last] - path.tx[last] * 0.03, BELT_Y + path.y[last] + 0.15, path.z[last] - path.tz[last] * 0.03);
     warn = mergeNonIndexed([plate]);
   }
   return { belt, steel: mergeNonIndexed(steelParts), dark: mergeNonIndexed(darkParts), warn };

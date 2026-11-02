@@ -1,0 +1,273 @@
+import * as CANNON from "cannon-es";
+import * as THREE from "three";
+import type { SceneItem, Vec3 } from "../types";
+import { importedModelSize, palletSize } from "../data/products";
+import { samplePath } from "./spline";
+import { upperFloorDimensions } from "../utils/upperFloor";
+
+/** Physics uses simple compound colliders rather than expensive triangle meshes.
+ * Factory mechanisms remain controlled by the simulation, not the solver. */
+type Shape = { size: Vec3; center: Vec3; rotation?: THREE.Quaternion };
+const GROUP_DYNAMIC = 1, GROUP_FIXED = 2, GROUP_PRODUCT = 4;
+const G = 9.81;
+const bodyMaterial = new CANNON.Material({friction: .6, restitution: .03});
+const walkerMaterial = new CANNON.Material({friction: 0, restitution: 0});
+const v3 = (v: Vec3) => new CANNON.Vec3(v[0], v[1], v[2]);
+const n = (value: unknown, fallback: number, min = 0.01, max = 1000) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : fallback));
+const qItem = (item: SceneItem) => new THREE.Quaternion().setFromEuler(new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, "XYZ"));
+const cq = (q: THREE.Quaternion) => new CANNON.Quaternion(q.x, q.y, q.z, q.w);
+const box = (size: Vec3, center: Vec3, rotation?: THREE.Quaternion): Shape => ({size, center, rotation});
+
+function segment(a: THREE.Vector3, b: THREE.Vector3, width: number, thickness: number): Shape {
+  const delta = b.clone().sub(a), middle = a.clone().add(b).multiplyScalar(0.5);
+  return box([Math.max(0.02, delta.length()), thickness, width], [middle.x, middle.y, middle.z], new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), delta.normalize()));
+}
+
+/** Dimensions are local and represent stable, low-cost proxies for visual parts.
+ * Open devices use compound parts so their working openings remain usable. */
+function shapesFor(item: SceneItem, items: readonly SceneItem[]): Shape[] {
+  const scale = ["conveyor", "roller", "fence"].includes(item.kind) ? 1 : n(item.scale, 1, .001, 1000);
+  const scaled = (size: Vec3, center: Vec3) => box(size.map((x) => x * scale) as Vec3, center.map((x) => x * scale) as Vec3);
+  if (item.kind === "conveyor" || item.kind === "roller") {
+    const path = samplePath(item.points ?? [[-2, 0], [2, 0]], .1, item.pointHeights), parts: Shape[] = [];
+    // Cap compound complexity for long paths while keeping short belts detailed.
+    const stride = Math.max(4, Math.ceil((path.x.length - 1) / 128));
+    for (let i = 0; i < path.x.length - 1; i += stride) {
+      const j = Math.min(path.x.length - 1, i + stride);
+      parts.push(segment(new THREE.Vector3(path.x[i], .58 + path.y[i], path.z[i]), new THREE.Vector3(path.x[j], .58 + path.y[j], path.z[j]), .62, .16));
+    }
+    const legStride = Math.max(14, Math.ceil(path.x.length / 64));
+    for (let i = Math.min(5, path.x.length - 1); i < path.x.length - 1; i += legStride) {
+      const h = Math.max(.05, .44 + path.y[i]);
+      for (const side of [-1, 1]) parts.push(box([.09, h, .09], [path.x[i] - path.tz[i] * side * .27, h / 2, path.z[i] + path.tx[i] * side * .27]));
+    }
+    return parts;
+  }
+  if (item.kind === "fence") {
+    const pts = item.points ?? [[-1.5, 0], [1.5, 0]], parts: Shape[] = [], height = n(item.props.height, 2, .2, 8);
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (item.props.gateOpen === true && i === Number(item.props.gateSegment ?? 0)) continue;
+      parts.push(segment(new THREE.Vector3(pts[i][0], height / 2, pts[i][1]), new THREE.Vector3(pts[i + 1][0], height / 2, pts[i + 1][1]), .08, height));
+    }
+    return parts.length ? parts : [box([.05, .05, .05], [0, 0, 0])];
+  }
+  if (item.kind === "platform") {
+    const {width: w, depth: d, height: h} = upperFloorDimensions(item);
+    const parts = [scaled([w, .2, d], [0, h - .1, 0])];
+    for (const x of [-1, 1]) for (const z of [-1, 1]) parts.push(scaled([.18, Math.max(.05, h - .2), .18], [x * (w / 2 - .12), (h - .2) / 2, z * (d / 2 - .12)]));
+    return parts;
+  }
+  if (item.kind === "stairs") {
+    const {width: w, length: l, height: h, steps: count} = upperFloorDimensions(item);
+    const run = l / count, rise = h / count;
+    return Array.from({length: count}, (_, i) => scaled([run, rise * (i + 1), w], [-l / 2 + (i + .5) * run, (i + 1) * rise / 2, 0]));
+  }
+  if (item.kind === "feeder") {
+    const parts = [scaled([1.05, .28, .8], [0, 1.85, 0])];
+    for (const x of [-.48, .48]) for (const z of [-.34, .34]) parts.push(scaled([.08, 1.7, .08], [x, .85, z]));
+    return parts;
+  }
+  if (item.kind === "crates") {
+    const [w, d] = palletSize(item.props, items);
+    return [scaled([w, .15, d], [0, .075, 0])];
+  }
+  if (item.kind === "collector") {
+    const w = n(item.props.width, 1, .4, 20), d = n(item.props.depth, .8, .4, 20), h = n(item.props.height, .55, .2, 8);
+    return [scaled([w, .08, d], [0, .04, 0]), ...[-1, 1].flatMap((side) => [scaled([.05, h, d], [side * w / 2, h / 2, 0]), scaled([w, h, .05], [0, h / 2, side * d / 2])])];
+  }
+  if (item.kind === "imported-model" && item.imported) {
+    const size = importedModelSize(item.imported, scale);
+    return [box(size, [0, size[1] / 2, 0])];
+  }
+  if (["robot", "cobot", "kuka", "fanuc"].includes(item.kind)) return [scaled([.95, .35, .95], [0, .175, 0])];
+  const dims: Partial<Record<SceneItem["kind"], Vec3>> = {
+    cnc: [2, 2.6, 1.8], press: [2, 2.8, 1.8], weld: [2, 2.5, 1.7], packaging: [2, 2.3, 1.6],
+    paint: [2.4, 2.6, 1.7], cutter: [2, 2.2, 1.6], inspection: [1.7, 2.2, 1.45], assembly: [2, 2, 1.6], kiln: [2.6, 2.1, 1.5], lathe: [2, 2.4, 1.8], grinder: [2, 2.3, 1.8],
+    amr: [1.4, .6, 1], forklift: [1.7, 2.1, 1.1], rack: [2.4, 3.1, .9], cabinet: [1.1, 2, .7], wall: [6, 4, .2],
+    operator: [.5, 1.8, .4], "mobile-robot": [1.2, 1.4, .9], button: [.35, 1.2, .35], laser: [.3, 1.5, .3], sensor: [.3, 1.3, .3], plc: [.65, 1.7, .45], light: [.3, 3, .3], "light-panel": [.4, 4.2, .4], "light-flood": [.4, 4.5, .4],
+  };
+  const size = dims[item.kind] ?? [1, 1, 1];
+  return [scaled(size, [0, size[1] / 2, 0])];
+}
+
+export interface RigidPose { position: Vec3; rotationX: number; rotation: number; rotationZ: number }
+interface Entry { body: CANNON.Body; center: CANNON.Vec3; shapeKey: string; poseKey: string; dynamic: boolean }
+interface ProductProxy { id: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; yaw: number; hx: number; hy: number; hz: number; state: string; productId: string }
+
+export class RigidBodyWorld {
+  readonly world = new CANNON.World({ gravity: new CANNON.Vec3(0, -G, 0), allowSleep: true });
+  private entries = new Map<string, Entry>();
+  private products = new Map<number, CANNON.Body>();
+  private productShapes = new WeakMap<CANNON.Body, string>();
+  private tempQuat = new THREE.Quaternion();
+  private euler = new THREE.Euler();
+  dynamicCount = 0;
+  active = false;
+
+  constructor() {
+    this.world.broadphase = new CANNON.SAPBroadphase(this.world);
+    this.world.defaultContactMaterial.friction = .35;
+    this.world.defaultContactMaterial.restitution = .03;
+    (this.world.solver as CANNON.GSSolver).iterations = 10;
+    const floor = new CANNON.Body({ mass: 0, material: bodyMaterial, collisionFilterGroup: GROUP_FIXED, collisionFilterMask: GROUP_DYNAMIC });
+    floor.addShape(new CANNON.Plane()); floor.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    this.world.addBody(floor);
+  }
+
+  private productCollider(item: SceneItem) {
+    // Powered belt contacts are solved by the conveyor integrator. Other
+    // explicitly kinematic or tilted shapes use the full rotated collider.
+    return !["conveyor", "roller"].includes(item.kind) &&
+      (item.props.physicsMode === "kinematic" || Math.abs(item.rotationX ?? 0) > 1e-6 || Math.abs(item.rotationZ ?? 0) > 1e-6);
+  }
+
+  private shapeKey(item: SceneItem, items: readonly SceneItem[]) {
+    return JSON.stringify([item.kind, item.scale, item.points, item.pointHeights, item.props.physicsMode, item.props.physicsMass, this.productCollider(item),
+      item.props.width, item.props.depth, item.props.height, item.props.length, item.props.gateOpen, item.props.gateSegment,
+      item.props.product, item.props.cols, item.props.rows, item.props.gap, item.kind === "crates" ? palletSize(item.props, items) : null, item.imported?.sourceSize, item.imported?.units, item.imported?.axis]);
+  }
+
+  sync(items: readonly SceneItem[]) {
+    this.dynamicCount = items.filter((item) => item.visible !== false && item.props.physicsMode === "dynamic").length;
+    this.active = this.dynamicCount > 0 || items.some((item) => item.visible !== false && this.productCollider(item));
+    const keep = new Set<string>();
+    // Ordinary legacy factories retain their zero-overhead conveyor fast path.
+    if (this.active) for (const item of items) {
+      if (item.visible === false) continue;
+      keep.add(item.id);
+      const shapeKey = this.shapeKey(item, items), poseKey = JSON.stringify([item.position, item.rotationX, item.rotation, item.rotationZ]);
+      const dynamic = item.props.physicsMode === "dynamic";
+      let entry = this.entries.get(item.id);
+      if (!entry || entry.shapeKey !== shapeKey) {
+        const previous = entry;
+        if (entry) this.world.removeBody(entry.body);
+        const shapes = shapesFor(item, items);
+        const total = shapes.reduce((sum, s) => sum + s.size[0] * s.size[1] * s.size[2], 0) || 1;
+        const center = new CANNON.Vec3();
+        for (const s of shapes) {
+          const ratio = s.size[0] * s.size[1] * s.size[2] / total;
+          center.x += s.center[0] * ratio; center.y += s.center[1] * ratio; center.z += s.center[2] * ratio;
+        }
+        const body = new CANNON.Body({material: item.kind === "operator" || item.kind === "mobile-robot" ? walkerMaterial : bodyMaterial, mass: dynamic ? n(item.props.physicsMass, item.kind === "imported-model" ? 1 : 10, .01, 1_000_000) : 0,
+          type: dynamic ? CANNON.Body.DYNAMIC : CANNON.Body.KINEMATIC,
+          collisionFilterGroup: dynamic ? GROUP_DYNAMIC : GROUP_FIXED,
+          collisionFilterMask: dynamic ? GROUP_DYNAMIC | GROUP_FIXED | GROUP_PRODUCT : GROUP_DYNAMIC | (this.productCollider(item) ? GROUP_PRODUCT : 0),
+          allowSleep: true, sleepSpeedLimit: .15, sleepTimeLimit: .4, linearDamping: .02, angularDamping: .08,
+          fixedRotation: item.kind === "operator" || item.kind === "mobile-robot"});
+        for (const s of shapes) body.addShape(new CANNON.Box(v3(s.size.map((v) => Math.max(.005, v / 2)) as Vec3)), v3([s.center[0] - center.x, s.center[1] - center.y, s.center[2] - center.z]), s.rotation ? cq(s.rotation) : undefined);
+        entry = {body, center, shapeKey, poseKey, dynamic};
+        this.setPose(entry, item);
+        // Edits to non-pose settings retain a moving component's current state.
+        if (previous && previous.dynamic && dynamic && previous.poseKey === poseKey) {
+          const oldPose = this.poseOf(previous);
+          this.setPose(entry, {...item, ...oldPose});
+          body.velocity.copy(previous.body.velocity); body.angularVelocity.copy(previous.body.angularVelocity);
+        }
+        this.world.addBody(body); this.entries.set(item.id, entry);
+      } else if (entry.poseKey !== poseKey) {
+        entry.poseKey = poseKey; this.setPose(entry, item);
+        entry.body.velocity.setZero(); entry.body.angularVelocity.setZero(); entry.body.wakeUp();
+      }
+    }
+    for (const [id, entry] of this.entries) if (!keep.has(id)) { this.world.removeBody(entry.body); this.entries.delete(id); }
+    if (!this.active) this.clearProducts();
+  }
+
+  private setPose(entry: Entry, item: SceneItem) {
+    const q = qItem(item); entry.body.quaternion.copy(cq(q));
+    const center = entry.body.quaternion.vmult(entry.center);
+    entry.body.position.set(item.position[0] + center.x, item.position[1] + center.y, item.position[2] + center.z);
+    entry.body.aabbNeedsUpdate = true;
+  }
+
+  private poseOf(entry: Entry): RigidPose {
+    const {body, center} = entry, offset = body.quaternion.vmult(center);
+    this.tempQuat.set(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
+    this.euler.setFromQuaternion(this.tempQuat, "XYZ");
+    return {position: [body.position.x - offset.x, body.position.y - offset.y, body.position.z - offset.z],
+      rotationX: this.euler.x * 180 / Math.PI, rotation: this.euler.y * 180 / Math.PI, rotationZ: this.euler.z * 180 / Math.PI};
+  }
+
+  pose(id: string): RigidPose | null {
+    const entry = this.entries.get(id);
+    return entry?.dynamic ? this.poseOf(entry) : null;
+  }
+
+  /** A dynamic pedestrian retains its navigation motor while vertical motion
+   * and collisions remain solver-owned. */
+  drive(id: string, x: number, z: number, dt: number, stepHeight?: number) {
+    const entry = this.entries.get(id);
+    if (!entry?.dynamic || dt <= 0) return;
+    const pose = this.poseOf(entry);
+    if (stepHeight !== undefined && stepHeight > pose.position[1] && stepHeight - pose.position[1] <= .26) {
+      entry.body.position.y += stepHeight - pose.position[1] + .01;
+      entry.body.velocity.y = Math.max(0, entry.body.velocity.y);
+      entry.body.aabbNeedsUpdate = true;
+    }
+    entry.body.velocity.x = Math.max(-3, Math.min(3, (x - pose.position[0]) / dt));
+    entry.body.velocity.z = Math.max(-3, Math.min(3, (z - pose.position[2]) / dt));
+    entry.body.wakeUp();
+  }
+
+  /** A kinematic pedestrian is task-driven but its collider must follow its
+   * animated feet so other dynamic bodies see the live position. */
+  followWalker(id: string, item: SceneItem, x: number, y: number, z: number, yaw: number) {
+    const entry = this.entries.get(id);
+    if (!entry || entry.dynamic) return;
+    this.setPose(entry, {...item, position: [x, y, z], rotation: yaw * 180 / Math.PI});
+  }
+
+  hasAwakeBodies() {
+    for (const entry of this.entries.values()) if (entry.dynamic && entry.body.sleepState !== CANNON.Body.SLEEPING) return true;
+    return false;
+  }
+
+  /** Public for diagnostics and deterministic tests. */
+  body(id: string) { return this.entries.get(id)?.body; }
+
+  private clearProducts() { for (const body of this.products.values()) this.world.removeBody(body); this.products.clear(); }
+
+  step(dt: number, boxes: readonly ProductProxy[], massOf: (id: string) => number) {
+    if (!this.active) return;
+    const live = new Set<number>(), reverse = new Map<CANNON.Body, ProductProxy>();
+    for (const part of boxes) {
+      if (part.state !== "free") continue;
+      live.add(part.id);
+      const mass = massOf(part.productId);
+      const shapeKey = `${part.hx},${part.hy},${part.hz},${mass}`;
+      let body = this.products.get(part.id);
+      if (body && this.productShapes.get(body) !== shapeKey) { this.world.removeBody(body); this.products.delete(part.id); body = undefined; }
+      if (!body) {
+        body = new CANNON.Body({material: bodyMaterial, mass: n(mass, 1, .01, 1_000_000), fixedRotation: true, linearDamping: 0, angularDamping: 0,
+          collisionFilterGroup: GROUP_PRODUCT, collisionFilterMask: GROUP_DYNAMIC | GROUP_FIXED, allowSleep: false});
+        body.addShape(new CANNON.Box(new CANNON.Vec3(part.hx, part.hy, part.hz))); this.productShapes.set(body, shapeKey);
+        this.world.addBody(body); this.products.set(part.id, body);
+      }
+      reverse.set(body, part);
+      // Workpieces already advance in the conveyor/robot integrator. Rewind the
+      // predicted motion for this contact pass and cancel the solver's gravity.
+      body.position.set(part.x - part.vx * dt, part.y - part.vy * dt, part.z - part.vz * dt);
+      body.velocity.set(part.vx, part.vy, part.vz); body.force.set(0, body.mass * G, 0);
+      body.quaternion.setFromEuler(0, part.yaw, 0); body.aabbNeedsUpdate = true;
+    }
+    for (const [id, body] of this.products) if (!live.has(id)) { this.world.removeBody(body); this.products.delete(id); }
+    this.world.step(dt);
+    // Only transfer impulses for actual component contacts. Existing conveyor,
+    // stack and robot behavior is otherwise unchanged.
+    const touched = new Set<CANNON.Body>();
+    for (const contact of this.world.contacts) {
+      if (reverse.has(contact.bi) && contact.bj.collisionFilterGroup !== GROUP_PRODUCT) touched.add(contact.bi);
+      if (reverse.has(contact.bj) && contact.bi.collisionFilterGroup !== GROUP_PRODUCT) touched.add(contact.bj);
+    }
+    for (const body of touched) {
+      const part = reverse.get(body)!;
+      part.x = body.position.x; part.y = body.position.y; part.z = body.position.z;
+      part.vx = body.velocity.x; part.vy = body.velocity.y; part.vz = body.velocity.z;
+    }
+  }
+
+  reset(items: readonly SceneItem[]) {
+    for (const entry of this.entries.values()) this.world.removeBody(entry.body);
+    this.entries.clear(); this.clearProducts(); this.sync(items);
+  }
+}

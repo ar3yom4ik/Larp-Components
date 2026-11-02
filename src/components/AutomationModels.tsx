@@ -115,8 +115,9 @@ export function MobileRobotModel({ item }: { item: SceneItem }) {
   useFrame(() => {
     const rt = sim.humans.get(item.id);
     if (!rt || !root.current) return;
-    const rot = item.rotation * Math.PI / 180, dx = rt.x - item.position[0], dz = rt.z - item.position[2];
-    root.current.position.set((dx * Math.cos(rot) - dz * Math.sin(rot)) / item.scale, 0, (dx * Math.sin(rot) + dz * Math.cos(rot)) / item.scale);
+    const pose = sim.getPhysicsPose(item.id) ?? item;
+    const rot = pose.rotation * Math.PI / 180, dx = rt.x - pose.position[0], dz = rt.z - pose.position[2];
+    root.current.position.set((dx * Math.cos(rot) - dz * Math.sin(rot)) / item.scale, (rt.y - pose.position[1]) / item.scale, (dx * Math.sin(rot) + dz * Math.cos(rot)) / item.scale);
     root.current.rotation.y = rt.yaw - rot;
     if (arm.current) arm.current.rotation.z = rt.walking ? Math.sin(rt.phase * 0.5) * 0.06 : Math.sin(sim.time) * 0.12;
   });

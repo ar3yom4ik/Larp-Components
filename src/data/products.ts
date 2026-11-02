@@ -1,3 +1,5 @@
+import type { ImportedModelData, SceneItem } from "../types";
+
 export type ProductShape = "box" | "cookie" | "cylinder" | "bottle" | "sphere" | "gear" | "board" | "frame";
 
 export interface Product {
@@ -54,16 +56,56 @@ export const PRODUCTS: Product[] = [
   p("weldment", "Weldment frame", "Сварная рама", "Assembly", "frame", [0.34, 0.2, 0.28], 0x727f88, 4.1, ["frame", "weld", "assembly", "рама", "сварка", "сборка"], true),
 ];
 
-export const getProduct = (id: unknown): Product => PRODUCTS.find((product) => product.id === id) ?? PRODUCTS[0];
+export const IMPORTED_PRODUCT_PREFIX = "imported:";
+export const importedProductId = (item: SceneItem) => `${IMPORTED_PRODUCT_PREFIX}${item.id}`;
+export function importedProductSource(id: unknown, items: readonly SceneItem[]): SceneItem | undefined {
+  if (typeof id !== "string" || !id.startsWith(IMPORTED_PRODUCT_PREFIX)) return undefined;
+  return items.find((item) => item.kind === "imported-model" && item.id === id.slice(IMPORTED_PRODUCT_PREFIX.length) && item.imported);
+}
+
+/** Match the imported renderer's Y-up and unit conversion. */
+export function importedModelSize(model: ImportedModelData, scale = 1): Product["size"] {
+  const raw = model.sourceSize ?? [0.34, 0.26, 0.34];
+  const oriented = model.axis === "z" ? [raw[0], raw[2], raw[1]] : raw;
+  const units = {m: 1, mm: .001, cm: .01, in: .0254, ft: .3048};
+  const factor = model.units === "auto" ? (Math.max(...oriented) > 50 ? .001 : 1) : units[model.units];
+  return oriented.map((v) => Math.max(0.01, Math.min(1000, v * factor * scale))) as Product["size"];
+}
+
+const stockById = new Map(PRODUCTS.map((product) => [product.id, product]));
+const emptyItems: readonly SceneItem[] = [];
+// Scene arrays are immutable snapshots. Resolving many workpieces on each
+// simulation step should not rescan/reallocate the entire imported catalogue.
+const importedCache = new WeakMap<readonly SceneItem[], Map<string, Product>>();
+function importedProductMap(items: readonly SceneItem[]): Map<string, Product> {
+  let products = importedCache.get(items);
+  if (products) return products;
+  products = new Map();
+  for (const item of items) if (item.kind === "imported-model" && item.imported) {
+    const id = importedProductId(item);
+    products.set(id, {id, name: item.name, ru: item.name, category: "Imported models", tags: ["imported", item.imported.asset.entry],
+      shape: "box", size: importedModelSize(item.imported, item.scale),
+      color: parseInt((item.imported.materials[0]?.color ?? item.color ?? "#9aa7b4").replace("#", ""), 16) || 0x9aa7b4,
+      mass: Math.max(0.01, Number(item.props.physicsMass) || 1), magnetic: item.props.magnetic === true});
+  }
+  importedCache.set(items, products);
+  return products;
+}
+export function importedProducts(items: readonly SceneItem[]): Product[] { return [...importedProductMap(items).values()]; }
+
+export const getProduct = (id: unknown, items: readonly SceneItem[] = emptyItems): Product => {
+  if (typeof id !== "string") return PRODUCTS[0];
+  return stockById.get(id) ?? (id.startsWith(IMPORTED_PRODUCT_PREFIX) ? importedProductMap(items).get(id) : undefined) ?? PRODUCTS[0];
+};
 export const MACHINE_KINDS = new Set(["cnc", "press", "weld", "packaging", "paint", "cutter", "inspection", "assembly", "kiln", "lathe", "grinder"]);
-export function searchProducts(query: string, category = "All") {
+export function searchProducts(query: string, category = "All", items: readonly SceneItem[] = []) {
   const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  return PRODUCTS.filter((product) => (category === "All" || product.category === category) && tokens.every((token) =>
+  return [...PRODUCTS, ...importedProducts(items)].filter((product) => (category === "All" || product.category === category) && tokens.every((token) =>
     `${product.name} ${product.ru} ${product.category} ${product.tags.join(" ")}`.toLocaleLowerCase().includes(token)));
 }
 
-export function palletSize(props: Record<string, string | number | boolean>): [number, number] {
-  const product = getProduct(props.product);
+export function palletSize(props: Record<string, string | number | boolean>, items: readonly SceneItem[] = []): [number, number] {
+  const product = getProduct(props.product, items);
   const gap = Number(props.gap ?? 0.04);
   return [Math.max(1.2, Number(props.cols ?? 3) * (product.size[0] + gap) + 0.04), Math.max(0.8, Number(props.rows ?? 2) * (product.size[2] + gap) + 0.04)];
 }

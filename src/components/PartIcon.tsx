@@ -1,6 +1,7 @@
 import type { ComponentKind } from "../types";
 
 const ACCENT: Partial<Record<ComponentKind, string>> = {
+  platform: "#8298aa", stairs: "#d6ac4a",
   robot: "#6DBE45",
   cobot: "#8BE8D4",
   conveyor: "#4DA3E8",
@@ -39,6 +40,8 @@ export function PartIcon({ kind, className = "" }: { kind: ComponentKind; classN
   const light = "#DCE5EE";
 
   const art: Partial<Record<ComponentKind, React.ReactNode>> = {
+    platform: <><path d="M7 20 27 12l22 8-21 9L7 20Z" fill={a} stroke={light} strokeWidth=".8"/><path d="M7 20v5l21 9v-5L7 20Zm21 9v5l21-9v-5l-21 9Z" fill={dim}/><path d="M11 26v11m34-11v11M28 34v7" stroke={dim} strokeWidth="3"/></>,
+    stairs: <><path d="M6 37h8v-5h7v-5h7v-5h7v-5h8v-5h7v25H6Z" fill={dim}/><path d="M6 37h8v-5h7v-5h7v-5h7v-5h8v-5h7" stroke={a} strokeWidth="2"/><path d="M7 28 47 6" stroke={light} strokeWidth="2"/><path d="M13 35v-10M30 24V15M44 14V7" stroke={light}/></>,
     robot: (
       <>
         <ellipse cx="28" cy="36.4" rx="12.3" ry="3.2" fill={a} opacity=".16" />

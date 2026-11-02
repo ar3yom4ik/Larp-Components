@@ -343,7 +343,11 @@ export function describeImportedModel(asset: ModelAsset, root: THREE.Object3D, c
     : cad || ["stl","amf"].includes(ext) ? "mm"
     : ["glb","gltf","dae","usd","usda","usdc","usdz","wrl","vrml"].includes(ext) ? "m"
     : ext === "fbx" ? fbxUnit || "auto" : "auto";
-  return {asset, axis: cad || ["3mf","amf"].includes(ext) ? "z" : "y", units, materials: inspectMaterials(root), meshCount, triangleCount, rigged, animationNames: clips.map((clip) => clip.name)};
+  root.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(root), rawSize = bounds.getSize(new THREE.Vector3());
+  const sourceSize: [number, number, number] | undefined = !bounds.isEmpty() && [rawSize.x, rawSize.y, rawSize.z].every(Number.isFinite)
+    ? [rawSize.x, rawSize.y, rawSize.z] : undefined;
+  return {asset, axis: cad || ["3mf","amf"].includes(ext) ? "z" : "y", units, materials: inspectMaterials(root), meshCount, triangleCount, sourceSize, rigged, animationNames: clips.map((clip) => clip.name)};
 }
 
 // Parsed geometry is shared by instances; each instance creates its own materials.

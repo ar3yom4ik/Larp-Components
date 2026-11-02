@@ -20,8 +20,8 @@ same object in two indexes could be omitted when their local stamps coincided.
 
 ## Checks and measurements
 
-`npm run test:typescript-parity` runs the previous TypeScript engine and spatial
-index from commit `a806f3b` against the current engine, checking selected state
+The original optimization measured the TypeScript engine and spatial index
+from commit `a806f3b` against its then-current engine, checking selected state
 on every frame with a `1e-8` relative tolerance for 90 simulated seconds in four
 scenarios: a robot cell, a human cell, a three-lane plant, and 60 crowded products
 on connected conveyors. This passed. It is not universal parity for all projects
@@ -30,7 +30,7 @@ or unobserved fields.
 `npm run bench:typescript` interleaves before/after engines on identical inputs,
 with three trials per scene, 20 simulated seconds of warm-up and 160 measured
 seconds. The baseline engine and spatial index are loaded from Git in memory and
-linked to the same current shared dependencies. On Node 22.22.3, Linux, Intel Xeon
+linked to the same current shared dependencies. The following figures are historical for `a806f3b`, not for the current default baseline. On Node 22.22.3, Linux, Intel Xeon
 @ 2.60 GHz, one run produced these medians of three total `Engine.step` times:
 
 | Scenario | Before | After | Change |
@@ -52,8 +52,7 @@ The benchmark baseline can be selected without checking out another branch, for
 example `TS_BENCH_BASELINE=73bbab3 npm run test:typescript-parity` or
 `TS_BENCH_BASELINE=73bbab3 npm run bench:typescript`. The referenced Git commit
 must be available locally. Only its engine and spatial index are loaded; all
-other simulation dependencies are shared from the working tree. The default
-remains the original `a806f3b` baseline.
+other simulation dependencies are shared from the working tree. The original default was `a806f3b`.
 
 A point-query specialization and reduced trigonometric calls were each evaluated
 against alpha.12 and not retained: neither showed a consistent improvement in
@@ -61,3 +60,11 @@ the measured dense scenarios. The only simulation change in alpha.13 fixes stale
 fence collision candidates for products above the collision height; it is not a
 performance claim. Four-scenario selected-state parity against alpha.12 passed,
 while a dedicated regression test verifies the intentional behavioral fix.
+
+## Current 3D physics baseline
+
+The default benchmark baseline is now `88a60d3` (the pre-physics editor state);
+that commit must be available in the local Git history, so shallow checkouts may
+need to fetch history. `TS_BENCH_BASELINE` still overrides it. Per-frame parity
+for the four legacy scenes passes against this baseline. See `PHYSICS.md` for
+the separate dynamic-body benchmark and its limitations.

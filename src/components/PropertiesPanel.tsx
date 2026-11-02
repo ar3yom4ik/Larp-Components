@@ -72,9 +72,9 @@ const RANGES: Record<string, [number, number, number]> = {
   cols: [1, 4, 1],
   rows: [1, 4, 1],
   layers: [1, 5, 1],
-  height: [1, 5, 0.1],
-  length: [1, 10, 0.5],
-  voltage: [110, 480, 10], intensity: [0, 200, 1], distance: [1, 30, 1], range: [0.3, 8, 0.1], radius: [0.2, 3, 0.1], requiredParts: [1, 8, 1], width: [0.4, 4, 0.1], depth: [0.4, 4, 0.1],
+  height: [0.2, 8, 0.1],
+  length: [0.4, 12, 0.1],
+  voltage: [110, 480, 10], intensity: [0, 200, 1], distance: [1, 30, 1], range: [0.3, 8, 0.1], radius: [0.2, 3, 0.1], requiredParts: [1, 8, 1], width: [0.4, 12, 0.1], depth: [0.4, 12, 0.1],
   gap: [0.01, 0.15, 0.01], walkSpeed: [0.25, 1.8, 0.05], panelWidth: [0.5, 2.5, 0.1], gateSegment: [0, 12, 1],
 };
 
@@ -214,7 +214,7 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
   const connectedTargets = isLogic ? signalTargets(selected) : [];
   const targetCandidates = isLogic ? items.filter((item) => item.id !== selected.id && !["fence", "wall", "light"].includes(item.kind)) : [];
   const points = selected.points ?? [];
-  const length = isFence ? points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - points[i][0], p[1] - points[i][1]), 0) : isConveyor ? samplePath(points.length >= 2 ? points : [[-1, 0], [1, 0]], 0.2).length : 0;
+  const length = isFence ? points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - points[i][0], p[1] - points[i][1]), 0) : isConveyor ? samplePath(points.length >= 2 ? points : [[-1, 0], [1, 0]], 0.2, selected.pointHeights).length : 0;
   const rt = isRobot ? sim.robots.get(selected.id) : undefined;
   const pallet = sim.pallets.get(selected.id);
   const machine = sim.machines.get(selected.id);
@@ -288,7 +288,6 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
               <input aria-label={`${t("Rotation")} ${axis}`} type="number" step={5} disabled={selected.locked} onFocus={onBeginEdit} value={Number((selected[key] ?? 0).toFixed(1))} onChange={(event) => onUpdate(selected.id, { [key]: Number(event.target.value) }, false)} className={inputCls} />
             </label>)}
           </div>
-          {(selected.rotationX || selected.rotationZ) && selected.kind !== 'imported-model' && <p className="mt-1.5 text-[9.5px] text-amber-300/80">{t("Tilted equipment is displayed in 3D; simulation collisions and operations use an upright approximation.")}</p>}
           <div className="mt-1.5 grid grid-cols-2 gap-1.5">
             {!isConveyor && (
               <label className="block">
@@ -326,6 +325,23 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
           </div>
         </Section>
 
+        <Section title={t("Physics")}>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-[10px] text-white/50">{t("Physics mode")}
+              <select aria-label={t("Physics mode")} disabled={selected.locked} value={selected.props.physicsMode === "dynamic" ? "dynamic" : selected.props.physicsMode === "kinematic" ? "kinematic" : "legacy"}
+                onChange={(event) => onUpdate(selected.id, { props: { ...selected.props, physicsMode: event.target.value } })} className={cn(inputCls, "mt-1")}>
+                <option value="legacy" disabled>{t("Kinematic (legacy)")}</option><option value="kinematic">{t("Kinematic")}</option><option value="dynamic">{t("Dynamic")}</option>
+              </select>
+            </label>
+            <label className="block text-[10px] text-white/50">{t("Weight (kg)")}
+              <input aria-label={t("Weight (kg)")} type="number" min={0.01} max={1000000} step={0.1} disabled={selected.locked}
+                value={Number(selected.props.physicsMass ?? (selected.kind === "imported-model" ? 1 : 10))} onFocus={onBeginEdit}
+                onChange={(event) => onUpdate(selected.id, { props: { ...selected.props, physicsMass: Math.max(0.01, Math.min(1000000, Number(event.target.value) || 0.01)) } }, false)} className={cn(inputCls, "mt-1")} />
+            </label>
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("Dynamic components fall and collide during simulation. Kinematic components stay at their edited pose. Choose a mode to enable physics for legacy components. Reset restores the layout; colliders are simplified.")}</p>
+        </Section>
+
         {isConveyor && (
           <Section
             title={t(isFence ? "Fence path" : "Spline")}
@@ -334,6 +350,7 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
                 {points.length} {t("pts ·")} {length.toFixed(1)} {t("m")} </span>
             }
           >
+            {!isFence && <div className="mb-1 grid grid-cols-[1rem_1fr_1fr_1fr] gap-1.5 text-center font-mono text-[9px] text-white/40"><span /> <span>X</span><span>Z</span><span>Y</span></div>}
             <div className="space-y-1">
               {points.map((p, index) => (
                 <div
@@ -346,9 +363,10 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
                     <input
                       key={axis}
                       type="number"
+                      aria-label={`${t("Point")} ${index + 1} ${axis === 0 ? "X" : "Z"}`}
                       step={0.25}
                       value={Number(p[axis].toFixed(2))}
-                      onFocus={() => onSelectPoint(index)}
+                      onFocus={() => { onSelectPoint(index); onBeginEdit(); }}
                       onChange={(event) => {
                         const next = points.map((q, i) => (i === index ? ((axis === 0 ? [Number(event.target.value), q[1]] : [q[0], Number(event.target.value)]) as [number, number]) : q));
                         onUpdate(selected.id, { points: next }, false);
@@ -356,6 +374,14 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
                       className={cn(inputCls, "min-w-0 py-0.5")}
                     />
                   ))}
+                  {!isFence && <input type="number" aria-label={`${t("Point")} ${index + 1} Y`} title={t("Point height (local Y)")} step={0.25}
+                    value={Number((selected.pointHeights?.[index] ?? 0).toFixed(2))}
+                    onFocus={() => { onSelectPoint(index); onBeginEdit(); }}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      const pointHeights = points.map((_, i) => i === index ? value : selected.pointHeights?.[i] ?? 0);
+                      onUpdate(selected.id, { pointHeights }, false);
+                    }} className={cn(inputCls, "min-w-0 py-0.5")} />}
                 </div>
               ))}
             </div>
@@ -369,7 +395,7 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
                 <ArrowLeftRight size={11} /> {t(isFence ? "Reverse" : "Reverse flow")}
               </button>
             </div>
-            <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t(isFence ? "Drag the posts to draw a sharp-cornered guard fence. Panels and corner posts are generated automatically." : "Drag the handles to bend the belt. Reverse flow swaps the entry and exit, including the stopper.")}</p>
+            <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t(isFence ? "Drag the posts to draw a sharp-cornered guard fence. Panels and corner posts are generated automatically." : "Drag the handles to bend the belt. Select a point and use the move gizmo or Y field to change its height. Reverse flow swaps the entry and exit.")}</p>
           </Section>
         )}
 
@@ -383,16 +409,16 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
         )}
 
         {selected.kind === "feeder" && <>
-          <Section title={t("Products")}><ProductPicker label={t("Spawn product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} />{selected.props.requireSupply && <p className="mt-2 text-[10px] text-white/45">{t("Supply")}: {sim.feeders.get(selected.id)?.supply ?? 0}</p>}</Section>
+          <Section title={t("Products")}><ProductPicker items={items} label={t("Spawn product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} />{String(selected.props.product || "").startsWith("imported:") && <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("Keep the source model in the project; you can hide it from the scene.")}</p>}{selected.props.requireSupply && <p className="mt-2 text-[10px] text-white/45">{t("Supply")}: {sim.feeders.get(selected.id)?.supply ?? 0}</p>}</Section>
           <Section title={t("Feeder control")}>
             <div className="flex items-center justify-between text-[11px] text-white/75"><span>{t("Mode")}</span><span className="font-medium text-[var(--app-accent-bright)]">{t(feederSources.length ? "Signal-controlled" : "Automatic")}</span></div>
             <p className="mt-2 text-[10px] leading-relaxed text-white/45">{t(feederSources.length ? "One part per signal activation. Requests wait if the output is blocked or supply is empty; the spawn interval sets the minimum spacing." : "Runs automatically. Connect a button, sensor, laser or PLC to produce one part per signal activation.")}</p>
             {feederSources.length > 0 && <p className="mt-2 text-[10px] text-white/55">{t("Signal sources")}: {feederSources.map((item) => item.name).join(", ")} · {t("Pending")}: {sim.pendingFeederSignals(selected.id)}</p>}
           </Section>
         </>}
-        {MACHINE_KINDS.has(selected.kind) && <Section title={t("Product transformation")}><div className="space-y-3"><ProductPicker label={t("Input product")} allowAny value={String(selected.props.inputProduct || "any")} onChange={(inputProduct) => onUpdate(selected.id, { props: { ...selected.props, inputProduct } })} /><ProductPicker label={t("Output product")} value={String(selected.props.outputProduct || "machined")} onChange={(outputProduct) => onUpdate(selected.id, { props: { ...selected.props, outputProduct } })} />{selected.kind === "paint" && <label className="block text-[10px] text-white/45">{t("Paint colour")}<input aria-label={t("Paint colour")} type="color" value={String(selected.props.paintColor || "#d6534c")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, paintColor: e.target.value } })} className="mt-1 h-8 w-full rounded border border-white/15 bg-transparent" /></label>}{selected.kind === "assembly" && <label className="block text-[10px] text-white/45">{t("Required parts")}<input aria-label={t("Required parts")} type="number" min={1} max={8} value={Number(selected.props.requiredParts ?? 2)} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, requiredParts: Math.max(1, Math.min(8, Number(e.target.value))) } })} className={cn(inputCls, "mt-1")} /></label>}<p className="text-[10px] leading-relaxed text-white/35">{t("One product in, one product out. The item keeps its physical identity.")}{selected.kind === "assembly" ? " " + t("Multiple parts are combined into one assembly.") : ""}</p></div></Section>}
+        {MACHINE_KINDS.has(selected.kind) && <Section title={t("Product transformation")}><div className="space-y-3"><ProductPicker items={items} label={t("Input product")} allowAny value={String(selected.props.inputProduct || "any")} onChange={(inputProduct) => onUpdate(selected.id, { props: { ...selected.props, inputProduct } })} /><ProductPicker items={items} label={t("Output product")} value={String(selected.props.outputProduct || "machined")} onChange={(outputProduct) => onUpdate(selected.id, { props: { ...selected.props, outputProduct } })} />{selected.kind === "paint" && <label className="block text-[10px] text-white/45">{t("Paint colour")}<input aria-label={t("Paint colour")} type="color" value={String(selected.props.paintColor || "#d6534c")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, paintColor: e.target.value } })} className="mt-1 h-8 w-full rounded border border-white/15 bg-transparent" /></label>}{selected.kind === "assembly" && <label className="block text-[10px] text-white/45">{t("Required parts")}<input aria-label={t("Required parts")} type="number" min={1} max={8} value={Number(selected.props.requiredParts ?? 2)} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, requiredParts: Math.max(1, Math.min(8, Number(e.target.value))) } })} className={cn(inputCls, "mt-1")} /></label>}<p className="text-[10px] leading-relaxed text-white/35">{t("One product in, one product out. The item keeps its physical identity.")}{selected.kind === "assembly" ? " " + t("Multiple parts are combined into one assembly.") : ""}</p></div></Section>}
         {isRobot && <Section title={t("Tool")}><label className="block"><span className="mb-1.5 block text-[10px] text-white/45">{t("Gripper")}</span><select aria-label={t("Gripper")} value={String(selected.props.gripper || "vacuum")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, gripper: e.target.value } })} className={inputCls}>{[["vacuum", "Vacuum cup"], ["parallel", "Parallel jaws"], ["three-finger", "Three-finger"], ["magnetic", "Magnetic"], ["soft", "Soft gripper"]].map(([id, name]) => <option key={id} value={id}>{t(name)}</option>)}</select></label><p className="mt-2 text-[10px] leading-relaxed text-white/35">{t("Magnetic tools pick metal only. Paint tools apply the program colour to an existing product.")}</p></Section>}
-        {selected.kind === "crates" && <Section title={t("Pallet pattern")}><PalletPattern props={selected.props} onChange={(patch) => onUpdate(selected.id, { props: { ...selected.props, ...patch } })} /><div className="mt-3"><ProductPicker label={t("Product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} /></div></Section>}
+        {selected.kind === "crates" && <Section title={t("Pallet pattern")}><PalletPattern items={items} props={selected.props} onChange={(patch) => onUpdate(selected.id, { props: { ...selected.props, ...patch } })} /><div className="mt-3"><ProductPicker items={items} label={t("Product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} /></div></Section>}
         {selected.kind === "operator" && <WorkerEditor item={selected} items={items} onUpdate={onUpdate} onBeginEdit={onBeginEdit} onImportCharacter={onImportCharacter} />}
         {isWorker && <Section title={t(selected.kind === "mobile-robot" ? "Delivery robot task" : "Human tasks")}><div className="space-y-3"><label className="block text-[10px] text-white/45">{t("Task")}<select aria-label={t("Task")} value={String(selected.props.task || "patrol")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, task: e.target.value } })} className={cn(inputCls, "mt-1.5")}>{[["idle", "Stand by"], ["patrol", "Patrol route"], ["inspect", "Inspect products"], ["carry", "Carry products"], ["tend", "Tend a machine"], ["operate", "Operate a machine"], ["replenish", "Replenish feeder"]].map(([id, name]) => <option key={id} value={id}>{t(name)}</option>)}</select></label>{["sourceId", ...(selected.props.task === "carry" ? ["targetId"] : [])].map((key) => <label key={key} className="block text-[10px] text-white/45">{t(key === "sourceId" ? "Source station" : "Destination station")}<select aria-label={t(key === "sourceId" ? "Source station" : "Destination station")} value={String(selected.props[key] || "")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, [key]: e.target.value } })} className={cn(inputCls, "mt-1.5")}><option value="">{t("Nearest station")}</option>{items.filter((i) => MACHINE_KINDS.has(i.kind) || ["feeder", "conveyor", "roller", "crates"].includes(i.kind)).map((i) => <option key={i.id} value={i.id}>{t(i.name)}</option>)}</select></label>)}{selected.kind === "operator" && <div className="space-y-3 border-t border-white/10 pt-3">
           <p className="text-[10px] uppercase tracking-wider text-white/35">{t("Cosmetics")}</p>
@@ -470,7 +496,7 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
 
         {selected.kind !== "imported-model" && <Section title={t("Behaviour")}>
           <div className="space-y-3">
-            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", ...(selected.kind === "crates" ? ["cols", "rows", "layers"] : [])].includes(key)).map(([key, value]) => (
+            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", "physicsMode", "physicsMass", ...(selected.kind === "crates" ? ["cols", "rows", "layers"] : [])].includes(key)).map(([key, value]) => (
               <PropControl key={key} kind={selected.kind} propKey={key} value={value} onChange={(next) => onUpdate(selected.id, { props: { ...selected.props, [key]: next } }, false)} />
             ))}
             {Object.keys(selected.props).length === 0 && <p className="text-[10px] text-white/35">{t("No parameters.")}</p>}

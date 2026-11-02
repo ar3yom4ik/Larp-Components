@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 const browser=await chromium.launch({args:['--enable-unsafe-swiftshader']});
 try {
  const page=await browser.newPage({viewport:{width:1600,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
  await page.goto(process.env.TEST_URL||'http://127.0.0.1:4173',{waitUntil:'networkidle',timeout:120000});
  const ids=await page.evaluate(async()=>{const {makeNode,connect}=await import('/src/gen/graph/graph.ts'),{replaceGraph}=await import('/src/gen/graphStore.ts');const f1=makeNode('part.feeder',30,40),f2=makeNode('part.feeder',30,210),a=makeNode('part.conveyor',240,40),b=makeNode('part.conveyor',240,210),m=makeNode('part.conveyor',480,110),r=makeNode('part.robot',730,110),p=makeNode('part.pallet',960,110),loose=makeNode('part.conveyor',30,430);let g={version:1,nodes:[f1,f2,a,b,m,r,p,loose],links:[]};for(const [x,y] of [[f1,a],[f2,b],[a,m],[b,m],[m,r],[r,p]]){const c=connect(g,{node:x.id,port:'out'},{node:y.id,port:'in'});if(!c.ok)throw Error(c.error);g=c.graph}replaceGraph(g);return {f1:f1.id,f2:f2.id,a:a.id,b:b.id,m:m.id,loose:loose.id};});
  await page.reload({waitUntil:'networkidle'});

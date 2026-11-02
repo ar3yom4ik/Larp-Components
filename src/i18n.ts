@@ -17,11 +17,18 @@ export function useLanguage() {
 
 // Program identifiers, code and user-authored names remain unchanged in both languages.
 export const RU: Record<string, string> = {
+  "Physics": "Физика", "Physics mode": "Режим физики", "Kinematic": "Кинематический", "Kinematic (legacy)": "Кинематический (старый режим)", "Dynamic": "Динамический", "Weight (kg)": "Масса (кг)",
+  "Dynamic components fall and collide during simulation. Kinematic components stay at their edited pose. Choose a mode to enable physics for legacy components. Reset restores the layout; colliders are simplified.": "Динамические компоненты падают и сталкиваются во время симуляции. Кинематические остаются в заданном положении. Выберите режим, чтобы включить физику для старых компонентов. Сброс возвращает исходную сцену; коллайдеры упрощены.",
+  "Elevated Platform": "Высокая платформа", "Industrial Stairs": "Промышленная лестница", "Deck": "Настил", "Access": "Доступ", "Adjustable": "Регулируется", "Multi-level": "Несколько уровней",
+  "Raised factory floor with adjustable dimensions and structural legs.": "Приподнятый заводской пол с регулируемыми размерами и опорными стойками.",
+  "Adjustable stepped access between a lower level and an elevated platform.": "Регулируемая лестница между нижним уровнем и высокой платформой.",
+  "Imported models": "Импортированные модели", "Keep the source model in the project; you can hide it from the scene.": "Сохраните исходную модель в проекте; её можно скрыть на сцене.",
+  "Point height (local Y)": "Высота точки (локальная ось Y)",
+  "Drag the handles to bend the belt. Select a point and use the move gizmo or Y field to change its height. Reverse flow swaps the entry and exit.": "Перетаскивайте маркеры, чтобы изогнуть ленту. Выберите точку и измените её высоту манипулятором перемещения или в поле Y. Разворот потока меняет вход и выход местами.",
   "Robot output": "Выход робота", "Moving or holding": "Движение или удержание", "Pulse on operation end": "Импульс после операции", "Pending robot signals": "Сигналы робота в очереди",
   "A connected IN queues one activation per visual-program pick. Operation-end OUT pulses after each successful place.": "Подключённый вход ставит в очередь одно срабатывание на каждый захват визуальной программы. Выход выдаёт импульс после каждого успешного размещения.",
   "Drag OUT to IN. Drag a connected IN away to disconnect or reroute; for a shared IN, select its source first. You can also click ports. Material flow is separate.": "Перетащите выход на вход. Перетащите подключённый вход в сторону для отключения или на другой вход для перенаправления; при нескольких источниках сначала выберите нужный выход. Порты также можно нажимать. Поток изделий настраивается отдельно.",
   "Signal wire preview": "Предпросмотр сигнального провода",
-  "Tilted equipment is displayed in 3D; simulation collisions and operations use an upright approximation.": "Наклонённое оборудование отображается в 3D; столкновения и операции симуляции приближённо рассчитываются для вертикального положения.",
   "Merge layout": "Тип объединения", "Multi-head junction": "Несколько входов", "Side entry to main conveyor": "Боковой вход на основной конвейер", "Used when two or more conveyors feed this conveyor.": "Используется при подключении двух и более конвейеров.",
   "Connect multiple conveyor outputs here to merge lines.": "Подключите сюда выходы нескольких конвейеров, чтобы объединить линии.",
   "3D viewport unavailable": "3D-вид недоступен", "Retry 3D viewport": "Повторить запуск 3D-вида", "The browser could not start the 3D renderer. Check that WebGL and hardware acceleration are enabled, or try another browser. The rest of the workspace remains available.": "Браузеру не удалось запустить 3D-рендерер. Проверьте, включены ли WebGL и аппаратное ускорение, или попробуйте другой браузер. Остальные элементы интерфейса доступны.",
@@ -62,7 +69,7 @@ export const RU: Record<string, string> = {
   "meshes": "сеток",
   "triangles": "треугольников",
   "embedded files": "встроенных файлов",
-  "The model is placed on the floor. Imported geometry is visual only; it does not automatically become a robot, conveyor or collision obstacle.": "Модель размещается на полу. Импортированная геометрия только визуальная: она не становится роботом, конвейером или препятствием для движения.",
+  "Imported models can be workpieces or simplified physics bodies; they do not automatically become machines or detailed navigation obstacles.": "Импортированные модели можно использовать как изделия или упрощённые физические тела; они не превращаются автоматически в станки или детальные препятствия для навигации.",
   "Materials & textures": "Материалы и текстуры",
   "Materials and textures": "Материалы и текстуры",
   "Restore source material": "Восстановить исходный материал",

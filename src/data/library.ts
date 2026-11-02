@@ -15,6 +15,8 @@ export const CATEGORIES: ("All" | Category)[] = [
 ];
 
 export const COMPONENTS: ComponentDef[] = [
+  { kind: "platform", name: "Elevated Platform", category: "Building", description: "Raised factory floor with adjustable dimensions and structural legs.", accent: "#8298aa", specs: [{label: "Deck", value: "Adjustable"}], defaults: { width: 4, depth: 4, height: 2.4 } },
+  { kind: "stairs", name: "Industrial Stairs", category: "Building", description: "Adjustable stepped access between a lower level and an elevated platform.", accent: "#d6ac4a", specs: [{label: "Access", value: "Multi-level"}], defaults: { width: 1.2, length: 4, height: 2.4 } },
   { kind: "imported-model", name: "Imported 3D model", category: "Building", description: "A local imported visual model with editable materials.", accent: "#75b9c8", specs: [{label:"Source",value:"Local file"}], defaults: {} },
   {
     kind: "robot",

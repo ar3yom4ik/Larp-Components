@@ -28,11 +28,14 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run test:signals-browser` | Playwright viewport signal-port editing checks against the development server. |
 | `npm run test:interaction-browser` | Playwright checks for feeder signals, colored/animated wires and desktop/touch window resizing. |
 | `npm run test:gizmos-browser` | Playwright checks for 3D gizmos, snapping, undo and spline handles. |
+| `npm run test:physics-browser` | Playwright checks for point-height gizmos, imported workpieces, dynamic poses and moving wires. |
+| `npm run test:physics-standalone` | Offline packaged-file checks for custom products, physics, multi-level components and export (run after `npm run build`). |
+| `npm run bench:physics` | Headless fixed-step benchmark for falling and sleeping rigid bodies. |
 | `npm run test:factory-browser` | Playwright checks for graph dragging, multiple inputs, insertion and merge building. |
 | `npm run test:archive-browser` | Playwright `.LCMX` import/export and save/autosave checks. |
 | `npm run test:browser` | Four core Playwright UI suites against a running development server on port 4173. |
 | `npm run test:typescript-parity` | Compare selected simulation state against a Git baseline (see `docs/TYPESCRIPT_OPTIMIZATION.md`). |
-| `npm run build` | Production build **plus** the asset embedder; writes `dist/index.html` (standalone, ~10 MB). |
+| `npm run build` | Production build **plus** the asset embedder; writes `dist/index.html` (standalone, ~12 MB). |
 | `npm run preview` | Serve the production build locally. |
 
 > Use `npm run build`, not plain `vite build`: the embedder appends the packed CAD and worker assets required by the standalone HTML.
@@ -41,7 +44,11 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 
 In **AI Factory → Node graph**, connect several conveyor outputs to one downstream conveyor input. Choose **Multi-head junction** or **Side entry to main conveyor** on that node, then complete the line with a robot and pallet. Junctions are built and simulated, with backpressure and fair access to the shared belt. Material splitters are not supported. Node movements are previewed locally and saved once on release.
 
-Select an object and use **Move** or **Rotate** for X/Y/Z gizmos, including vertical movement; the Snap control also applies to rotation. Existing ground and spline-handle dragging still works. Elevated equipment is supported, but tilted equipment's physical collisions and some operations use upright approximations; keep working equipment upright for reliable simulation.
+Select an object and use **Move** or **Rotate** for X/Y/Z gizmos. To make a sloped or multi-level conveyor, select a spline sphere or point row and drag its green Y arrow, or enter its local Y height. Existing sphere dragging, snapping, undo and project archives still work. Add **Elevated Platform** and **Industrial Stairs** from the Building catalog and align their heights to arrange upper floors.
+
+Every component has **Properties → Physics → Kinematic/Dynamic** and **Weight (kg)**. Choose a mode for legacy components. Kinematic equipment stays at its edited pose (task-driven workers still walk); dynamic objects fall, collide and keep their usual simulated function. Reset returns them to the authored layout. Tilted equipment uses oriented support faces and simplified compound colliders, not exact meshes; fast motion may tunnel and some operations/navigation remain approximate. See the [user guide](docs/USER_GUIDE.md#physics-and-upper-floors).
+
+To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Keep the source model in the project; it may be hidden. Projects embed its asset.
 
 ### Signal-controlled feeders and robots
 

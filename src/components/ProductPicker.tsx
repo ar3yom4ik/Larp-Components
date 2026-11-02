@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
-import { getProduct, PRODUCTS, searchProducts, type Product } from "../data/products";
+import { getProduct, PRODUCTS, importedProducts, searchProducts, type Product } from "../data/products";
+import type { SceneItem } from "../types";
 import { getLanguage, t, useLanguage } from "../i18n";
 
 export function ProductThumb({ product, size = 32 }: { product: Product; size?: number }) {
@@ -11,12 +12,12 @@ export function ProductThumb({ product, size = 32 }: { product: Product; size?: 
   </svg>;
 }
 
-export function ProductPicker({ value, onChange, label, allowAny = false }: { value: string; onChange: (id: string) => void; label: string; allowAny?: boolean }) {
+export function ProductPicker({ value, onChange, label, allowAny = false, items = [] }: { value: string; onChange: (id: string) => void; label: string; allowAny?: boolean; items?: readonly SceneItem[] }) {
   useLanguage();
   const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [category, setCategory] = useState("All");
-  const product = getProduct(value);
+  const product = getProduct(value, items);
   const name = (p: Product) => getLanguage() === "ru" ? p.ru : p.name;
-  const results = searchProducts(query, category);
+  const results = searchProducts(query, category, items);
   return <div className="product-picker relative">
     <span className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/45">{t(label)}</span>
     <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={t(label)} className="flex min-h-11 w-full items-center gap-2 rounded border border-white/15 bg-[#222225] px-2 py-1.5 text-left transition hover:border-[var(--app-accent)]/60">
@@ -25,7 +26,7 @@ export function ProductPicker({ value, onChange, label, allowAny = false }: { va
     </button>
     {open && <div className="mt-1 overflow-hidden rounded border border-[var(--app-accent)]/45 bg-[#202023] shadow-xl animate-[toast-in_.15s_ease-out]">
       <div className="flex items-center gap-2 border-b border-white/10 p-2"><Search size={13} className="shrink-0 text-[var(--app-accent-bright)]" /><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }} placeholder={t("Search name or tag...")} className="w-full min-w-0 bg-transparent text-[12px] outline-none" /><button type="button" aria-label={t("Close")} onClick={() => setOpen(false)} className="p-1 text-white/45"><X size={12} /></button></div>
-      <select aria-label={t("Category")} value={category} onChange={(e) => setCategory(e.target.value)} className="m-2 w-[calc(100%-16px)] rounded border border-white/10 bg-[#2d2d30] p-1.5 text-[11px] text-white/65"><option value="All">{t("All")}</option>{[...new Set(PRODUCTS.map((p) => p.category))].map((c) => <option key={c} value={c}>{t(c)}</option>)}</select>
+      <select aria-label={t("Category")} value={category} onChange={(e) => setCategory(e.target.value)} className="m-2 w-[calc(100%-16px)] rounded border border-white/10 bg-[#2d2d30] p-1.5 text-[11px] text-white/65"><option value="All">{t("All")}</option>{[...new Set([...PRODUCTS, ...importedProducts(items)].map((p) => p.category))].map((c) => <option key={c} value={c}>{t(c)}</option>)}</select>
       <div role="listbox" aria-label={t("Products")} className="thin-scroll max-h-[205px] overflow-y-auto px-1 pb-1">
         {allowAny && !query && <button type="button" role="option" aria-selected={value === "any"} onClick={() => { onChange("any"); setOpen(false); }} className="flex min-h-10 w-full items-center gap-2 rounded px-2 py-2 text-left text-[12px] text-white/70 hover:bg-white/10">* {t("Any product")}</button>}
         {results.map((p) => <button key={p.id} type="button" role="option" aria-selected={p.id === value} onClick={() => { onChange(p.id); setOpen(false); }} className="flex min-h-11 w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-[var(--app-accent)]/20"><ProductThumb product={p} size={30} /><span className="min-w-0 flex-1"><span className="block text-[11.5px] text-white/85">{name(p)}</span><span className="text-[9px] text-white/35">{t(p.category)} / {p.tags.slice(0, 3).map(t).join(", ")}</span></span>{p.id === value && <Check size={12} className="text-[var(--green)]" />}</button>)}

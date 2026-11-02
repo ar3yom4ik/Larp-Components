@@ -1,10 +1,12 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { sim, MAX_BOXES } from "../sim/engine";
-import { getProduct, type ProductShape } from "../data/products";
+import { sim, MAX_BOXES, type Box } from "../sim/engine";
+import { getProduct, importedModelSize, importedProductId, type ProductShape } from "../data/products";
 import { useAppearance } from "../theme";
+import type { SceneItem } from "../types";
+import { ImportedModel } from "./ImportedModel";
 
 const SHAPES: ProductShape[] = ["box", "cookie", "cylinder", "bottle", "sphere", "gear", "board", "frame"];
 const cache = new Map<ProductShape, THREE.BufferGeometry>();
@@ -47,15 +49,44 @@ function geometry(shape: ProductShape) {
   cache.set(shape, merged); return merged;
 }
 
-export function BoxesLayer() {
+function ImportedWorkpiece({ box, source }: { box: Box; source: SceneItem }) {
+  const group = useRef<THREE.Group>(null);
+  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const axis = useMemo(() => new THREE.Vector3(), []);
+  const tilt = useMemo(() => new THREE.Quaternion(), []);
+  useFrame(() => {
+    if (!group.current) return;
+    group.current.visible = box.state !== "inside" && box.state !== "dead";
+    group.current.position.set(box.x, box.y + Math.abs(Math.sin(box.tilt)) * box.hz * 0.9, box.z);
+    group.current.quaternion.setFromAxisAngle(up, box.yaw);
+    if (box.tilt) { axis.set(box.ax, 0, box.az).normalize(); tilt.setFromAxisAngle(axis, box.tilt); group.current.quaternion.premultiply(tilt); }
+    group.current.scale.setScalar(box.state === "dying" ? Math.max(0, box.fade) : 1);
+  });
+  // Keep an already-spawned part visually aligned with its stored collision
+  // dimensions if the source model's scale or units are edited later.
+  const size = importedModelSize(source.imported!, 1);
+  const scale: [number, number, number] = [box.hx * 2 / size[0], box.hy * 2 / size[1], box.hz * 2 / size[2]];
+  return <group ref={group} userData={{ importedWorkpiece: true, boxId: box.id }}>
+    <group position={[0, -box.hy, 0]} scale={scale}><ImportedModel model={source.imported!} id={`workpiece-${box.id}`} /></group>
+  </group>;
+}
+
+export function BoxesLayer({ items = [] }: { items?: readonly SceneItem[] }) {
   const { gfx } = useAppearance();
   const meshes = useRef<Partial<Record<ProductShape, THREE.InstancedMesh>>>({});
+  const sources = useMemo(() => new Map(items.filter((item) => item.kind === "imported-model" && item.imported).map((item) => [importedProductId(item), item])), [items]);
+  const [imports, setImports] = useState<Box[]>([]);
+  const importKey = useRef("");
   const kit = useMemo(() => ({ m: new THREE.Matrix4(), q: new THREE.Quaternion(), q2: new THREE.Quaternion(), p: new THREE.Vector3(), scale: new THREE.Vector3(), axis: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), color: new THREE.Color() }), []);
   useFrame(() => {
     const counts = { box: 0, cookie: 0, cylinder: 0, bottle: 0, sphere: 0, gear: 0, board: 0, frame: 0 };
+    const imported = sources.size ? sim.boxes.filter((b) => b.state !== "inside" && b.state !== "dead" && sources.has(b.productId)) : [];
+    const key = imported.map((b) => `${b.id}:${b.productId}`).join(",");
+    if (key !== importKey.current) { importKey.current = key; setImports(imported); }
     for (const b of sim.boxes) {
       if (b.state === "inside" || b.state === "dead") continue;
-      const product = getProduct(b.productId), mesh = meshes.current[product.shape];
+      if (sources.has(b.productId)) continue;
+      const product = getProduct(b.productId, items), mesh = meshes.current[product.shape];
       if (!mesh) continue;
       const index = counts[product.shape]++;
       const fade = b.state === "dying" ? Math.max(0, b.fade) : 1;
@@ -72,5 +103,7 @@ export function BoxesLayer() {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
   });
-  return <>{SHAPES.map((shape) => <instancedMesh key={shape} ref={(m) => { if (m) { m.count = 0; meshes.current[shape] = m; } }} args={[geometry(shape), undefined, MAX_BOXES]} castShadow receiveShadow frustumCulled={false} raycast={() => null}><meshStandardMaterial color="#ffffff" roughness={0.7} metalness={shape === "gear" || shape === "frame" ? 0.5 : 0.04} vertexColors /></instancedMesh>)}</>;
+  return <>{SHAPES.map((shape) => <instancedMesh key={shape} ref={(m) => { if (m) { m.count = 0; meshes.current[shape] = m; } }} args={[geometry(shape), undefined, MAX_BOXES]} castShadow receiveShadow frustumCulled={false} raycast={() => null}><meshStandardMaterial color="#ffffff" roughness={0.7} metalness={shape === "gear" || shape === "frame" ? 0.5 : 0.04} vertexColors /></instancedMesh>)}
+    {imports.map((box) => { const source = sources.get(box.productId); return source ? <ImportedWorkpiece key={box.id} box={box} source={source} /> : null; })}
+  </>;
 }

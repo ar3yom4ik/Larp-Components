@@ -1,3 +1,4 @@
+import { upperFloorDimensions } from "../utils/upperFloor";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
@@ -22,6 +23,7 @@ import {
 } from "./ModelKit";
 
 export const MODEL_HEIGHTS: Partial<Record<ComponentKind, number>> = {
+  platform: 2.5, stairs: 2.5,
   robot: 2.6,
   cobot: 2.2,
   conveyor: 1.0,
@@ -159,10 +161,10 @@ function RobotModel({ item, cobot }: { item: SceneItem; cobot: boolean }) {
 
 function ConveyorModel({ item, roller }: { item: SceneItem; roller: boolean }) {
   const stopper = item.props.stopper === true;
-  const pointsKey = JSON.stringify(item.points);
+  const pointsKey = JSON.stringify([item.points, item.pointHeights]);
   const geos = useMemo(() => {
     const pts = item.points && item.points.length >= 2 ? item.points : ([[-2, 0], [2, 0]] as [number, number][]);
-    const path = samplePath(pts, 0.1);
+    const path = samplePath(pts, 0.1, item.pointHeights);
     let entries: { along: number; side: number; radius: number }[] = [];
     if (typeof item.props.mergeEntries === "string") {
       try {
@@ -501,9 +503,31 @@ function CylinderSpin({ ref: r }: { ref: React.RefObject<THREE.Mesh | null> }) {
   );
 }
 
-function FactoryModelBase({ item }: { item: SceneItem }) {
+/** Parametric mezzanine pieces. Their deck/treads use the same dimensions as
+ * the simulator's support surfaces and rigid-body collision shapes. */
+function ElevatedPlatform({ item }: { item: SceneItem }) {
+  const {width, depth, height} = upperFloorDimensions(item);
+  return <group>
+    <mesh position={[0, height - 0.1, 0]} material={getMaterial("mid")} castShadow receiveShadow><boxGeometry args={[width, 0.2, depth]} /></mesh>
+    <mesh position={[0, height + 0.008, 0]} material={getMaterial("steel")} receiveShadow><boxGeometry args={[width - 0.04, 0.016, depth - 0.04]} /></mesh>
+    {[-1, 1].flatMap((x) => [-1, 1].map((z) => <mesh key={`${x}-${z}`} position={[x * (width / 2 - 0.12), (height - 0.2) / 2, z * (depth / 2 - 0.12)]} material={getMaterial("dark")} castShadow><boxGeometry args={[0.18, Math.max(0.05, height - 0.2), 0.18]} /></mesh>))}
+  </group>;
+}
+
+function IndustrialStairs({ item }: { item: SceneItem }) {
+  const {width, length, height, steps} = upperFloorDimensions(item);
+  const run = length / steps, rise = height / steps;
+  return <group>
+    {Array.from({length: steps}, (_, i) => <mesh key={i} position={[-length / 2 + (i + 0.5) * run, (i + 1) * rise / 2, 0]} material={getMaterial("steel")} castShadow receiveShadow><boxGeometry args={[run + 0.005, (i + 1) * rise, width]} /></mesh>)}
+    {[-1, 1].map((side) => <mesh key={side} position={[0, height / 2 + 0.9, side * (width / 2 + 0.035)]} rotation={[0, 0, Math.atan2(height, length)]} material={getMaterial("yellow")}><boxGeometry args={[Math.hypot(length, height), 0.05, 0.05]} /></mesh>)}
+  </group>;
+}
+
+function FactoryModelBase({ item, productItems = [] }: { item: SceneItem; productItems?: readonly SceneItem[] }) {
   const accent = item.color || "#9aa7b4";
   switch (item.kind) {
+    case "platform": return <ElevatedPlatform item={item} />;
+    case "stairs": return <IndustrialStairs item={item} />;
     case "robot":
     case "kuka":
     case "fanuc":
@@ -558,7 +582,7 @@ function FactoryModelBase({ item }: { item: SceneItem }) {
     case "rack":
       return <Static id="rack" accent={accent} make={rackParts} />;
     case "crates":
-      return <group scale={[palletSize(item.props)[0] / 1.2, 1, palletSize(item.props)[1] / 0.8]}><Static id="pallet" accent={accent} make={palletParts} /></group>;
+      return <group scale={[palletSize(item.props, productItems)[0] / 1.2, 1, palletSize(item.props, productItems)[1] / 0.8]}><Static id="pallet" accent={accent} make={palletParts} /></group>;
     case "fence":
       return <FenceModel item={item} />;
     case "cabinet":

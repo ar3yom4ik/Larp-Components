@@ -73,6 +73,7 @@ export function cloneItems(items: SceneItem[]): SceneItem[] {
     props: { ...item.props },
     signalTargets: item.signalTargets ? [...item.signalTargets] : undefined,
     points: item.points ? item.points.map((p) => [...p] as [number, number]) : undefined,
+    pointHeights: item.pointHeights ? [...item.pointHeights] : undefined,
   }));
 }
 

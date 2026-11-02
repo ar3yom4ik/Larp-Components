@@ -7,6 +7,7 @@ const browser = await chromium.launch({args:['--enable-unsafe-swiftshader']});
 try {
   const context = await browser.newContext({viewport:{width:1500,height:950}, acceptDownloads:true});
   await context.addInitScript(() => {
+    localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}}));
     window.__fileWrites = [];
     window.showSaveFilePicker = async () => ({name:'factory.lcmx', queryPermission:async()=> 'granted', createWritable:async()=>({
       write:async data => { if (window.__delayNextWrite) { window.__delayNextWrite = false; window.__delayedWriteStarted = true; await new Promise(resolve => setTimeout(resolve, 3000)); } window.__fileWrites.push(Array.from(new Uint8Array(await data.arrayBuffer()))); }, close:async()=>{}

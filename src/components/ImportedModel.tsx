@@ -160,8 +160,17 @@ export function useImportedModelInstance(model: ImportedModelData) {
   return {loaded, error, transform};
 }
 
-export function ImportedModel({ model, id }: { model: ImportedModelData; id: string }) {
+export function ImportedModel({ model, id, onMeasure }: { model: ImportedModelData; id: string; onMeasure?: (sourceSize: [number, number, number]) => void }) {
   const {loaded, error, transform} = useImportedModelInstance(model);
+  useEffect(() => {
+    if (!loaded || model.sourceSize || !onMeasure) return;
+    // Ignore the viewport's parent transform and measure source coordinates.
+    const source = loaded.object.clone(true);
+    source.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(source);
+    const size = bounds.getSize(new THREE.Vector3());
+    if (!bounds.isEmpty() && [size.x, size.y, size.z].every(Number.isFinite)) onMeasure([size.x, size.y, size.z]);
+  }, [loaded, model.sourceSize, onMeasure]);
   if (error) return <mesh userData={{importError:error, itemId:id}} position={[0,.5,0]}><boxGeometry args={[1,1,1]} /><meshStandardMaterial color="#c04444" wireframe /></mesh>;
   if (!loaded) return <mesh position={[0,.5,0]}><boxGeometry args={[.8,1,.8]} /><meshStandardMaterial color="#96a2aa" wireframe /></mesh>;
   return <group userData={{isImportedModel:true, itemId:id}} position={transform.offset} scale={transform.scale}><group rotation={[model.axis === "z" ? -Math.PI / 2 : 0,0,0]}><primitive object={loaded.object} /></group></group>;

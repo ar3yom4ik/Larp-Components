@@ -2,11 +2,12 @@ import { useState } from "react";
 import { Layers3 } from "lucide-react";
 import { getProduct, palletSize } from "../data/products";
 import { t } from "../i18n";
+import type { SceneItem } from "../types";
 
-export function PalletPattern({ props, onChange, compact = false }: { props: Record<string, string | number | boolean>; onChange: (patch: Record<string, string | number | boolean>) => void; compact?: boolean }) {
+export function PalletPattern({ props, onChange, compact = false, items = [] }: { props: Record<string, string | number | boolean>; onChange: (patch: Record<string, string | number | boolean>) => void; compact?: boolean; items?: readonly SceneItem[] }) {
   const [layer, setLayer] = useState(0);
   const cols = Math.max(1, Number(props.cols ?? 3)), rows = Math.max(1, Number(props.rows ?? 2)), layers = Math.max(1, Number(props.layers ?? 4));
-  const [width, depth] = palletSize(props), product = getProduct(props.product);
+  const [width, depth] = palletSize(props, items), product = getProduct(props.product, items);
   return <div>
     <div className="mb-2 grid grid-cols-3 gap-2">{([["cols", "Columns", cols], ["rows", "Rows", rows], ["layers", "Layers", layers]] as const).map(([key, label, value]) => <label key={key} className="block"><span className="mb-1 block text-[10px] text-white/50">{t(label)}</span><input aria-label={t(label)} type="number" inputMode="numeric" min={1} max={key === "layers" ? 8 : 6} value={value} onChange={(e) => onChange({ [key]: Math.max(1, Math.min(key === "layers" ? 8 : 6, Math.round(Number(e.target.value) || 1))) })} className="w-full rounded border border-white/15 bg-[#1e1e21] px-2 py-1.5 font-mono text-[13px] outline-none focus:border-[var(--app-accent)]" /></label>)}</div>
     <div className="relative overflow-hidden rounded border border-white/10 bg-[#202024] px-2 py-2">

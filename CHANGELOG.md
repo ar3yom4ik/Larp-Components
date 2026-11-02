@@ -7,7 +7,10 @@ All notable changes to this project are documented here. Versions follow the Lar
 - AI Factory now merges multiple conveyor inputs into a shared, simulated line, with selectable multi-head and side-entry junction geometry, backpressure and fair access. Splitters remain unsupported.
 - Graph node dragging previews locally and persists one undoable edit on release; unchanged topology does not recompile the factory. Wire hit targets and multi-input removal were improved.
 - Signal ports support mouse/touch drag, rerouting and disconnect; direct robot inputs queue edges for visual programs and `robot.waitForSignal()`, and robot outputs can pulse after a successful place.
-- Added XYZ move/rotation gizmos, snapping, editable height and persisted three-axis rotations. Elevated equipment is supported; tilted equipment's collision/operation physics remains an upright approximation.
+- Added XYZ move/rotation gizmos, snapping, editable height and persisted three-axis rotations. Conveyor spline points have Y gizmos/fields for 3D slopes and stacked layers; elevated platforms and stairs provide adjustable upper floors.
+- Added fixed-step dynamic/kinematic rigid bodies, configurable mass, gravity, sleep, oriented compound proxy collisions and rotated support surfaces. Existing operational simulation remains in control of belts, mechanisms and worker tasks; colliders are simplified and fast bodies can tunnel.
+- Imported models can serve as feeder, machine and pallet workpieces using their bounds and configured weight; source models remain embedded in the project and can be hidden.
+- Added physics, upper-floor, imported-product, moving-wire and browser regressions plus a reproducible headless physics benchmark.
 - Added unit and browser regressions for merges, robot signals, transformed scenes, gesture interactions and graph editing.
 
 - Added resizable dialogs, floating windows, simulation settings and touch sheets. Settings window size and position are remembered, with reset controls.

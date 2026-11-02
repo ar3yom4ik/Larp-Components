@@ -15,7 +15,7 @@ try {
     build.onResolve({filter:/^virtual:old-rust-bridge$/},()=>({path:'bridge',namespace:'old-bridge'}));
     build.onLoad({filter:/.*/,namespace:'old-bridge'},()=>({contents:oldBridge,loader:'ts',resolveDir:path.resolve('src/sim/wasm')}));
   }};
-  await build({plugins:[plugin],entryPoints:['benchmarks/rust-hybrid.ts'],bundle:true,platform:'node',format:'esm',outfile,define:{'import.meta.env':'{}',__APP_VERSION__:JSON.stringify('benchmark'),__BUILD_TIME__:JSON.stringify('benchmark')}});
+  await build({plugins:[plugin],entryPoints:['benchmarks/rust-hybrid.ts'],bundle:true,platform:'node',mainFields:['module','main'],format:'esm',outfile,define:{'import.meta.env':'{}',__APP_VERSION__:JSON.stringify('benchmark'),__BUILD_TIME__:JSON.stringify('benchmark')}});
   const result=spawnSync(process.execPath,[outfile],{stdio:'inherit'});
   if(result.error)throw result.error;
   process.exitCode=result.status??1;
