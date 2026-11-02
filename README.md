@@ -31,7 +31,8 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run test:physics-browser` | Playwright checks for point-height gizmos, imported workpieces, dynamic poses and moving wires. |
 | `npm run test:physics-standalone` | Offline packaged-file checks for custom products, physics, multi-level components and export (run after `npm run build`). |
 | `npm run bench:physics` | Headless fixed-step benchmark for falling and sleeping rigid bodies. |
-| `npm run test:factory-browser` | Playwright checks for graph dragging, multiple inputs, insertion and merge building. |
+| `npm run test:factory-browser` | Playwright checks for graph selection, groups, tooltips, wiring, insertion and merge building. |
+| `npm run test:factory-standalone` | Checks the production preview, offline graph editing and iframe loading. |
 | `npm run test:archive-browser` | Playwright `.LCMX` import/export and save/autosave checks. |
 | `npm run test:browser` | Four core Playwright UI suites against a running development server on port 4173. |
 | `npm run test:typescript-parity` | Compare selected simulation state against a Git baseline (see `docs/TYPESCRIPT_OPTIMIZATION.md`). |
@@ -42,7 +43,9 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 
 ### Merged conveyors and 3D transforms
 
-In **AI Factory → Node graph**, connect several conveyor outputs to one downstream conveyor input. Choose **Multi-head junction** or **Side entry to main conveyor** on that node, then complete the line with a robot and pallet. Junctions are built and simulated, with backpressure and fair access to the shared belt. Material splitters are not supported. Node movements are previewed locally and saved once on release.
+In **AI Factory → Node graph**, connect multiple feeders, conveyors, robots or operators directly to one conveyor input; the physical inlets are built automatically. Choose **Multi-head junction** or **Side entry to main conveyor** on that node. Multiple robots/operators can also take turns from the same conveyor: stations and queueing are configured automatically. General conveyor-to-conveyor splitters are not supported.
+
+Drag on empty graph space to box-select, Shift-click to add/remove nodes, and drag a selected node to move the selection. Use middle mouse or Space-drag to pan, the wheel to zoom, and **Fit all nodes** (or Home) to frame the graph. Right-click a selection to rearrange or group it; choose a group name and colour in its inspector. Drag the group frame to move its contents, and use Ctrl+C/V or Shift+D to copy nodes, internal wires and complete groups. Groups become named overview frames at distant zoom. Double-click a node to collapse it while keeping its ports visible. Hover over any button briefly to see its name beside the pointer. Changes remain undoable and survive graph export/import and reload.
 
 Select an object and use **Move** or **Rotate** for X/Y/Z gizmos. To make a sloped or multi-level conveyor, select a spline sphere or point row and drag its green Y arrow, or enter its local Y height. Existing sphere dragging, snapping, undo and project archives still work. Add **Elevated Platform** and **Industrial Stairs** from the Building catalog and align their heights to arrange upper floors.
 

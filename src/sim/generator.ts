@@ -395,7 +395,7 @@ export function validateFactory(items: SceneItem[]) {
     const target = items.find((i) => i.id === item.program!.targetId);
     if (source) {
       const conv = new ConveyorRT(source);
-      const p = conv.pointAt(conv.length - 0.3);
+      const p = conv.pointAt(Math.max(0, conv.length - (item.program!.pickupBack ?? 0.3)));
       if (!robot.reach([p.x, p.y + 0.3, p.z])) warnings.push("Source is outside robot reach.");
     }
     if (target?.kind === "crates") {

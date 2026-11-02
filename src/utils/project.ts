@@ -169,7 +169,7 @@ export function parseProject(text: string): ProjectFile {
       if (item.program) {
         const p = item.program;
         if (!["palletize", "transfer", "tend", "paint", "assemble"].includes(p.mode) || typeof p.sourceId !== "string" || typeof p.targetId !== "string") throw new Error("Invalid program");
-        program = { mode: p.mode, sourceId: p.sourceId, targetId: p.targetId, machineId: typeof p.machineId === "string" ? p.machineId : undefined, repeat: p.repeat !== false, delay: Math.max(0, Math.min(60, Number(p.delay) || 0)), clearance: Math.max(0.05, Math.min(0.6, Number(p.clearance) || 0.3)), paintColor: /^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
+        program = { mode: p.mode, sourceId: p.sourceId, targetId: p.targetId, machineId: typeof p.machineId === "string" ? p.machineId : undefined, repeat: p.repeat !== false, delay: Math.max(0, Math.min(60, Number(p.delay) || 0)), clearance: Math.max(0.05, Math.min(0.6, Number(p.clearance) || 0.3)), pickupBack: finite(p.pickupBack) ? Math.max(0, Math.min(200, p.pickupBack)) : undefined, paintColor: /^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
       }
       let imported: ImportedModelData | undefined;
       if (item.kind === "imported-model") {

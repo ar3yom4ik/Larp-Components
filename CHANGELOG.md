@@ -4,6 +4,10 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ## [Unreleased]
 
+- Added delayed button-name tooltips, deeper graph zoom and fit-to-view; collapsed nodes retain connected ports and physical node types have distinct colours.
+- Added box/shift selection, multi-node move/copy with internal wires, rearrangement and persistent named, custom-coloured group frames that become overview nodes at distant zoom. Inserting a node into a wire makes room automatically.
+- Feeders, robots and operators can feed a shared conveyor directly with automatically generated physical inlets. Multiple robots/operators can share a conveyor output with automatically placed stations, product reservations and queueing. General conveyor-to-conveyor splitters remain unsupported.
+
 - AI Factory now merges multiple conveyor inputs into a shared, simulated line, with selectable multi-head and side-entry junction geometry, backpressure and fair access. Splitters remain unsupported.
 - Graph node dragging previews locally and persists one undoable edit on release; unchanged topology does not recompile the factory. Wire hit targets and multi-input removal were improved.
 - Signal ports support mouse/touch drag, rerouting and disconnect; direct robot inputs queue edges for visual programs and `robot.waitForSignal()`, and robot outputs can pulse after a successful place.
@@ -187,6 +191,10 @@ All notable changes to this project are documented here. Versions follow the Lar
 - The settings help text no longer claims panels are fixed.
 
 ## [Unreleased]
+
+- Added delayed button-name tooltips, deeper graph zoom and fit-to-view; collapsed nodes retain connected ports and physical node types have distinct colours.
+- Added box/shift selection, multi-node move/copy with internal wires, rearrangement and persistent named, custom-coloured group frames that become overview nodes at distant zoom. Inserting a node into a wire makes room automatically.
+- Feeders, robots and operators can feed a shared conveyor directly with automatically generated physical inlets. Multiple robots/operators can share a conveyor output with automatically placed stations, product reservations and queueing. General conveyor-to-conveyor splitters remain unsupported.
 
 ### Fixed
 - Camera no longer snaps back to the default view when an object is selected. Only explicit camera actions (view buttons, Fit, or a new layout) re-frame the view.

@@ -17,6 +17,13 @@ export function useLanguage() {
 
 // Program identifiers, code and user-authored names remain unchanged in both languages.
 export const RU: Record<string, string> = {
+  "Factory node canvas": "Граф узлов фабрики", "Fit all nodes": "Показать все узлы", "Node actions": "Действия с узлами",
+  "Group": "Группа", "Group name": "Название группы", "Group color": "Цвет группы", "Group selected nodes": "Сгруппировать выбранные узлы", "Ungroup": "Разгруппировать", "Rearrange nodes": "Упорядочить узлы", "nodes selected": "узлов выбрано", "selected": "выбрано",
+  "Drag the frame to move its members. Copy and paste to duplicate the group.": "Перетащите рамку, чтобы переместить узлы. Копирование и вставка дублируют всю группу.",
+  "Drag a selected node to move the selection. Right-click for more actions.": "Перетащите выбранный узел, чтобы переместить все выбранные. Щёлкните правой кнопкой для дополнительных действий.",
+  "drag to select · middle mouse or Space + drag to pan · wheel to zoom": "перетащите для выделения · средняя кнопка или пробел и перетаскивание для перемещения · колесо для масштаба",
+  "Connect multiple feeders, robots, operators or conveyors here. Inlets are created automatically.": "Подключите несколько податчиков, роботов, операторов или конвейеров. Входные линии создаются автоматически.",
+  "A physical conveyor segment. Connect multiple material sources to its input to merge production lines automatically.": "Физический участок конвейера. Подключите к входу несколько источников для автоматического объединения линий.",
   "Physics": "Физика", "Physics mode": "Режим физики", "Kinematic": "Кинематический", "Kinematic (legacy)": "Кинематический (старый режим)", "Dynamic": "Динамический", "Weight (kg)": "Масса (кг)",
   "Dynamic components fall and collide during simulation. Kinematic components stay at their edited pose. Choose a mode to enable physics for legacy components. Reset restores the layout; colliders are simplified.": "Динамические компоненты падают и сталкиваются во время симуляции. Кинематические остаются в заданном положении. Выберите режим, чтобы включить физику для старых компонентов. Сброс возвращает исходную сцену; коллайдеры упрощены.",
   "Elevated Platform": "Высокая платформа", "Industrial Stairs": "Промышленная лестница", "Deck": "Настил", "Access": "Доступ", "Adjustable": "Регулируется", "Multi-level": "Несколько уровней",

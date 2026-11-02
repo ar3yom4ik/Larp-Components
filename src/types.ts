@@ -61,6 +61,8 @@ export interface RobotProgram {
   repeat: boolean;
   delay: number;
   clearance: number;
+  /** Distance back from a shared input belt end, when using a generated station. */
+  pickupBack?: number;
   paintColor?: string;
 }
 

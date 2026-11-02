@@ -20,11 +20,11 @@ export function defaultComponentGraph(): NodeGraph {
   return {version:1,nodes:[feeder,belt,robot,machine,belt2,robot2,pallet],links:[wire(feeder,'out',belt,'in'),wire(belt,'out',robot,'in'),wire(machine,'machine',robot,'machine'),wire(robot,'out',belt2,'in'),wire(belt2,'out',robot2,'in'),wire(robot2,'out',pallet,'in')]};
 }
 
-interface FlowEnd { x: number; z: number }
+interface FlowEnd { x: number; z: number; palletZ?: number; pickupBack?: number; side?: number; station?: number }
 interface MergeEntry { sourceId: string; along: number; side: number }
 
-/** Compile a DAG of physical parts. Conveyors can merge, but material fan-out
- * is still rejected until the simulator has explicit splitter routing. */
+/** Compile a DAG of physical parts. Multiple workers can share a belt as
+ * competing consumers; other fan-out still needs an explicit splitter. */
 export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const start = performance.now();
   const connectedIds = new Set(graph.links.flatMap((link) => [link.from.node, link.to.node]));
@@ -45,15 +45,16 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   for (const node of order) {
     const ins = inFlow(node.id), outs = outFlow(node.id);
     const predecessors = ins.map((link) => byId.get(link.from.node));
-    const next = outs.length === 1 ? byId.get(outs[0].to.node)?.type : undefined;
+    const nextTypes = outs.map(link => byId.get(link.to.node)?.type);
+    const next = outs.length === 1 ? nextTypes[0] : undefined;
+    const sharedWorkers = node.type === 'part.conveyor' && outs.length > 1 && nextTypes.every(type => type === 'part.robot' || type === 'part.human');
     if (predecessors.some((parent) => parent && reachable.has(parent.id))) reachable.add(node.id);
-    if (outs.length > 1) error('Splitting material into multiple outputs is not supported yet.', node.id);
+    if (outs.length > 1 && !sharedWorkers) error('Splitting material into multiple outputs is not supported yet.', node.id);
     if (node.type === 'part.feeder' && next !== 'part.conveyor') error('A feeder must connect to a conveyor.', node.id);
     if (node.type === 'part.conveyor') {
       if (predecessors.some((parent) => !parent || !['part.feeder','part.robot','part.human','part.conveyor'].includes(parent.type))) error('A conveyor must receive material from a feeder, robot or conveyor.', node.id);
-      if (ins.length > 1 && predecessors.some((parent) => parent?.type !== 'part.conveyor')) error('To merge lines, connect conveyor outputs to the same conveyor input.', node.id);
       if (new Set(ins.map((link) => link.from.node)).size !== ins.length) error('A conveyor cannot merge the same source twice.', node.id);
-      if (!['part.conveyor','part.robot','part.human'].includes(next ?? '')) error('A conveyor must feed another conveyor or a robot.', node.id);
+      if (!sharedWorkers && !['part.conveyor','part.robot','part.human'].includes(next ?? '')) error('A conveyor must feed another conveyor or a robot.', node.id);
     }
     if (node.type === 'part.robot' || node.type === 'part.human') {
       if (predecessors.length !== 1 || predecessors[0]?.type !== 'part.conveyor' || !['part.conveyor','part.pallet'].includes(next ?? '')) error('A robot needs a source conveyor and a target conveyor or pallet.', node.id);
@@ -100,6 +101,9 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
 
   const items: SceneItem[] = [];
   const instances = new Map<string, SceneItem>();
+  // A robot feeding a merge must place onto its own generated inlet, not the
+  // distant shared belt. Conveyor and feeder inputs use the very same geometry.
+  const mergeConnectors = new Map<string, SceneItem>();
   const ends = new Map<string, FlowEnd>();
   for (const part of order) {
     if (part.type === 'part.machine') continue;
@@ -112,13 +116,18 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       ends.set(part.id, {x:0,z});
     } else if (part.type === 'part.conveyor') {
       const requestedLength = number(part, 'length', 4, 2, 8);
+      const consumers = outFlow(part.id);
+      // Two opposite-side stations fit per 3 m of belt. Extend automatically
+      // when more workers share this physical belt; no explicit branch nodes.
+      const stationLength = consumers.length > 1 ? 2 + Math.floor((consumers.length-1)/2)*3 : 0;
+      const beltLength = Math.max(requestedLength,stationLength);
       const kind = value(part,'kind','conveyor') === 'roller' ? 'roller' : 'conveyor';
       const speed = number(part,'speed',0.6,0.1,3);
       const next = byId.get(outFlow(part.id)[0].to.node)!;
       if (parents.length === 1) {
         const {x,z} = parents[0].end;
-        item = makeItem(kind, [x,0,z], 0, {name:`Conveyor ${instances.size}`,points:[[0,0],[requestedLength/2,0],[requestedLength,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed}});
-        ends.set(part.id, {x:x+requestedLength,z});
+        item = makeItem(kind, [x,0,z], 0, {name:`Conveyor ${instances.size}`,points:[[0,0],[beltLength/2,0],[beltLength,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed}});
+        ends.set(part.id, {x:x+beltLength,z});
       } else {
         const sorted = [...parents].sort((a,b) => a.end.z - b.end.z);
         const primary = sorted[Math.floor((sorted.length-1)/2)];
@@ -128,7 +137,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
         const farthest = Math.max(...parents.map((parent) => parent.end.x));
         const spread = Math.max(...parents.map((parent) => Math.abs(parent.end.z-z)));
         const x = farthest + (side ? 3 : Math.max(3, spread * 0.8 + 1.5));
-        const length = side ? Math.max(requestedLength, 1.9 + secondary.length * 1.2) : requestedLength;
+        const length = side ? Math.max(beltLength, 1.9 + secondary.length * 1.2) : beltLength;
         const entries: MergeEntry[] = [{sourceId:primary.node.id,along:0.2,side:0}, ...secondary.map((parent,index) => ({sourceId:parent.node.id,along:side ? 1.1 + index*1.2 : 0.2,side:Math.sign(parent.end.z-z)}))];
         item = makeItem(kind, [x,0,z], 0, {name:`${side ? 'Side-entry' : 'Multi-head'} conveyor ${instances.size}`,points:[[0,0],[length/2,0],[length,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed,mergeStyle:side?'side':'multi-head',mergeInputs:parents.length,mergeEntries:JSON.stringify(entries.map(({along,side:entrySide}) => ({along,side:entrySide})))}});
         // Each incoming path is a real conveyor, so the viewport and simulation
@@ -145,22 +154,31 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
           const source = instances.get(parent.node.id)!;
           const connector = makeItem(source.kind === 'roller' ? 'roller' : 'conveyor', [sx,0,sz], 0, {name:`${side ? 'Side entry' : 'Merge head'} ${items.length+1}`,points,props:{active:true,stopper:false,speed:Math.min(Number(source.props.speed) || speed,speed),mergeTargetId:item.id,mergeEntryS:entry.along,mergeStyle:side?'side':'multi-head',mergeSide:entry.side}});
           items.push(connector);
+          mergeConnectors.set(`${parent.node.id}:${part.id}`, connector);
         }
         ends.set(part.id, {x:x+length,z});
       }
-    } else if (part.type === 'part.human') {
-      const {x,z} = parents[0].end;
-      item = makeItem('operator',[x+0.3,0,z+1.45],0,{name:`Operator ${instances.size}`,props:{task:'carry',walkSpeed:number(part,'walkSpeed',1,0.3,2),hat:'hardhat'}});
-      ends.set(part.id, {x:x+0.6,z});
-    } else if (part.type === 'part.robot') {
-      const {x,z} = parents[0].end;
-      const kind = String(value(part,'kind','robot'));
-      const robotKind = (['robot','cobot','kuka','fanuc'].includes(kind) ? kind : 'robot') as ComponentKind;
-      item = makeItem(robotKind,[x+0.3,0,z+1.45],0,{name:`Robot ${instances.size}`,props:{payload:robotKind==='cobot'?5:12,speed:number(part,'speed',70,1,100),gripper:String(value(part,'gripper','vacuum'))}});
-      ends.set(part.id, {x:x+0.6,z});
+    } else if (part.type === 'part.human' || part.type === 'part.robot') {
+      const parent = parents[0];
+      const siblings = outFlow(parent.node.id);
+      const station = siblings.findIndex(link => link.to.node === part.id);
+      const shared = parent.node.type === 'part.conveyor' && siblings.length > 1;
+      const side = shared && station % 2 === 1 ? -1 : 1;
+      const pickupBack = shared ? 0.35 + Math.floor(station/2)*3 : undefined;
+      const x = parent.end.x - (pickupBack === undefined ? 0 : pickupBack - 0.35);
+      const z = parent.end.z;
+      if (part.type === 'part.human') {
+        item = makeItem('operator',[x+0.3,0,z+side*1.45],0,{name:`Operator ${instances.size}`,props:{task:'carry',walkSpeed:number(part,'walkSpeed',1,0.3,2),hat:'hardhat'}});
+      } else {
+        const kind = String(value(part,'kind','robot'));
+        const robotKind = (['robot','cobot','kuka','fanuc'].includes(kind) ? kind : 'robot') as ComponentKind;
+        item = makeItem(robotKind,[x+0.3,0,z+side*1.45],0,{name:`Robot ${instances.size}`,props:{payload:robotKind==='cobot'?5:12,speed:number(part,'speed',70,1,100),gripper:String(value(part,'gripper','vacuum'))}});
+      }
+      // Separate downstream branches from the shared source belt.
+      ends.set(part.id, shared ? {x:x+0.6,z:z+side*2.9,palletZ:z+side*2.9,pickupBack,side,station} : {x:x+0.6,z});
     } else {
-      const {x,z} = parents[0].end;
-      item = makeItem('crates',[x-0.3,0,z+2.9],0,{name:'Pallet',props:{product:String(value(part,'product','machined')),cols:number(part,'cols',3,1,8),rows:number(part,'rows',2,1,8),layers:number(part,'layers',4,1,10),gap:0.04}});
+      const {x,z,palletZ} = parents[0].end;
+      item = makeItem('crates',[x-0.3,0,palletZ ?? z+2.9],0,{name:'Pallet',props:{product:String(value(part,'product','machined')),cols:number(part,'cols',3,1,8),rows:number(part,'rows',2,1,8),layers:number(part,'layers',4,1,10),gap:0.04}});
     }
     instances.set(part.id,item);
     items.push(item);
@@ -170,21 +188,24 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     if (part.type !== 'part.robot' && part.type !== 'part.human') continue;
     const robot = instances.get(part.id)!;
     const source = instances.get(inFlow(part.id)[0].from.node)!;
-    const target = instances.get(outFlow(part.id)[0].to.node)!;
+    const targetNodeId = outFlow(part.id)[0].to.node;
+    const target = mergeConnectors.get(`${part.id}:${targetNodeId}`) ?? instances.get(targetNodeId)!;
+    const station = ends.get(part.id);
+    if (station?.pickupBack !== undefined) robot.props = {...robot.props,sharedBeltId:source.id,pickupBack:station.pickupBack,pickupSide:station.side ?? 1,pickupIndex:station.station ?? 0};
     const machineNode = byId.get(machineIn(part.id)[0]?.from.node ?? '');
     let machine: SceneItem | undefined;
     if (machineNode) {
       const kind = String(value(machineNode,'kind','cnc'));
       const allowed = ['cnc','press','weld','packaging','paint','cutter','inspection','assembly','kiln','lathe','grinder'];
-      machine = makeItem((allowed.includes(kind)?kind:'cnc') as ComponentKind,[robot.position[0],0,robot.position[2]+2.9],180,{name:`Machine ${items.length}`,props:{cycleTime:number(machineNode,'cycleTime',6,1,60),inputProduct:String(value(machineNode,'inputProduct','billet')),outputProduct:String(value(machineNode,'outputProduct','machined')),requiredParts:kind==='assembly'?2:1}});
+      machine = makeItem((allowed.includes(kind)?kind:'cnc') as ComponentKind,[robot.position[0],0,robot.position[2]+(ends.get(part.id)?.side ?? 1)*2.9],180,{name:`Machine ${items.length}`,props:{cycleTime:number(machineNode,'cycleTime',6,1,60),inputProduct:String(value(machineNode,'inputProduct','billet')),outputProduct:String(value(machineNode,'outputProduct','machined')),requiredParts:kind==='assembly'?2:1}});
       items.push(machine); instances.set(machineNode.id,machine);
     }
     if (part.type === 'part.human') {
-      robot.props = {...robot.props,task:machine?'tend':'carry',sourceId:source.id,targetId:target.id,machineId:machine?.id ?? ''};
+      robot.props = {...robot.props,task:machine?'tend':'carry',sourceId:source.id,targetId:target.id,machineId:machine?.id ?? '',...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack!,pickupSide:ends.get(part.id)!.side!} : {})};
       continue;
     }
     const mode = machine ? (machine.kind==='assembly' ? 'assemble' : machine.kind==='paint' ? 'paint' : 'tend') : target.kind==='crates' ? 'palletize' : 'transfer';
-    robot.program = {mode,sourceId:source.id,targetId:target.id,machineId:machine?.id,repeat:true,delay:0,clearance:0.3};
+    robot.program = {mode,sourceId:source.id,targetId:target.id,machineId:machine?.id,repeat:true,delay:0,clearance:0.3,...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack} : {})};
     robot.script = programToCode(robot.program);
   }
   const warnings = validateFactory(items);

@@ -8,7 +8,8 @@
  * - a wire that would close a cycle is rejected.
  */
 import { getNodeDef } from './registry';
-import type { Diagnostic, GraphLink, GraphNode, NodeGraph, PortType } from './types';
+import { NODE_WIDTH } from './metrics';
+import type { Diagnostic, GraphGroup, GraphLink, GraphNode, NodeGraph, PortType } from './types';
 
 let counter = 0;
 export function uid(prefix = 'n') {
@@ -109,6 +110,7 @@ export function removeNode(graph: NodeGraph, nodeId: string): NodeGraph {
     ...graph,
     nodes: graph.nodes.filter((node) => node.id !== nodeId),
     links: graph.links.filter((entry) => entry.from.node !== nodeId && entry.to.node !== nodeId),
+    groups: graph.groups?.map((group) => ({ ...group, nodeIds: group.nodeIds.filter((id) => id !== nodeId) })).filter((group) => group.nodeIds.length > 0),
   };
 }
 
@@ -267,7 +269,29 @@ export function parseGraph(input: unknown): NodeGraph {
       to: { node: entry.to.node, port: String(entry.to.port) },
     });
   }
-  const graph: NodeGraph = { version: 1, nodes, links, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined };
+  // Each node can belong to one frame. Invalid/stale members are dropped rather
+  // than making older or hand-edited graph files impossible to open.
+  const groups: GraphGroup[] = [];
+  const grouped = new Set<string>(), groupIds = new Set<string>();
+  for (const candidate of Array.isArray(source.groups) ? source.groups : []) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const group = candidate as Partial<GraphGroup>;
+    const nodeIds = (Array.isArray(group.nodeIds) ? group.nodeIds : []).filter((id): id is string => {
+      if (typeof id !== 'string' || !present.has(id) || grouped.has(id)) return false;
+      grouped.add(id); return true;
+    });
+    if (!nodeIds.length) continue;
+    let id = typeof group.id === 'string' && group.id && group.id.length <= 128 ? group.id : uid('g');
+    if (groupIds.has(id)) id = uid('g');
+    groupIds.add(id);
+    groups.push({
+      id,
+      name: typeof group.name === 'string' && group.name.trim() ? group.name.trim().slice(0, 80) : 'Group',
+      color: typeof group.color === 'string' && /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#5973a6',
+      nodeIds,
+    });
+  }
+  const graph: NodeGraph = { version: 1, nodes, links, groups: groups.length ? groups : undefined, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined };
   // Drop wires that no longer type-check after a registry change.
   const byId = new Map(nodes.map((node) => [node.id, node]));
   return { ...graph, links: links.filter((entry) => {
@@ -293,5 +317,25 @@ export function insertNodeInLink(graph: NodeGraph, nodeId: string, linkId: strin
   const first = connect(without,link.from,{node:nodeId,port:input.key});
   if (!first.ok) return {ok:false,graph,error:first.error};
   const second = connect(first.graph,{node:nodeId,port:output.key},link.to);
-  return second.ok ? second : {ok:false,graph,error:second.error};
+  if (!second.ok) return {ok:false,graph,error:second.error};
+  // Make a real slot between the endpoints. Move the downstream subgraph as a
+  // unit when necessary, so its internal layout is not piled on top of itself.
+  const source = graph.nodes.find(entry => entry.id === link.from.node)!;
+  const target = graph.nodes.find(entry => entry.id === link.to.node)!;
+  const width = NODE_WIDTH, gap = 48;
+  const left = source.x + width + gap;
+  const shift = Math.max(0, left + width + gap - target.x);
+  const downstream = new Set<string>([target.id]);
+  const queue = [target.id];
+  for (let i = 0; i < queue.length; i++) {
+    for (const edge of second.graph.links) {
+      if (edge.from.node !== queue[i] || edge.to.node === nodeId || downstream.has(edge.to.node)) continue;
+      downstream.add(edge.to.node); queue.push(edge.to.node);
+    }
+  }
+  const right = target.x + shift - gap - width;
+  const x = Math.round(Math.max(left, Math.min(right, node.x)));
+  return { ok:true, graph:{ ...second.graph, nodes:second.graph.nodes.map(entry =>
+    entry.id === nodeId ? {...entry,x} : shift && downstream.has(entry.id) ? {...entry,x:entry.x+shift} : entry
+  ) } };
 }

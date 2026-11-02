@@ -95,6 +95,8 @@ export interface Box {
   r: number;
   state: "free" | "held" | "inside" | "dying" | "dead";
   claim: number;
+  /** Temporary virtual stop for a robot picking at an interior shared-belt station. */
+  pickGate?: {owner:number; conveyorId:string; along:number};
   support: 0 | 1 | 2 | 3 | 4;
   palletId: string | null;
   palletT: number;
@@ -869,6 +871,8 @@ export class Engine {
   private mergeRoutes = new Map<string, MergeRoute>();
   private mergeGroups = new Map<string, MergeGroup>();
   private mergePresent = new Set<Box>();
+  /** Generated workers on the same belt receive deterministic, queued turns. */
+  private sharedBeltStations = new Map<string,{ownerId:string;index:number;along:number}[]>();
 
   /* ----- derived lookup tables, rebuilt by `sync` -----
      The stepping code runs up to sixty times per second, so every list scan it used to
@@ -1180,6 +1184,7 @@ export class Engine {
     this.logicItems = logic;
     this.triggers = triggers;
     this.rebuildMergeRoutes(conveyors);
+    this.rebuildSharedBeltStations(conveyors);
     this.walkSources = this.items.filter((i) => i.visible !== false && ["feeder", "conveyor", "roller", "cnc", "press", "weld", "packaging"].includes(i.kind));
     this.cratesItem = this.items.find((i) => i.visible !== false && i.kind === "crates");
     this.humanStations.clear();
@@ -1211,6 +1216,29 @@ export class Engine {
         Math.max(barrier.a[1], barrier.b[1]) + pad,
       );
     }
+  }
+
+  private rebuildSharedBeltStations(conveyors: Map<string, ConveyorRT>) {
+    this.sharedBeltStations.clear();
+    for (const item of this.items) {
+      if (item.visible === false || typeof item.props.sharedBeltId !== "string") continue;
+      const sourceId = item.props.sharedBeltId;
+      const belt = conveyors.get(sourceId);
+      const actualSource = item.program?.sourceId ?? (item.kind === "operator" ? String(item.props.sourceId ?? "") : sourceId);
+      if (!belt || actualSource !== sourceId) continue;
+      const back = Math.max(0,num(item.props.pickupBack,0.35));
+      const station = {ownerId:item.id,index:Math.max(0,Math.floor(num(item.props.pickupIndex,0))),along:Math.max(0,belt.length-back)};
+      const entries = this.sharedBeltStations.get(sourceId);
+      if (entries) entries.push(station); else this.sharedBeltStations.set(sourceId,[station]);
+    }
+    for (const stations of this.sharedBeltStations.values()) stations.sort((a,b) => a.index-b.index || a.ownerId.localeCompare(b.ownerId));
+  }
+
+  private sharedStationAccept(sourceId:string,ownerId:string,box:Box) {
+    const stations = this.sharedBeltStations.get(sourceId);
+    if (!stations?.length) return true;
+    if (box.support !== 2 || box.convId !== sourceId) return false;
+    return stations[(box.id-1)%stations.length].ownerId === ownerId;
   }
 
   /** Resolve merge metadata to the actual, currently touching conveyor paths.
@@ -1294,6 +1322,23 @@ export class Engine {
     const reservation = this.mergeGroups.get(conveyor.id)?.reservation;
     if (reservation && reservation.box !== box && q.s < reservation.route.entry) return Math.max(0, reservation.route.entry - reservation.box.r - 0.06);
     return null;
+  }
+
+  private productStopLength(box: Box, conveyor: ConveyorRT, q: Query): number | null {
+    if (!this.mergeRoutes.size && !box.pickGate && !this.sharedBeltStations.size) return null;
+    const merge = this.mergeRoutes.size ? this.mergeStopLength(box, conveyor, q) : null;
+    const gate = box.pickGate;
+    const pickup = gate && gate.owner === box.claim && gate.conveyorId === conveyor.id ? gate.along + box.r + 0.06 : null;
+    const stations = this.sharedBeltStations.get(conveyor.id);
+    const station = stations?.length ? stations[(box.id-1)%stations.length] : undefined;
+    // A part assigned to an occupied upstream station waits there instead of
+    // passing it and starving that worker. Do not teleport externally inserted
+    // parts backwards if they are already beyond the station.
+    const queue = station && q.s <= station.along + 0.25 ? station.along + box.r + 0.06 : null;
+    let stop = merge;
+    if (pickup !== null) stop = stop === null ? pickup : Math.min(stop,pickup);
+    if (queue !== null) stop = stop === null ? queue : Math.min(stop,queue);
+    return stop;
   }
 
   private noteSignalActivation(id: string) {
@@ -1559,7 +1604,7 @@ export class Engine {
     }
     robot.gripTarget = 0;
     this.boxes.forEach((box) => {
-      if (box.claim === robot.id) box.claim = 0;
+      if (box.claim === robot.id) { box.claim = 0; box.pickGate = undefined; }
     });
     this.timers = this.timers.filter((timer) => timer.owner !== robot);
     this.conds = this.conds.filter((cond) => cond.owner !== robot);
@@ -1822,13 +1867,13 @@ export class Engine {
   }
 
   /** Closest unclaimed product within `radius`, using the substep index. */
-  private findFreeNear(x: number, z: number, radius: number, uninspectedOnly = false, height?: number): Box | null {
+  private findFreeNear(x: number, z: number, radius: number, uninspectedOnly = false, height?: number, accept?: (box:Box) => boolean): Box | null {
     const nearby = this.boxIndex.query(x, z, this.pickupScratch, radius);
     let best: Box | null = null;
     let bestD = Infinity;
     for (let i = 0; i < nearby.length; i += 1) {
       const b = nearby[i];
-      if (b.state !== "free" || b.claim !== 0) continue;
+      if (b.state !== "free" || b.claim !== 0 || (accept && !accept(b))) continue;
       if (uninspectedOnly && b.inspected) continue;
       if (height !== undefined && Math.abs(b.y - b.hy - height) > 0.2) continue;
       const d = Math.hypot(b.x - x, b.z - z);
@@ -1921,7 +1966,7 @@ export class Engine {
     const source = () => {
       const c = this.conveyors.get(config.sourceId);
       const m = this.machines.get(config.sourceId);
-      if (c) return { ...c.pointAt(c.length - 0.3), r: 0.65 };
+      if (c) return { ...c.pointAt(Math.max(0, c.length - (config.pickupBack ?? 0.3))), r: 0.65 };
       if (m) return { ...m.table(), r: 0.45 };
       return null;
     };
@@ -1937,7 +1982,7 @@ export class Engine {
       yield this.waiter(() => {
         const zone = source();
         if (!zone) { robot.error = "Choose a source in the visual program"; return false; }
-        const found = this.findPart(robot, zone);
+        const found = this.findPart(robot, zone, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined);
         if (!found) { robot.error = null; return false; }
         if (!this.triggerGate(robot.itemId, config.sourceId)) { robot.error = null; return false; }
         const target = config.mode === "tend" ? machineTarget()?.table() : destination(found.productId);
@@ -1947,6 +1992,11 @@ export class Engine {
         }
         this.triggerGate(robot.itemId, config.sourceId, true);
         robot.error = null; box = found; found.claim = robot.id;
+        if (config.pickupBack !== undefined && found.support === 2 && found.convId === config.sourceId) {
+          // Reserve the product at this station while the arm approaches it.
+          // Without a local stop, a moving part can outrun the robot's reach.
+          found.pickGate = {owner:robot.id,conveyorId:found.convId,along:found.convS};
+        }
         return true;
       });
       if (!box || !(yield* this.pickGen(robot, box))) continue;
@@ -1959,7 +2009,7 @@ export class Engine {
         for (let n = 0; n < rounds; n += 1) {
           if (n > 0) {
             let extra: Box | null = null;
-            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId)) return false; extra = this.findPart(robot, z); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true); extra.claim = robot.id; } return !!extra; });
+            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId)) return false; extra = this.findPart(robot, z, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true); extra.claim = robot.id; } return !!extra; });
             if (!extra || !(yield* this.pickGen(robot, extra))) break;
           }
           if (!(yield* this.placeGen(robot, live))) break;
@@ -2353,11 +2403,12 @@ export class Engine {
       const output = this.conveyors.get(String(item.props.targetId));
       const inputBelt = this.conveyors.get(source.id);
       if (!machine || !output || !inputBelt) { human.status = "missing station"; return; }
-      const pickPoint = inputBelt.pointAt(inputBelt.length - 0.35);
+      const pickPoint = inputBelt.pointAt(Math.max(0,inputBelt.length - Math.max(0,num(item.props.pickupBack,0.35))));
+      const pickSide = num(item.props.pickupSide,1) < 0 ? -1 : 1;
       const table = machine.table();
       if (human.stage === 0) {
-        if (!this.walkHuman(human, pickPoint.x, pickPoint.z + 0.55, speed, dt, this.beltAccessHeight(source,pickPoint.y))) return;
-        const part = this.findFreeNear(pickPoint.x, pickPoint.z, 0.7, false, pickPoint.y);
+        if (!this.walkHuman(human, pickPoint.x, pickPoint.z + pickSide * 0.55, speed, dt, this.beltAccessHeight(source,pickPoint.y))) return;
+        const part = this.findFreeNear(pickPoint.x, pickPoint.z, 0.7, false, pickPoint.y, this.sharedBeltStations.has(source.id) ? box => this.sharedStationAccept(source.id,human.id,box) : undefined);
         if (!part) { human.status = "waiting"; return; }
         human.held = part; part.state = "held"; part.claim = human.claim; human.stage = 1; human.status = "carrying";
       } else if (human.stage === 1) {
@@ -2407,13 +2458,14 @@ export class Engine {
     }
     const conveyor = this.conveyors.get(source.id);
     const table = this.machines.get(source.id)?.table();
-    const pickup = conveyor ? conveyor.pointAt(conveyor.length - 0.35) : table ?? { x: source.position[0], z: source.position[2] };
+    const pickupSide = num(item.props.pickupSide,1) < 0 ? -1 : 1;
+    const pickup = conveyor ? conveyor.pointAt(Math.max(0,conveyor.length - Math.max(0,num(item.props.pickupBack,0.35)))) : table ?? { x: source.position[0], z: source.position[2] };
     if (!human.held) {
       const targetPallet = dest ? this.pallets.get(dest.id) : null;
       if (targetPallet && targetPallet.cursor >= targetPallet.capacity) { human.walking = false; return; }
-      if (!this.walkHuman(human, pickup.x, pickup.z + 0.65, speed, dt, conveyor && 'y' in pickup ? this.beltAccessHeight(source,pickup.y) : source.position[1])) return;
+      if (!this.walkHuman(human, pickup.x, pickup.z + pickupSide * 0.65, speed, dt, conveyor && 'y' in pickup ? this.beltAccessHeight(source,pickup.y) : source.position[1])) return;
       human.walking = false;
-      const b = this.findFreeNear(pickup.x, pickup.z, 0.7, task === "inspect", 'y' in pickup ? pickup.y : undefined);
+      const b = this.findFreeNear(pickup.x, pickup.z, 0.7, task === "inspect", 'y' in pickup ? pickup.y : undefined, this.sharedBeltStations.has(source.id) ? box => this.sharedStationAccept(source.id,human.id,box) : undefined);
       if (!b) return;
       human.dwell += dt;
       if (human.dwell < 1.5) return;
@@ -2574,6 +2626,7 @@ export class Engine {
   private attach(robot: RobotRT, box: Box) {
     box.state = "held";
     box.claim = robot.id;
+    box.pickGate = undefined;
     box.yaw0 = box.yaw;
     box.waist0 = robot.joints.waist;
     box.vx = box.vy = box.vz = 0;
@@ -2594,14 +2647,14 @@ export class Engine {
     robot.holdYaw = null;
   }
 
-  private findPart(robot: RobotRT, zone: { x: number; y?: number; z: number; r?: number }): Box | null {
+  private findPart(robot: RobotRT, zone: { x: number; y?: number; z: number; r?: number }, accept?: (box:Box) => boolean): Box | null {
     const radius = zone.r ?? 0.55;
     let best: Box | null = null;
     let bestD = Infinity;
     const nearby = this.boxIndex.query(zone.x, zone.z, this.grabScratch, radius);
     for (let i = 0; i < nearby.length; i += 1) {
       const box = nearby[i];
-      if (box.state !== "free" || (box.claim !== 0 && box.claim !== robot.id) || box.support === 0 || !this.canGrip(robot, box)) continue;
+      if (box.state !== "free" || (box.claim !== 0 && box.claim !== robot.id) || box.support === 0 || !this.canGrip(robot, box) || (accept && !accept(box))) continue;
       if (Math.hypot(box.vx, box.vz) > 0.9) continue;
       if (typeof zone.y === "number" && Math.abs(box.y - box.hy - zone.y) > 0.2) continue;
       const d = Math.hypot(box.x - zone.x, box.z - zone.z);
@@ -2623,9 +2676,18 @@ export class Engine {
   private *waitPartGen(robot: RobotRT, zone: { x: number; y?: number; z: number; r?: number }): Generator<Cmd, Box | null, unknown> {
     let found: Box | null = null;
     yield this.waiter(() => {
-      const box = this.findPart(robot, zone);
+      // The generated code remains usable if a shared-station visual program
+      // is converted to a script. Restrict only the matching station zone; a
+      // custom script is still free to inspect other conveyors.
+      const item = this.sharedBeltStations.size ? this.itemById.get(robot.itemId) : undefined;
+      const sharedId = typeof item?.props.sharedBeltId === "string" ? item.props.sharedBeltId : "";
+      const belt = this.conveyors.get(sharedId);
+      const station = belt?.pointAt(Math.max(0,belt.length-Math.max(0,num(item?.props.pickupBack,0.35))));
+      const atStation = !!station && Math.hypot(zone.x-station.x,zone.z-station.z) <= (zone.r ?? 0.55)+0.1;
+      const box = this.findPart(robot, zone, atStation ? part => this.sharedStationAccept(sharedId,robot.itemId,part) : undefined);
       if (!box) return false;
       box.claim = robot.id;
+      if (atStation && box.support === 2 && box.convId === sharedId) box.pickGate = {owner:robot.id,conveyorId:sharedId,along:box.convS};
       found = box;
       return true;
     });
@@ -2639,13 +2701,13 @@ export class Engine {
     const hover = this.servo(robot, () => (alive() ? this.approach(robot, [box.x, box.y + box.hy, box.z], robot.program?.clearance ?? 0.35) : null), 0.03);
     yield hover;
     if (!hover.ok) {
-      if (box.claim === robot.id) box.claim = 0;
+      if (box.claim === robot.id) { box.claim = 0; box.pickGate = undefined; }
       return false;
     }
     const down = this.servo(robot, () => (alive() ? [box.x, box.y + box.hy, box.z] : null), 0.012, 0.45);
     yield down;
     if (!down.ok) {
-      if (box.claim === robot.id) box.claim = 0;
+      if (box.claim === robot.id) { box.claim = 0; box.pickGate = undefined; }
       return false;
     }
     this.attach(robot, box);
@@ -3297,6 +3359,7 @@ export class Engine {
     groups.clear();
     if (grouped) for (const box of boxes) if (box.state === "free" && box.support === 2) this.addConveyorBox(box);
     let floorBoxes = 0, escaped = false;
+    const specialStops = this.mergeRoutes.size > 0 || this.sharedBeltStations.size > 0;
     for (const b of boxes) {
       const previousConveyor = grouped && b.state === "free" && b.support === 2 ? b.convId : null;
       b.age += dt;
@@ -3323,7 +3386,7 @@ export class Engine {
             if (ds > 0 && ds < b.r + o.r + 0.02 && Math.abs(o.convLat - q.lat) < b.r + o.r - 0.05) { blocked = true; break; }
           }
         }
-        const gateLength = this.mergeRoutes.size && conv && q ? this.mergeStopLength(b, conv, q) : null;
+        const gateLength = conv && q && (specialStops || b.pickGate) ? this.productStopLength(b, conv, q) : null;
         const landed = this.productIntegrator.integrate(b, {
           top: sup.top, kind: sup.kind, conveyor: !!(conv && q), lat: q?.lat ?? 0, tx: q?.tx ?? 0, tz: q?.tz ?? 0,
           along: q?.s ?? 0, speed: conv?.active ? conv.speed * (q?.speedFactor ?? 1) : 0, blocked, stopper: (conv?.stopper ?? false) || gateLength !== null,
@@ -3360,7 +3423,7 @@ export class Engine {
           b.vz += (dvz - b.vz) * k;
           const target = Math.atan2(-q.tz, q.tx);
           b.yaw += wrapQuarter(target - b.yaw) * Math.min(1, 5 * dt);
-          const gateLength = this.mergeRoutes.size ? this.mergeStopLength(b, conv, q) : null;
+          const gateLength = specialStops || b.pickGate ? this.productStopLength(b, conv, q) : null;
           if (conv.stopper || gateLength !== null) {
             const length = gateLength === null ? conv.length : Math.min(conv.stopper ? conv.length : Infinity, gateLength);
             const limit = length - 0.06 - b.r;

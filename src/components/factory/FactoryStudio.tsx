@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, Factory, Plus, RotateCcw, Upload, Wand2 } from "lucide-react";
-import { GraphCanvas } from "./GraphCanvas";
+import { GraphCanvas, type GraphSelection } from "./GraphCanvas";
 import { NodeInspector } from "./NodeInspector";
 import { nodesByCategory, getNodeDef } from "../../gen/graph/registry";
 import { connect, makeNode, removeNode, setParam, validateGraph } from "../../gen/graph/graph";
 import { compileGraph } from "../../gen/graph/compile";
+import { arrangeGraphNodes, groupNodes } from "../../gen/graph/layout";
 import { useFactoryGraph, setGraph as storeGraph, resetGraph, replaceGraph, undoGraph, redoGraph } from "../../gen/graphStore";
 import { describeIntent, analyzePrompt } from "../../gen/prompt";
 import { FloorPlanView } from "../FloorPlanView";
@@ -30,12 +31,22 @@ export function FactoryStudio({
   onClose: () => void;
 }) {
   const graph = useFactoryGraph();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<GraphSelection>({nodeIds:[],groupId:null});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
-  const selected = graph.nodes.find((node) => node.id === selectedId) ?? null;
+  const selected = selection.nodeIds.length === 1 && !selection.groupId ? graph.nodes.find(node => node.id === selection.nodeIds[0]) ?? null : null;
+  const selectedGroup = graph.groups?.find(group => group.id === selection.groupId) ?? null;
+  // Undo/import/deleting a member must not leave a dangling selection.
+  useEffect(() => {
+    setSelection(current => {
+      const present = new Set(graph.nodes.map(node => node.id));
+      const ids = current.nodeIds.filter(id => present.has(id));
+      const groupId = current.groupId && graph.groups?.some(group => group.id === current.groupId) ? current.groupId : null;
+      return ids.length === current.nodeIds.length && groupId === current.groupId ? current : {nodeIds:ids,groupId};
+    });
+  },[graph.nodes,graph.groups]);
 
   // Editor coordinates and collapsed state have no effect on compilation. Keep
   // preview IDs/results stable when a node is moved, and avoid rebuilding the
@@ -70,7 +81,7 @@ export function FactoryStudio({
     const maxX = graph.nodes.length ? Math.max(...graph.nodes.map((node) => node.x)) : 0;
     const node = makeNode(type, maxX + 260, 40 + (graph.nodes.length % 6) * 90);
     storeGraph({ ...graph, nodes: [...graph.nodes, node] });
-    setSelectedId(node.id);
+    setSelection({nodeIds:[node.id],groupId:null});
     setPaletteOpen(false);
     flash(`${def.title} ${t('added')}`);
   };
@@ -114,7 +125,9 @@ export function FactoryStudio({
   }, []);
 
   // Focus the build result once so the dialog does not lie about being ready.
-  useEffect(() => { if (errors.length) setSelectedId(errors[0].nodeId ?? null); }, [errors.length]);
+  useEffect(() => {
+    if (errors.length && errors[0].nodeId) setSelection(current => current.nodeIds.length ? current : {nodeIds:[errors[0].nodeId!],groupId:null});
+  }, [errors.length]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -162,20 +175,36 @@ export function FactoryStudio({
         <div className="flex min-w-0 flex-1 flex-col p-2">
           <GraphCanvas
             graph={graph}
-            selectedId={selectedId}
+            selection={selection}
             diagnostics={compiled.diagnostics.length ? compiled.diagnostics : validation}
-            onSelect={setSelectedId}
+            onSelectionChange={setSelection}
             onChange={storeGraph}
-            onContextMenu={(nodeId) => setSelectedId(nodeId)}
             onConnect={handleConnect}
           />
         </div>
 
         <div className="factory-studio-inspector flex w-[260px] shrink-0 flex-col border-l border-white/10 bg-[#232326]">
           <div className="min-h-0 flex-1 overflow-hidden">
-            <NodeInspector
+            {selectedGroup ? (
+              <div className="space-y-3 p-3 text-[11px] text-white/75" data-group-inspector>
+                <div className="text-xs font-semibold text-white">{t('Group')}</div>
+                <label className="block space-y-1"><span>{t('Group name')}</span><input aria-label={t('Group name')} maxLength={80} value={selectedGroup.name} onChange={event => storeGraph({...graph,groups:graph.groups?.map(group => group.id === selectedGroup.id ? {...group,name:event.target.value} : group)})} onBlur={() => { if (!selectedGroup.name.trim()) storeGraph({...graph,groups:graph.groups?.map(group => group.id === selectedGroup.id ? {...group,name:t('Group')} : group)}); }} className="w-full rounded border border-white/15 bg-[#19191b] px-2 py-1.5 text-white" /></label>
+                <label className="flex items-center justify-between gap-3"><span>{t('Group color')}</span><input aria-label={t('Group color')} type="color" value={selectedGroup.color} onChange={event => storeGraph({...graph,groups:graph.groups?.map(group => group.id === selectedGroup.id ? {...group,color:event.target.value} : group)})} className="h-8 w-12 cursor-pointer rounded border border-white/15 bg-transparent" /></label>
+                <p className="text-white/45">{selectedGroup.nodeIds.length} {t('nodes')} · {t('Drag the frame to move its members. Copy and paste to duplicate the group.')}</p>
+                <button type="button" onClick={() => { storeGraph({...graph,groups:graph.groups?.filter(group => group.id !== selectedGroup.id)}); setSelection({nodeIds:selectedGroup.nodeIds,groupId:null}); }} className="rounded border border-white/15 px-2 py-1.5 hover:bg-white/10">{t('Ungroup')}</button>
+              </div>
+            ) : selection.nodeIds.length > 1 ? (
+              <div className="space-y-3 p-3 text-[11px] text-white/70" data-multi-selection>
+                <div className="text-xs font-semibold text-white">{selection.nodeIds.length} {t('nodes selected')}</div>
+                <p className="leading-relaxed text-white/45">{t('Drag a selected node to move the selection. Right-click for more actions.')}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button type="button" onClick={() => storeGraph(arrangeGraphNodes(graph,selection.nodeIds))} className="rounded border border-white/15 px-2 py-1.5 hover:bg-white/10">{t('Rearrange nodes')}</button>
+                  <button type="button" onClick={() => { const result=groupNodes(graph,selection.nodeIds,`${t('Group')} ${(graph.groups?.length ?? 0)+1}`); if (result.group) { storeGraph(result.graph); setSelection({nodeIds:result.group.nodeIds,groupId:result.group.id}); } }} className="rounded border border-white/15 px-2 py-1.5 hover:bg-white/10">{t('Group selected nodes')}</button>
+                </div>
+              </div>
+            ) : <NodeInspector
               node={selected}
-              onChange={(key, value) => storeGraph(setParam(graph, selected!.id, key, value))}
+              onChange={(key, value) => { if (selected) storeGraph(setParam(graph, selected.id, key, value)); }}
               onReset={(key) => {
                 if (!selected) return;
                 storeGraph({
@@ -187,9 +216,9 @@ export function FactoryStudio({
                   }),
                 });
               }}
-              onDelete={() => { if (!selected) return; storeGraph(removeNode(graph, selected.id)); setSelectedId(null); }}
-              onClose={() => setSelectedId(null)}
-            />
+              onDelete={() => { if (!selected) return; storeGraph(removeNode(graph, selected.id)); setSelection({nodeIds:[],groupId:null}); }}
+              onClose={() => setSelection({nodeIds:[],groupId:null})}
+            />}
           </div>
 
           <div className="factory-studio-preview shrink-0 border-t border-white/10 p-2">

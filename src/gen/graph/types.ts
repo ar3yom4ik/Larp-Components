@@ -92,7 +92,7 @@ export interface GraphNode {
   params: Record<string, unknown>;
   /** User-facing override of the definition title. */
   title?: string;
-  /** Collapsed nodes draw only their header. */
+  /** Collapsed nodes hide parameters but keep their connection ports. */
   collapsed?: boolean;
 }
 
@@ -104,10 +104,20 @@ export interface GraphLink {
   to: PortRef;
 }
 
+/** Visual frame around graph nodes. Frames do not participate in compilation. */
+export interface GraphGroup {
+  id: string;
+  name: string;
+  color: string;
+  nodeIds: string[];
+}
+
 export interface NodeGraph {
   version: 1;
   nodes: GraphNode[];
   links: GraphLink[];
+  /** Optional editor-only frames; old version-1 graphs need not contain them. */
+  groups?: GraphGroup[];
   /** Prompt text kept with the graph so a saved graph re-analyses identically. */
   note?: string;
 }
