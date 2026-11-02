@@ -8,9 +8,9 @@ All notable changes to this project are documented here. Versions follow the Lar
 - Graph node dragging previews locally and persists one undoable edit on release; unchanged topology does not recompile the factory. Wire hit targets and multi-input removal were improved.
 - Signal ports support mouse/touch drag, rerouting and disconnect; direct robot inputs queue edges for visual programs and `robot.waitForSignal()`, and robot outputs can pulse after a successful place.
 - Added XYZ move/rotation gizmos, snapping, editable height and persisted three-axis rotations. Conveyor spline points have Y gizmos/fields for 3D slopes and stacked layers; elevated platforms and stairs provide adjustable upper floors.
-- Added fixed-step dynamic/kinematic rigid bodies, configurable mass, gravity, sleep, oriented compound proxy collisions and rotated support surfaces. Existing operational simulation remains in control of belts, mechanisms and worker tasks; colliders are simplified and fast bodies can tunnel.
-- Imported models can serve as feeder, machine and pallet workpieces using their bounds and configured weight; source models remain embedded in the project and can be hidden.
-- Added physics, upper-floor, imported-product, moving-wire and browser regressions plus a reproducible headless physics benchmark.
+- Added fixed-step dynamic/kinematic rigid bodies, configurable mass, gravity, sleep, oriented compound proxy collisions and rotated support surfaces. Added swept compound collision checks for fast bodies/products, including relative motion and conservative rotational sweeps. Existing operational simulation remains in control of belts, mechanisms and worker tasks; complex collision geometry remains approximate.
+- Imported models can serve as feeder, machine and pallet workpieces using their configured weight and mesh-derived compound collision patches. The saved workpiece and embedded asset remain available after the source scene object is deleted.
+- Added floor-aware stair/deck routing, ledge checks, relative-height patrol controls and cross-floor worker tasks. Added physics, imported-product, moving-wire, autosave and browser regressions plus a reproducible headless physics benchmark.
 - Added unit and browser regressions for merges, robot signals, transformed scenes, gesture interactions and graph editing.
 
 - Added resizable dialogs, floating windows, simulation settings and touch sheets. Settings window size and position are remembered, with reset controls.

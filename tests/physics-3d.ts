@@ -6,7 +6,7 @@ import { RigidBodyWorld } from '../src/sim/rigidBodies';
 import { Vec3 as CannonVec3, Box as CannonBox } from 'cannon-es';
 import { samplePath } from '../src/sim/spline';
 import { beltGeometry } from '../src/components/ModelKit';
-import { importedProductId, getProduct } from '../src/data/products';
+import { importedProductId, getProduct, updateWorkpieceCatalog, itemsWithWorkpieces } from '../src/data/products';
 import { itemLocalToWorld } from '../src/utils/transform';
 import { createProjectArchive, readProjectArchive } from '../src/utils/projectArchive';
 import { parseProject, serializeProject } from '../src/utils/project';
@@ -190,6 +190,28 @@ for (const kind of ['cabinet', 'conveyor'] as const) {
   const oldWidth=width();physics.sync([{...source,scale:3},pallet]);
   assert.ok(width()>oldWidth+.8,'pallet collider updates when imported product size changes');
   getProduct(id,physics.items).size.forEach((v,i)=>near(v,[.9,.3,.6][i],1e-8,'updated imported size'));
+}
+
+// Imported workpieces are retained in a separate project catalog, so removing
+// their original scene instance does not break existing feeders or products.
+{
+  const imported: ImportedModelData = {asset:{id:'library-asset', entry:'part.stl', files:[{path:'part.stl', dataUrl:'data:application/octet-stream;base64,AA=='}]}, axis:'y', units:'m', materials:[], meshCount:1, triangleCount:12, sourceSize:[.4,.2,.3]};
+  const source=makeItem('imported-model',[5,0,0],0,{name:'Library part',scale:2,imported,props:{physicsMass:4}});
+  const feeder=makeItem('feeder',[0,0,0],0,{props:{active:true,interval:.5,product:importedProductId(source)}});
+  const catalog=updateWorkpieceCatalog([source,feeder]);
+  assert.equal(catalog.length,1); assert.equal(updateWorkpieceCatalog([source,feeder],catalog),catalog,'unchanged scene reuses catalog');
+  const withoutSource=itemsWithWorkpieces([feeder],catalog);
+  assert.equal(withoutSource.filter(i=>i.visible!==false).length,1,'catalog is not a scene instance');
+  assert.deepEqual(getProduct(importedProductId(source),withoutSource).size,[.8,.4,.6]);
+  const engine=new Engine();engine.sync(withoutSource);tick(engine,1);
+  assert.equal(engine.boxes[0].productId,importedProductId(source));
+  near(engine.boxes[0].hy,.2,1e-8,'removed source retains product dimensions');
+  const text=serializeProject({projectName:'parts',layoutName:'parts',activeLayoutId:null,items:[feeder],workpieces:catalog});
+  const json=JSON.parse(text.slice(text.indexOf('\n')+1)); assert.equal(json.assets.length,1,'asset stored only once');
+  const restored=parseProject(readProjectArchive(createProjectArchive(text)));
+  assert.equal(restored.items.length,1); assert.equal(restored.workpieces?.length,1);
+  assert.equal(getProduct(importedProductId(source),itemsWithWorkpieces(restored.items,restored.workpieces)).mass,4);
+  assert.deepEqual(getProduct(importedProductId(source),itemsWithWorkpieces(restored.items,restored.workpieces)).size,[.8,.4,.6]);
 }
 
 // Coincident conveyor footprints remain separate physical layers.

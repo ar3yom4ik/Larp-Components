@@ -12,7 +12,7 @@ export function ProductThumb({ product, size = 32 }: { product: Product; size?: 
   </svg>;
 }
 
-export function ProductPicker({ value, onChange, label, allowAny = false, items = [] }: { value: string; onChange: (id: string) => void; label: string; allowAny?: boolean; items?: readonly SceneItem[] }) {
+export function ProductPicker({ value, onChange, label, allowAny = false, items = [], removableWorkpieces, onRemoveWorkpiece }: { value: string; onChange: (id: string) => void; label: string; allowAny?: boolean; items?: readonly SceneItem[]; removableWorkpieces?: ReadonlySet<string>; onRemoveWorkpiece?: (id: string) => void }) {
   useLanguage();
   const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [category, setCategory] = useState("All");
   const product = getProduct(value, items);
@@ -24,6 +24,7 @@ export function ProductPicker({ value, onChange, label, allowAny = false, items 
       {value === "any" ? <span className="flex h-8 w-8 items-center justify-center font-mono text-lg text-[var(--app-accent-bright)]">*</span> : <ProductThumb product={product} />}
       <span className="min-w-0 flex-1"><span className="block truncate text-[12px] text-white/85">{value === "any" ? t("Any product") : name(product)}</span><span className="text-[9px] text-white/35">{value === "any" ? t("Products") : `${t(product.category)} / ${product.id}`}</span></span><ChevronDown size={13} className="text-white/40" />
     </button>
+    {!open && removableWorkpieces?.has(value) && onRemoveWorkpiece && <button type="button" onClick={() => onRemoveWorkpiece(value)} className="mt-1 text-[10px] text-white/45 underline hover:text-red-300">{t("Remove saved workpiece")}</button>}
     {open && <div className="mt-1 overflow-hidden rounded border border-[var(--app-accent)]/45 bg-[#202023] shadow-xl animate-[toast-in_.15s_ease-out]">
       <div className="flex items-center gap-2 border-b border-white/10 p-2"><Search size={13} className="shrink-0 text-[var(--app-accent-bright)]" /><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }} placeholder={t("Search name or tag...")} className="w-full min-w-0 bg-transparent text-[12px] outline-none" /><button type="button" aria-label={t("Close")} onClick={() => setOpen(false)} className="p-1 text-white/45"><X size={12} /></button></div>
       <select aria-label={t("Category")} value={category} onChange={(e) => setCategory(e.target.value)} className="m-2 w-[calc(100%-16px)] rounded border border-white/10 bg-[#2d2d30] p-1.5 text-[11px] text-white/65"><option value="All">{t("All")}</option>{[...new Set([...PRODUCTS, ...importedProducts(items)].map((p) => p.category))].map((c) => <option key={c} value={c}>{t(c)}</option>)}</select>

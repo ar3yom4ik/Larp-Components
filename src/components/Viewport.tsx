@@ -54,6 +54,7 @@ interface ViewportProps {
   quality: GraphicsQuality;
   building: BuildingSettings;
   items: SceneItem[];
+  productItems?: SceneItem[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   selectedPoint: number | null;
@@ -457,6 +458,7 @@ function PhysicalItemGroup({ item, onPointerDown, onDuplicate, children }: {
 
 interface SceneContentProps {
   items: SceneItem[];
+  productItems?: SceneItem[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   selectedPoint: number | null;
@@ -472,6 +474,7 @@ interface SceneContentProps {
 
 function SceneContent({
   items,
+  productItems = items,
   selectedId,
   onSelect,
   selectedPoint,
@@ -632,7 +635,7 @@ function SceneContent({
         const isConveyor = item.kind === "conveyor" || item.kind === "roller" || item.kind === "fence";
         return (
           <PhysicalItemGroup key={item.id} item={item} onPointerDown={startDrag} onDuplicate={onDuplicateItem}>
-            {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} onMeasure={(sourceSize) => { if (!item.imported?.sourceSize) onUpdateItem(item.id, { imported: { ...item.imported!, sourceSize } }, false); }} /> : <FactoryModel item={item} productItems={item.kind === "crates" ? items : undefined} />}
+            {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} productItems={item.kind === "crates" ? productItems : undefined} />}
             {selected && <SelectionMarker item={item} />}
             {selected && isConveyor && (
               <ConveyorHandles item={item} selectedPoint={selectedPoint} onGrab={(event, index) => grabPoint(event, item.id, index)} />
@@ -648,7 +651,7 @@ function SceneContent({
         }
         return <ObjectGizmo item={selected} tool={tool} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} />;
       })()}
-      <BoxesLayer items={items} />
+      <BoxesLayer items={productItems} />
       <WireLayer items={items} />
     </>
   );
@@ -805,6 +808,7 @@ export const Viewport = memo(function Viewport({
   quality,
   building: buildingSettings,
   items,
+  productItems = items,
   selectedId,
   onSelect,
   selectedPoint,
@@ -1049,6 +1053,7 @@ export const Viewport = memo(function Viewport({
           <SimDriver items={items} shell={shell} low={low || gfx.shadowSize === 1024} />
           <SceneContent
             items={items}
+            productItems={productItems}
             selectedId={selectedId}
             onSelect={onSelect}
             selectedPoint={selectedPoint}

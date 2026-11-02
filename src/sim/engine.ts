@@ -1,12 +1,15 @@
 import type { GripperKind, RobotProgram, SceneItem } from "../types";
 import { samplePath, type P2 } from "./spline";
-import { getProduct, MACHINE_KINDS, palletSize } from "../data/products";
-import { distanceToSegment, navigate, pointIsFree, projectToFree, type Barrier, type WalkObstacle } from "./navigation";
+import { getProduct, importedModelSize, importedProductSource, MACHINE_KINDS, palletSize } from "../data/products";
+import { distanceToSegment, navigate, navigateLayers, pointIsFree, projectToFree, type Barrier, type WalkObstacle, type Point3 } from "./navigation";
 import { SpatialHash } from "./spatial";
 import { isLogicSource, isSignalSource, signalTargets } from "../utils/signalPorts";
 import { itemLocalToWorld, rotateVector, rotationMatrix, unrotateVector } from "../utils/transform";
 import { RigidBodyWorld } from "./rigidBodies";
+import type { SweepStart } from "./continuous";
 import { upperFloorDimensions } from "../utils/upperFloor";
+import { importedCollision, importedCollisionBoxes } from "../utils/modelCollision";
+import type { ImportedCollision } from "../types";
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                               */
@@ -302,7 +305,7 @@ function surfaceHeight(rect: Rect, x: number, z: number): number | null {
   const surface = rect.surface;
   if (!surface) {
     const dx = x - rect.cx, dz = z - rect.cz, c = Math.cos(rect.yaw), s = Math.sin(rect.yaw);
-    return Math.abs(dx * c - dz * s) <= rect.hw && Math.abs(dx * s + dz * c) <= rect.hd ? rect.top : null;
+    return Math.abs(dx * c - dz * s) <= rect.hw + 1e-7 && Math.abs(dx * s + dz * c) <= rect.hd + 1e-7 ? rect.top : null;
   }
   const { center, axisX, axisZ, normal } = surface;
   if (normal[1] < 0.05) return null;
@@ -310,7 +313,7 @@ function surfaceHeight(rect: Rect, x: number, z: number): number | null {
   const dy = -(normal[0] * dx + normal[2] * dz) / normal[1];
   const lx = dx * axisX[0] + dy * axisX[1] + dz * axisX[2];
   const lz = dx * axisZ[0] + dy * axisZ[1] + dz * axisZ[2];
-  return Math.abs(lx) <= rect.hw && Math.abs(lz) <= rect.hd ? center[1] + dy : null;
+  return Math.abs(lx) <= rect.hw + 1e-7 && Math.abs(lz) <= rect.hd + 1e-7 ? center[1] + dy : null;
 }
 
 export class PalletRT {
@@ -456,6 +459,8 @@ export class HumanRT {
   yaw = 0;
   origin: [number, number];
   route: P2[] = [];
+  route3d: Point3[] = [];
+  goal3d: Point3 | null = null;
   targetKey = "";
   stage = 0;
   dwell = 0;
@@ -893,6 +898,8 @@ export class Engine {
   private obstacleIndex = new SpatialHash<WalkObstacle>(2);
   private barrierScratch: Barrier[] = [];
   private otherScratch: HumanRT[] = [];
+  private productStarts = new Map<number,SweepStart>();
+  private importedParts = new WeakMap<Box,{geometry:ImportedCollision; axis:string; units:string; dimensions:string; boxes:ImportedCollision["boxes"]}>();
 
   /* ----- logging ----- */
 
@@ -933,9 +940,11 @@ export class Engine {
     const previousItems = this.itemById;
     const previousSignals = this.signalState;
     this.items = items;
-    // A moving person does not change the static navigation topology; keep
-    // routes cached. Moving machinery can change it and must invalidate them.
-    if (!physicsUpdate || items.some((item) => item.visible !== false && item.props.physicsMode === "dynamic" && item.kind !== "operator" && item.kind !== "mobile-robot")) this.structureVersion += 1;
+    // Authored edits invalidate routes immediately. Physics refreshes update
+    // the spatial indices, but need not rerun every worker's A* every fourth
+    // frame for an unrelated falling machine: live obstacle checks detect a
+    // blocked route, and moving station coordinates change the target key.
+    if (!physicsUpdate) this.structureVersion += 1;
     const conveyors = new Map<string, ConveyorRT>();
     const pallets = new Map<string, PalletRT>();
     const machines = new Map<string, MachineRT>();
@@ -1058,7 +1067,7 @@ export class Engine {
             if (item.props.gateOpen === true && i === Number(item.props.gateSegment ?? 0)) continue;
             const a = toWorld(item.position[0], item.position[2], item.rotation * DEG, pts[i][0], pts[i][1]);
             const b = toWorld(item.position[0], item.position[2], item.rotation * DEG, pts[i + 1][0], pts[i + 1][1]);
-            barriers.push({ a, b });
+            barriers.push({ a, b, minY: item.position[1], maxY: item.position[1] + Math.max(.2, num(item.props.height, 2)) * item.scale });
           }
           break;
         }
@@ -1126,18 +1135,20 @@ export class Engine {
       const stride = 4;
       for (let i = 0; i < belt.x.length - 1; i += stride) {
         const j = Math.min(belt.x.length - 1, i + stride);
-        walkBarriers.push({ a: [belt.x[i], belt.z[i]], b: [belt.x[j], belt.z[j]], clearance: belt.half + 0.29 });
+        walkBarriers.push({ a: [belt.x[i], belt.z[i]], b: [belt.x[j], belt.z[j]], clearance: belt.half + 0.29,
+          minY: Math.min(belt.y[i], belt.y[j]) - BELT_TOP, maxY: Math.max(belt.y[i], belt.y[j]) + .25 });
       }
     });
     const walkObstacles: WalkObstacle[] = items.filter((i) => i.visible !== false && (MACHINE_KINDS.has(i.kind) || ["rack", "crates", "collector", "cabinet", "robot", "cobot", "kuka", "fanuc"].includes(i.kind))).map((i) => ({
       x: i.position[0], z: i.position[2], radius: MACHINE_KINDS.has(i.kind) ? 1.12 : i.kind === "rack" ? 1.2 : i.kind === "crates" ? 0.76 : i.kind === "cabinet" ? 0.65 : 0.67,
+      minY:i.position[1], maxY:i.position[1] + (MACHINE_KINDS.has(i.kind) ? 2.6 : i.kind === "rack" ? 3.1 : i.kind === "cabinet" ? 2 : i.kind === "crates" ? .15 : i.kind === "collector" ? .55 : 2) * i.scale,
     }));
     this.walkBarriers = walkBarriers; this.walkObstacles = walkObstacles;
+    this.rects = rects;
+    this.hasWalkableFloors = rects.some((rect) => rect.walkable);
     // Existing/imported projects may spawn people inside equipment or on top
     // of one another. Also performed after reset, which restores the origins.
     this.placeHumansSafely();
-    this.rects = rects;
-    this.hasWalkableFloors = rects.some((rect) => rect.walkable);
     this.rebuildIndices(conveyors, rects, barriers);
     this.syncFeederSignals();
     this.syncRobotSignals();
@@ -1381,18 +1392,86 @@ export class Engine {
     const occupied: WalkObstacle[] = [];
     this.humans.forEach((human) => {
       const all = [...this.walkObstacles, ...occupied];
-      const oldX = human.x, oldZ = human.z;
-      if (!pointIsFree(oldX, oldZ, this.walkBarriers, all)) {
-        [human.x, human.z] = projectToFree([oldX, oldZ], [oldX + 1, oldZ + 1], this.walkBarriers, all);
-        // Extremely dense or malformed geometry may exceed the local search.
-        // Fall back outside the obstacle bounds instead of leaving an overlap.
-        if (!pointIsFree(human.x, human.z, this.walkBarriers, all)) {
-          const right = Math.max(oldX, ...this.walkBarriers.flatMap((b) => [b.a[0] + (b.clearance ?? 0.34), b.b[0] + (b.clearance ?? 0.34)]), ...all.map((o) => o.x + o.radius)) + 1;
-          human.x = right; human.z = oldZ;
+      const oldX = human.x,
+        oldZ = human.z;
+      const footY = this.hasWalkableFloors ? human.y : undefined;
+      if (!pointIsFree(oldX, oldZ, this.walkBarriers, all, 0, footY)) {
+        [human.x, human.z] = projectToFree(
+          [oldX, oldZ],
+          [oldX + 1, oldZ + 1],
+          this.walkBarriers,
+          all,
+          footY,
+        );
+        // Projecting an overlapping spawn away from equipment must not put
+        // an upstairs worker over the deck edge. The support index is rebuilt
+        // after placement, so use the freshly constructed walkable rectangles.
+        const supported = (x: number, z: number) =>
+          !this.hasWalkableFloors ||
+          human.y <= 0.27 ||
+          [
+            [0, 0],
+            [-0.18, 0],
+            [0.18, 0],
+            [0, -0.18],
+            [0, 0.18],
+          ].every(([dx, dz]) =>
+            this.rects.some((rect) => {
+              if (!rect.walkable) return false;
+              const height = surfaceHeight(rect, x + dx, z + dz);
+              return height !== null && Math.abs(height - human.y) <= 0.27;
+            }),
+          );
+        if (
+          !pointIsFree(human.x, human.z, this.walkBarriers, all, 0, footY) ||
+          !supported(human.x, human.z)
+        ) {
+          let found = false;
+          for (let radius = 0.2; radius <= 3 && !found; radius += 0.2)
+            for (let direction = 0; direction < 24; direction++) {
+              const angle = (direction * Math.PI) / 12,
+                x = oldX + Math.cos(angle) * radius,
+                z = oldZ + Math.sin(angle) * radius;
+              if (
+                supported(x, z) &&
+                pointIsFree(x, z, this.walkBarriers, all, 0, footY)
+              ) {
+                human.x = x;
+                human.z = z;
+                found = true;
+                break;
+              }
+            }
+          // If an upper platform is completely obstructed, do not teleport a
+          // person off it: leave them in their original position.
+          if (!found && this.hasWalkableFloors && human.y > 0.27) {
+            human.x = oldX;
+            human.z = oldZ;
+          } else if (!found) {
+            const right =
+              Math.max(
+                oldX,
+                ...this.walkBarriers.flatMap((b) => [
+                  b.a[0] + (b.clearance ?? 0.34),
+                  b.b[0] + (b.clearance ?? 0.34),
+                ]),
+                ...all.map((o) => o.x + o.radius),
+              ) + 1;
+            human.x = right;
+            human.z = oldZ;
+          }
         }
-        human.route = []; human.targetKey = ""; human.stuck = 0;
+        human.route = [];
+        human.targetKey = "";
+        human.stuck = 0;
       }
-      occupied.push({ x: human.x, z: human.z, radius: 0.55 });
+      occupied.push({
+        x: human.x,
+        z: human.z,
+        radius: 0.55,
+        minY: human.y,
+        maxY: human.y + 1.8,
+      });
     });
   }
 
@@ -1943,7 +2022,8 @@ export class Engine {
     };
   }
 
-  private walkHuman(human: HumanRT, x: number, z: number, speed: number, dt: number) {
+  private walkHuman(human: HumanRT, x: number, z: number, speed: number, dt: number, targetY?: number) {
+    if (this.hasWalkableFloors) return this.walkHumanLayered(human, x, z, speed, dt, targetY);
     // After a conflict, project the destination as well as the route around
     // other people; otherwise a permanently occupied station causes deadlock.
     const stuck = human.stuck > 0.7;
@@ -2004,12 +2084,236 @@ export class Engine {
     return false;
   }
 
+  private navigationFloorScratch: {
+    conv: ConveyorRT | null;
+    rect: Rect | null;
+  }[] = [];
+
+  private walkHeights(x: number, z: number) {
+    const heights = [0],
+      stairTops: { base: number; top: number }[] = [];
+    for (const entry of this.supportIndex.query(
+      x,
+      z,
+      this.navigationFloorScratch,
+    )) {
+      if (!entry.rect?.walkable) continue;
+      const height = surfaceHeight(entry.rect, x, z);
+      if (height !== null && Number.isFinite(height)) {
+        heights.push(height);
+        const item = this.itemById.get(entry.rect.id);
+        if (item?.kind === "stairs")
+          stairTops.push({ base: item.position[1], top: height });
+      }
+    }
+    // Stair risers are solid down to their base, unlike an elevated deck with
+    // open space underneath. Do not route ground-level walkers through them.
+    return stairTops.length
+      ? heights.filter((height) =>
+          stairTops.every(
+            (step) => height < step.base - 0.05 || step.top <= height + 0.26,
+          ),
+        )
+      : heights;
+  }
+
+  private walkHumanLayered(
+    human: HumanRT,
+    x: number,
+    z: number,
+    speed: number,
+    dt: number,
+    requestedY?: number,
+  ) {
+    const heights = this.walkHeights(x, z);
+    // Explicit waypoints/stations disambiguate overlapping floors. Old patrol
+    // routes without heights select the highest surface at the waypoint.
+    const y = requestedY === undefined ? Math.max(...heights) : requestedY;
+    const stuck = human.stuck > 0.7;
+    const others = this.otherHumans(human).filter(
+      (other) => Math.abs(other.y - human.y) < 1.8,
+    );
+    const projectionKey = `3d|${this.structureVersion}|${stuck ? 1 : 0}|${x.toFixed(2)}|${y.toFixed(2)}|${z.toFixed(2)}`;
+    let target = human.projection;
+    if (human.projectionKey !== projectionKey || !target) {
+      const dynamic: WalkObstacle[] = stuck
+        ? others.map((other) => ({
+            x: other.x,
+            z: other.z,
+            radius: 0.6,
+            minY: other.y,
+            maxY: other.y + 1.8,
+          }))
+        : [];
+      target = projectToFree(
+        [x, z],
+        [human.x, human.z],
+        this.walkBarriers,
+        dynamic.length
+          ? [...this.walkObstacles, ...dynamic]
+          : this.walkObstacles,
+        y,
+      );
+      human.projectionKey = projectionKey;
+      human.projection = target;
+    }
+    const key = `${target[0].toFixed(1)},${y.toFixed(1)},${target[1].toFixed(1)},${this.structureVersion}`;
+    if (human.targetKey !== key) {
+      human.targetKey = key;
+      const dynamic: WalkObstacle[] = stuck
+        ? others.map((other) => ({
+            x: other.x,
+            z: other.z,
+            radius: 0.6,
+            minY: other.y,
+            maxY: other.y + 1.8,
+          }))
+        : [];
+      const walkable = this.rects.filter((rect) => rect.walkable);
+      const bounds: [number, number, number, number] = [
+        Math.min(human.x, x),
+        Math.min(human.z, z),
+        Math.max(human.x, x),
+        Math.max(human.z, z),
+      ];
+      for (const rect of walkable) {
+        const r = Math.hypot(rect.hw, rect.hd);
+        bounds[0] = Math.min(bounds[0], rect.cx - r);
+        bounds[1] = Math.min(bounds[1], rect.cz - r);
+        bounds[2] = Math.max(bounds[2], rect.cx + r);
+        bounds[3] = Math.max(bounds[3], rect.cz + r);
+      }
+      human.route3d = navigateLayers(
+        [human.x, human.y, human.z],
+        [target[0], y, target[1]],
+        {
+          heights: (px, pz) => this.walkHeights(px, pz),
+          bounds,
+          barriers: this.walkBarriers,
+          obstacles: dynamic.length
+            ? [...this.walkObstacles, ...dynamic]
+            : this.walkObstacles,
+        },
+      );
+      human.goal3d = human.route3d.at(-1) ?? null;
+    }
+    const goal = human.goal3d;
+    if (
+      goal &&
+      Math.hypot(goal[0] - human.x, goal[2] - human.z) < 0.2 &&
+      Math.abs(goal[1] - human.y) < 0.25
+    ) {
+      human.walking = false;
+      human.stuck = 0;
+      return true;
+    }
+    const p = human.route3d[0];
+    if (!p) {
+      human.walking = false;
+      human.status = "waiting for clear route";
+      human.stuck += dt;
+      if (human.stuck > 1.2) {
+        human.targetKey = "";
+        human.stuck = 0.8;
+      }
+      return false;
+    }
+    const dx = p[0] - human.x,
+      dz = p[2] - human.z,
+      d = Math.hypot(dx, dz);
+    if (d < 0.09 && Math.abs(p[1] - human.y) < 0.55) {
+      human.route3d.shift();
+      return false;
+    }
+    const step = Math.min(Math.max(0, speed) * dt, d),
+      angle = Math.atan2(dz, dx);
+    let moved = false;
+    for (const offset of [
+      0,
+      Math.PI / 4,
+      -Math.PI / 4,
+      Math.PI / 2,
+      -Math.PI / 2,
+      (3 * Math.PI) / 4,
+      (-3 * Math.PI) / 4,
+    ]) {
+      const nx = human.x + Math.cos(angle + offset) * step,
+        nz = human.z + Math.sin(angle + offset) * step;
+      const localBarriers = this.barrierIndex.query(
+          nx,
+          nz,
+          this.walkScratch,
+          0.9,
+        ),
+        localObstacles = this.obstacleIndex.query(
+          nx,
+          nz,
+          this.obstacleScratch,
+          0.2,
+        );
+      if (!pointIsFree(nx, nz, localBarriers, localObstacles, 0.015, human.y))
+        continue;
+      if (human.y > 0.3) {
+        const surfaces = this.walkHeights(nx, nz);
+        const nearby = surfaces.some(
+          (height) => Math.abs(height - human.y) < 0.32,
+        );
+        // A physical walker's footprint can still be supported by a higher
+        // tread after its centre has left it. Allow the planned small step down
+        // instead of trapping it on the stair edge; never allow a full ledge.
+        const descending = goal && goal[1] < human.y && human.y - p[1] <= 0.55;
+        const steppingDown = descending && surfaces.some((height) => Math.abs(height - p[1]) < 0.1);
+        if (!nearby && !steppingDown) continue;
+        // Sidestepping around another worker or moving equipment must keep the
+        // whole footprint supported, not just the centre of the next step.
+        const supported = [[-0.18, 0], [0.18, 0], [0, -0.18], [0, 0.18]].every(([fx, fz]) =>
+          this.walkHeights(nx + fx, nz + fz).some((height) =>
+            Math.abs(height - human.y) < 0.32 || (!!descending && Math.abs(height - p[1]) < 0.27),
+          ),
+        );
+        if (!supported) continue;
+      }
+      if (
+        !others.every((other) => {
+          const before = Math.hypot(human.x - other.x, human.z - other.z),
+            after = Math.hypot(nx - other.x, nz - other.z);
+          return after >= 0.53 || (before < 0.53 && after > before + 0.00001);
+        })
+      )
+        continue;
+      human.x = nx;
+      human.z = nz;
+      human.yaw = Math.atan2(
+        Math.cos(angle + offset),
+        Math.sin(angle + offset),
+      );
+      human.stuck =
+        offset === 0 ? Math.max(0, human.stuck - dt * 2) : human.stuck + dt;
+      moved = true;
+      break;
+    }
+    if (!moved) human.stuck += dt;
+    if (human.stuck > 0.8) {
+      human.targetKey = "";
+      human.stuck = 0.75;
+    }
+    human.walking = moved;
+    if (moved) human.phase += dt * speed * 8;
+    return false;
+  }
+
   /** Reusable list of the other walkers, so `walkHuman` does not allocate per call. */
   private otherHumans(human: HumanRT) {
     const out = this.otherScratch;
     out.length = 0;
     for (const other of this.humans.values()) if (other !== human) out.push(other);
     return out;
+  }
+
+  private beltAccessHeight(item: SceneItem | undefined, surfaceY: number) {
+    if (!item) return surfaceY-BELT_TOP;
+    const matrix=rotationMatrix(item.rotationX ?? 0,item.rotation,item.rotationZ ?? 0);
+    return surfaceY-rotateVector(matrix,[0,BELT_TOP,0])[1];
   }
 
   private updateHuman(human: HumanRT, dt: number) {
@@ -2037,7 +2341,8 @@ export class Engine {
     if (task === "patrol" || !source) {
       const points = item.points ?? [[0, 0], [3, 0], [3, 2], [0, 2]];
       const p = points[human.stage % points.length];
-      if (this.walkHuman(human, human.origin[0] + p[0], human.origin[1] + p[1], speed, dt)) {
+      const waypointY = item.pointHeights ? human.baseY + (item.pointHeights[human.stage % points.length] ?? 0) : undefined;
+      if (this.walkHuman(human, human.origin[0] + p[0], human.origin[1] + p[1], speed, dt, waypointY)) {
         human.dwell += dt;
         if (human.dwell > 1) { human.stage += 1; human.completed += 1; human.dwell = 0; }
       }
@@ -2051,14 +2356,14 @@ export class Engine {
       const pickPoint = inputBelt.pointAt(inputBelt.length - 0.35);
       const table = machine.table();
       if (human.stage === 0) {
-        if (!this.walkHuman(human, pickPoint.x, pickPoint.z + 0.55, speed, dt)) return;
+        if (!this.walkHuman(human, pickPoint.x, pickPoint.z + 0.55, speed, dt, this.beltAccessHeight(source,pickPoint.y))) return;
         const part = this.findFreeNear(pickPoint.x, pickPoint.z, 0.7, false, pickPoint.y);
         if (!part) { human.status = "waiting"; return; }
         human.held = part; part.state = "held"; part.claim = human.claim; human.stage = 1; human.status = "carrying";
       } else if (human.stage === 1) {
         const part = human.held; if (!part) { human.stage = 0; return; }
         part.x = human.x; part.z = human.z; part.y = human.y + 1.0;
-        if (!this.walkHuman(human, table.x, table.z + 0.45, speed * 0.85, dt)) return;
+        if (!this.walkHuman(human, table.x, table.z + 0.45, speed * 0.85, dt, this.itemById.get(machine.id)?.position[1])) return;
         part.x = table.x; part.z = table.z; part.y = table.y + part.hy;
         part.state = "free"; part.claim = 0; human.held = null; human.stage = 2; human.dwell = 0;
         this.process(machine, part);
@@ -2072,7 +2377,7 @@ export class Engine {
         const part = human.held; if (!part) { human.stage = 0; return; }
         part.x = human.x; part.z = human.z; part.y = human.y + 1.0;
         const out = output.pointAt(0.5);
-        if (!this.walkHuman(human, out.x, out.z + 0.4, speed * 0.85, dt)) return;
+        if (!this.walkHuman(human, out.x, out.z + 0.4, speed * 0.85, dt, this.beltAccessHeight(this.itemById.get(output.id),out.y))) return;
         part.x = out.x; part.z = out.z; part.y = out.y + part.hy + 0.002; part.state = "free"; part.claim = 0;
         human.held = null; human.stage = 0; human.completed += 1; human.status = "walking";
       }
@@ -2082,7 +2387,7 @@ export class Engine {
       const machine = this.machines.get(source.id) ?? this.machines.get(String(item.props.targetId));
       if (!machine) return;
       const t = machine.table();
-      if (!this.walkHuman(human, t.x + 0.7, t.z + 0.7, speed, dt)) return;
+      if (!this.walkHuman(human, t.x + 0.7, t.z + 0.7, speed, dt, this.itemById.get(machine.id)?.position[1])) return;
       human.walking = false; human.dwell += dt;
       if (human.dwell > 1.2) {
         const part = this.machinePart(machine);
@@ -2094,7 +2399,7 @@ export class Engine {
     if (task === "replenish") {
       const feeder = this.feeders.get(source.id) ?? [...this.feeders.values()][0];
       if (!feeder) return;
-      if (this.walkHuman(human, feeder.x, feeder.z + 0.9, speed, dt)) {
+      if (this.walkHuman(human, feeder.x, feeder.z + 0.9, speed, dt, source.position[1])) {
         human.walking = false; human.dwell += dt;
         if (human.dwell > 3) { feeder.supply += 20; human.completed += 1; human.dwell = 0; }
       }
@@ -2106,7 +2411,7 @@ export class Engine {
     if (!human.held) {
       const targetPallet = dest ? this.pallets.get(dest.id) : null;
       if (targetPallet && targetPallet.cursor >= targetPallet.capacity) { human.walking = false; return; }
-      if (!this.walkHuman(human, pickup.x, pickup.z + 0.65, speed, dt)) return;
+      if (!this.walkHuman(human, pickup.x, pickup.z + 0.65, speed, dt, conveyor && 'y' in pickup ? this.beltAccessHeight(source,pickup.y) : source.position[1])) return;
       human.walking = false;
       const b = this.findFreeNear(pickup.x, pickup.z, 0.7, task === "inspect", 'y' in pickup ? pickup.y : undefined);
       if (!b) return;
@@ -2125,7 +2430,7 @@ export class Engine {
     const out = this.conveyors.get(dest.id);
     const target = pallet ? pallet.slot(pallet.cursor, b.productId) : out ? out.pointAt(0.5) : this.machines.get(dest.id)?.table();
     if (!target) return;
-    if (this.walkHuman(human, target.x, target.z + 0.45, speed * 0.8, dt)) {
+    if (this.walkHuman(human, target.x, target.z + 0.45, speed * 0.8, dt, out ? this.beltAccessHeight(dest,target.y) : dest.position[1])) {
       b.x = target.x; b.z = target.z; b.y = target.y + b.hy + 0.003;
       b.state = "free"; b.claim = 0; b.support = 0;
       human.held = null; human.completed += 1;
@@ -2505,8 +2810,14 @@ export class Engine {
     this.updateLogic();
     this.robots.forEach((robot) => { robot.outputPulse = Math.max(0, robot.outputPulse - dt); });
     this.prepareMergeReservations();
-    this.physics(dt);
-    if (this.rigidBodies.active) {
+    this.productStarts.clear();
+    // Save the real integrator start, including support corrections, for swept
+    // product contacts rather than guessing it from the final velocity.
+    const wasPhysical = this.rigidBodies.active || this.rigidBodies.shouldStep(this.boxes,dt);
+    if (wasPhysical) for (const part of this.boxes) if (part.state === "free")
+      this.productStarts.set(part.id,{position:[part.x,part.y,part.z],yaw:part.yaw});
+    const escaped = this.physics(dt);
+    if (wasPhysical || this.rigidBodies.shouldStep(this.boxes,dt)) {
       this.humans.forEach((human) => {
         if (this.rigidBodies.pose(human.id)) {
           if (human.walking) this.rigidBodies.drive(human.id, human.x, human.z, dt, this.walkerStepHeight(human));
@@ -2515,7 +2826,7 @@ export class Engine {
           if (item) this.rigidBodies.followWalker(human.id, item, human.x, human.y, human.z, human.yaw);
         }
       });
-      this.rigidBodies.step(dt, this.boxes, (id) => getProduct(id, this.items).mass);
+      this.rigidBodies.step(dt, this.boxes, (id) => getProduct(id, this.items).mass, (id) => importedProductSource(id, this.items), this.productStarts);
       this.humans.forEach((human) => {
         const pose = this.rigidBodies.pose(human.id);
         if (pose) { human.x = pose.position[0]; human.y = pose.position[1]; human.z = pose.position[2]; }
@@ -2527,6 +2838,11 @@ export class Engine {
         if ((++this.rigidTick % 4 === 0 && awake) || (awake && this.hasDynamicConveyors && this.carriedBeltNeedsRefresh()) || (this.rigidWasAwake && !awake)) this.sync(this.authoredItems, true);
         this.rigidWasAwake = awake;
       } else this.rigidWasAwake = false;
+    }
+    // CCD may have brought a very fast part back from beyond the scene bounds.
+    if (escaped) {
+      for (const b of this.boxes) if (b.y < -3 || Math.abs(b.x) > 80 || Math.abs(b.z) > 80) b.state = "dead";
+      this.boxes = this.boxes.filter((b) => b.state !== "dead");
     }
   }
 
@@ -2728,6 +3044,89 @@ export class Engine {
     collectorId: null as string | null,
   };
 
+  /** Workpiece-local compound shapes, fitted to the dimensions at spawn time. */
+  private importedProductParts(part: Box): ImportedCollision["boxes"] | null {
+    if (!part.productId.startsWith("imported:")) return null;
+    const model = importedProductSource(part.productId, this.items)?.imported;
+    const geometry = model && importedCollision(model);
+    if (!model || !geometry) return null;
+    const dimensions = `${part.hx},${part.hy},${part.hz}`;
+    const cached = this.importedParts.get(part);
+    if (
+      cached &&
+      cached.geometry === geometry &&
+      cached.axis === model.axis &&
+      cached.units === model.units &&
+      cached.dimensions === dimensions
+    )
+      return cached.boxes;
+    const sourceSize = importedModelSize(model),
+      ratio = [
+        (part.hx * 2) / sourceSize[0],
+        (part.hy * 2) / sourceSize[1],
+        (part.hz * 2) / sourceSize[2],
+      ];
+    const boxes = (importedCollisionBoxes(model) ?? []).map((shape) => ({
+      center: shape.center.map((v, i) => v * ratio[i]) as V3,
+      size: shape.size.map((v, i) => v * ratio[i]) as V3,
+    }));
+    this.importedParts.set(part, {
+      geometry,
+      axis: model.axis,
+      units: model.units,
+      dimensions,
+      boxes,
+    });
+    return boxes.length ? boxes : null;
+  }
+
+  private productContact(a: Box, b: Box) {
+    const aParts = this.importedProductParts(a),
+      bParts = this.importedProductParts(b);
+    if (!aParts && !bParts) return contactXZ(a, b);
+    const worldParts = (
+      part: Box,
+      shapes: ImportedCollision["boxes"] | null,
+    ) => {
+      if (!shapes)
+        return [
+          {
+            x: part.x,
+            z: part.z,
+            y: part.y,
+            hx: part.hx,
+            hy: part.hy,
+            hz: part.hz,
+            yaw: part.yaw,
+          },
+        ];
+      const c = Math.cos(part.yaw),
+        s = Math.sin(part.yaw);
+      return shapes.map((shape) => ({
+        x: part.x + shape.center[0] * c + shape.center[2] * s,
+        y: part.y - part.hy + shape.center[1],
+        z: part.z - shape.center[0] * s + shape.center[2] * c,
+        hx: shape.size[0] / 2,
+        hy: shape.size[1] / 2,
+        hz: shape.size[2] / 2,
+        yaw: part.yaw,
+      }));
+    };
+    let best: ReturnType<typeof contactXZ> = null;
+    for (const p of worldParts(a, aParts))
+      for (const q of worldParts(b, bParts)) {
+        if (
+          Math.abs(p.y - q.y) > (p.hy + q.hy) * 0.8 ||
+          Math.abs(p.x - q.x) > p.hx + p.hz + q.hx + q.hz ||
+          Math.abs(p.z - q.z) > p.hx + p.hz + q.hx + q.hz
+        )
+          continue;
+        const contact = contactXZ(p, q);
+        if (contact && (!best || contact.depth > best.depth)) best = contact;
+      }
+    return best;
+  }
+
   private findSupport(b: Box) {
     const out = this.supportResult;
     out.top = 0;
@@ -2785,15 +3184,18 @@ export class Engine {
     for (let i = 0; i < stacked.length; i += 1) {
       const o = stacked[i];
       if (o === b || o.state !== "free") continue;
-      const top = o.y + o.hy;
-      if (top < out.top || bottom < top - 0.14 || bottom > top + 0.1) continue;
-      const dx = b.x - o.x, dz = b.z - o.z;
-      if (Math.abs(dx * Math.cos(o.yaw) - dz * Math.sin(o.yaw)) < o.hx * 0.95 && Math.abs(dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw)) < o.hz * 0.95) {
-        out.top = top;
-        out.kind = 4;
-        out.conv = null;
-        out.q = null;
-        out.palletId = o.palletId;
+      const dx = b.x - o.x, dz = b.z - o.z, c=Math.cos(o.yaw), s=Math.sin(o.yaw);
+      const lx=dx*c-dz*s,lz=dx*s+dz*c;
+      const parts=o.productId.startsWith("imported:") ? this.importedProductParts(o) : null;
+      if (!parts) {
+        const top=o.y+o.hy;
+        if (top >= out.top && bottom >= top-.14 && bottom <= top+.1 && Math.abs(lx)<o.hx*.95 && Math.abs(lz)<o.hz*.95) {
+          out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;
+        }
+      } else for (const part of parts) {
+        const top=o.y-o.hy+part.center[1]+part.size[1]/2;
+        if (top < out.top || bottom < top-.14 || bottom > top+.1 || Math.abs(lx-part.center[0])>=part.size[0]*.475 || Math.abs(lz-part.center[2])>=part.size[2]*.475) continue;
+        out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;
       }
     }
     return out;
@@ -2833,20 +3235,27 @@ export class Engine {
   private walkerStepHeight(human: HumanRT): number | undefined {
     const pose = this.rigidBodies.pose(human.id);
     if (!pose || !human.walking) return undefined;
+    // Do not keep stepping back up while the planned route descends.
+    if (human.goal3d && human.goal3d[1] < pose.position[1] - .15 && human.route3d[0] && human.route3d[0][1] < pose.position[1] - .15) return undefined;
     const dx = human.x - pose.position[0], dz = human.z - pose.position[2], distance = Math.hypot(dx, dz);
     if (distance < 1e-6) return undefined;
     const x = pose.position[0] + dx / distance * 0.27, z = pose.position[2] + dz / distance * 0.27;
     let target = pose.position[1];
-    for (const entry of this.supportIndex.query(x, z, this.supportScratch)) {
-      if (!entry.rect?.walkable) continue;
-      const top = surfaceHeight(entry.rect, x, z);
-      if (top !== null && top > target && top <= pose.position[1] + 0.26) target = top;
+    // A rigid pedestrian has a footprint, not just a centre point. Checking
+    // across its leading edge prevents an adjacent riser trapping it when it
+    // approaches stairs obliquely.
+    for (const [ox,oz] of [[0,0],[.25,0],[-.25,0],[0,.25],[0,-.25]]) {
+      for (const entry of this.supportIndex.query(x+ox, z+oz, this.supportScratch)) {
+        if (!entry.rect?.walkable) continue;
+        const top = surfaceHeight(entry.rect, x+ox, z+oz);
+        if (top !== null && top > target && top <= pose.position[1] + 0.26) target = top;
+      }
     }
     return target > pose.position[1] + .005 ? target : undefined;
   }
 
   /** Follow nearby stair treads/decks without snapping through an upper floor.
-   * Navigation remains planar; the height is chosen only from reachable treads. */
+   * Layered navigation plans the route; this applies reachable surface heights. */
   private updateHumanFloor(human: HumanRT, dt: number) {
     let target = 0;
     const supports = this.supportIndex.query(human.x, human.z, this.supportScratch);
@@ -2887,7 +3296,7 @@ export class Engine {
     }
     groups.clear();
     if (grouped) for (const box of boxes) if (box.state === "free" && box.support === 2) this.addConveyorBox(box);
-    let floorBoxes = 0;
+    let floorBoxes = 0, escaped = false;
     for (const b of boxes) {
       const previousConveyor = grouped && b.state === "free" && b.support === 2 ? b.convId : null;
       b.age += dt;
@@ -3020,7 +3429,7 @@ export class Engine {
         }
       }
       if (b.support === 1) floorBoxes += 1;
-      if (b.y < -3 || Math.abs(b.x) > 80 || Math.abs(b.z) > 80) b.state = "dead";
+      if (b.y < -3 || Math.abs(b.x) > 80 || Math.abs(b.z) > 80) escaped = true;
       if (grouped && b.state === "free" && b.support === 2 && b.convId !== previousConveyor) this.addConveyorBox(b);
     }
 
@@ -3037,7 +3446,7 @@ export class Engine {
         const dy = Math.abs(a.y - c.y);
         if (dy > (a.hy + c.hy) * 0.8) continue;
         if (Math.abs(c.x - a.x) > a.hx + a.hz + c.hx + c.hz || Math.abs(c.z - a.z) > a.hx + a.hz + c.hx + c.hz) continue;
-        const contact = contactXZ(a, c);
+        const contact = a.productId.startsWith("imported:") || c.productId.startsWith("imported:") ? this.productContact(a,c) : contactXZ(a,c);
         if (!contact) continue;
         const { nx, nz } = contact;
         const push = contact.depth * 0.5;
@@ -3066,6 +3475,7 @@ export class Engine {
       }
     }
     if (boxes.some((b) => b.state === "dead")) this.boxes = boxes.filter((b) => b.state !== "dead");
+    return escaped;
   }
 
   /* ----- derived metrics ----- */

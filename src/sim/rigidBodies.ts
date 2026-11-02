@@ -4,9 +4,10 @@ import type { SceneItem, Vec3 } from "../types";
 import { importedModelSize, palletSize } from "../data/products";
 import { samplePath } from "./spline";
 import { upperFloorDimensions } from "../utils/upperFloor";
+import { importedCollision, importedCollisionBoxes, importedCollisionRevision } from "../utils/modelCollision";
+import { resolveContinuous, snapshotMotions, type SweepStart } from "./continuous";
 
-/** Physics uses simple compound colliders rather than expensive triangle meshes.
- * Factory mechanisms remain controlled by the simulation, not the solver. */
+/** Factory mechanisms remain controlled by the simulation, not the solver. */
 type Shape = { size: Vec3; center: Vec3; rotation?: THREE.Quaternion };
 const GROUP_DYNAMIC = 1, GROUP_FIXED = 2, GROUP_PRODUCT = 4;
 const G = 9.81;
@@ -82,6 +83,8 @@ function shapesFor(item: SceneItem, items: readonly SceneItem[]): Shape[] {
     return [scaled([w, .08, d], [0, .04, 0]), ...[-1, 1].flatMap((side) => [scaled([.05, h, d], [side * w / 2, h / 2, 0]), scaled([w, h, .05], [0, h / 2, side * d / 2])])];
   }
   if (item.kind === "imported-model" && item.imported) {
+    const collision = importedCollisionBoxes(item.imported, scale);
+    if (collision?.length) return collision.map((part) => box(part.size, part.center));
     const size = importedModelSize(item.imported, scale);
     return [box(size, [0, size[1] / 2, 0])];
   }
@@ -106,6 +109,19 @@ export class RigidBodyWorld {
   private products = new Map<number, CANNON.Body>();
   private productShapes = new WeakMap<CANNON.Body, string>();
   private tempQuat = new THREE.Quaternion();
+  private lastItems: readonly SceneItem[] = [];
+  private sweepWorld = false;
+  private collisionRevision = importedCollisionRevision();
+  private collisionIds = new WeakMap<object, number>();
+  private nextCollisionId = 1;
+
+  private collisionId(item?: SceneItem) {
+    const collision = item?.imported && importedCollision(item.imported);
+    if (!collision) return 0;
+    let id = this.collisionIds.get(collision);
+    if (!id) { id = this.nextCollisionId++; this.collisionIds.set(collision,id); }
+    return id;
+  }
   private euler = new THREE.Euler();
   dynamicCount = 0;
   active = false;
@@ -131,15 +147,17 @@ export class RigidBodyWorld {
   private shapeKey(item: SceneItem, items: readonly SceneItem[]) {
     return JSON.stringify([item.kind, item.scale, item.points, item.pointHeights, item.props.physicsMode, item.props.physicsMass, this.productCollider(item),
       item.props.width, item.props.depth, item.props.height, item.props.length, item.props.gateOpen, item.props.gateSegment,
-      item.props.product, item.props.cols, item.props.rows, item.props.gap, item.kind === "crates" ? palletSize(item.props, items) : null, item.imported?.sourceSize, item.imported?.units, item.imported?.axis]);
+      item.props.product, item.props.cols, item.props.rows, item.props.gap, item.kind === "crates" ? palletSize(item.props, items) : null, item.imported?.sourceSize, item.imported?.units, item.imported?.axis, this.collisionId(item)]);
   }
 
   sync(items: readonly SceneItem[]) {
+    this.lastItems = items;
+    this.collisionRevision = importedCollisionRevision();
     this.dynamicCount = items.filter((item) => item.visible !== false && item.props.physicsMode === "dynamic").length;
     this.active = this.dynamicCount > 0 || items.some((item) => item.visible !== false && this.productCollider(item));
     const keep = new Set<string>();
     // Ordinary legacy factories retain their zero-overhead conveyor fast path.
-    if (this.active) for (const item of items) {
+    if (this.active || this.sweepWorld) for (const item of items) {
       if (item.visible === false) continue;
       keep.add(item.id);
       const shapeKey = this.shapeKey(item, items), poseKey = JSON.stringify([item.position, item.rotationX, item.rotation, item.rotationZ]);
@@ -178,7 +196,7 @@ export class RigidBodyWorld {
       }
     }
     for (const [id, entry] of this.entries) if (!keep.has(id)) { this.world.removeBody(entry.body); this.entries.delete(id); }
-    if (!this.active) this.clearProducts();
+    if (!this.active && !this.sweepWorld) this.clearProducts();
   }
 
   private setPose(entry: Entry, item: SceneItem) {
@@ -235,47 +253,158 @@ export class RigidBodyWorld {
 
   private clearProducts() { for (const body of this.products.values()) this.world.removeBody(body); this.products.clear(); }
 
-  step(dt: number, boxes: readonly ProductProxy[], massOf: (id: string) => number) {
-    if (!this.active) return;
-    const live = new Set<number>(), reverse = new Map<CANNON.Body, ProductProxy>();
+  /** Build the dormant collision world only if a legacy workpiece travels far
+   * enough in one step to need CCD. Normal legacy factories keep their fast path. */
+  shouldStep(boxes: readonly ProductProxy[], dt: number) {
+    if (this.active) return true;
+    const dt2 = dt * dt;
+    const fast = boxes.some((part) => {
+      if (part.state !== "free") return false;
+      const threshold = Math.max(
+        0,
+        Math.max(0.005, Math.min(part.hx, part.hy, part.hz)) * 0.75 - G * dt2,
+      );
+      return (
+        (part.vx * part.vx + part.vy * part.vy + part.vz * part.vz) * dt2 >
+        threshold * threshold
+      );
+    });
+    if (fast && !this.sweepWorld) {
+      this.sweepWorld = true;
+      this.sync(this.lastItems);
+    }
+    return fast;
+  }
+
+  step(
+    dt: number,
+    boxes: readonly ProductProxy[],
+    massOf: (id: string) => number,
+    sourceOf?: (id: string) => SceneItem | undefined,
+    previous?: ReadonlyMap<number, SweepStart>,
+  ) {
+    if (!this.shouldStep(boxes, dt)) return;
+    if (this.collisionRevision !== importedCollisionRevision())
+      this.sync(this.lastItems);
+    const live = new Set<number>(),
+      reverse = new Map<CANNON.Body, ProductProxy>(),
+      starts = new Map<CANNON.Body, SweepStart>();
     for (const part of boxes) {
       if (part.state !== "free") continue;
       live.add(part.id);
       const mass = massOf(part.productId);
-      const shapeKey = `${part.hx},${part.hy},${part.hz},${mass}`;
+      const source = sourceOf?.(part.productId);
+      const shapeKey = `${part.hx},${part.hy},${part.hz},${mass},${this.collisionId(source)},${source?.imported?.axis},${source?.imported?.units}`;
       let body = this.products.get(part.id);
-      if (body && this.productShapes.get(body) !== shapeKey) { this.world.removeBody(body); this.products.delete(part.id); body = undefined; }
+      if (body && this.productShapes.get(body) !== shapeKey) {
+        this.world.removeBody(body);
+        this.products.delete(part.id);
+        body = undefined;
+      }
       if (!body) {
-        body = new CANNON.Body({material: productMaterial, mass: n(mass, 1, .01, 1_000_000), fixedRotation: true, linearDamping: 0, angularDamping: 0,
-          collisionFilterGroup: GROUP_PRODUCT, collisionFilterMask: GROUP_DYNAMIC | GROUP_FIXED, allowSleep: false});
-        body.addShape(new CANNON.Box(new CANNON.Vec3(part.hx, part.hy, part.hz))); this.productShapes.set(body, shapeKey);
-        this.world.addBody(body); this.products.set(part.id, body);
+        body = new CANNON.Body({
+          material: productMaterial,
+          mass: n(mass, 1, 0.01, 1_000_000),
+          fixedRotation: true,
+          linearDamping: 0,
+          angularDamping: 0,
+          collisionFilterGroup: GROUP_PRODUCT,
+          collisionFilterMask: GROUP_DYNAMIC | GROUP_FIXED,
+          allowSleep: false,
+        });
+        const model = source?.imported;
+        const collision = model && importedCollisionBoxes(model);
+        if (model && collision?.length) {
+          // Products keep their spawn-time dimensions, even if the source is edited.
+          const sourceSize = importedModelSize(model);
+          const ratio = [
+            (part.hx * 2) / sourceSize[0],
+            (part.hy * 2) / sourceSize[1],
+            (part.hz * 2) / sourceSize[2],
+          ];
+          for (const shape of collision) {
+            const size = shape.size.map((v, i) => v * ratio[i]);
+            const center = shape.center.map((v, i) => v * ratio[i]);
+            center[1] -= part.hy;
+            body.addShape(
+              new CANNON.Box(
+                new CANNON.Vec3(
+                  Math.max(0.005, size[0] / 2),
+                  Math.max(0.005, size[1] / 2),
+                  Math.max(0.005, size[2] / 2),
+                ),
+              ),
+              new CANNON.Vec3(center[0], center[1], center[2]),
+            );
+          }
+        } else
+          body.addShape(
+            new CANNON.Box(new CANNON.Vec3(part.hx, part.hy, part.hz)),
+          );
+        this.productShapes.set(body, shapeKey);
+        this.world.addBody(body);
+        this.products.set(part.id, body);
       }
       reverse.set(body, part);
+      const start = previous?.get(part.id);
+      if (start) starts.set(body, start);
       // Workpieces already advance in the conveyor/robot integrator. Rewind the
       // predicted motion for this contact pass and cancel the solver's gravity.
-      body.position.set(part.x - part.vx * dt, part.y - part.vy * dt, part.z - part.vz * dt);
-      body.velocity.set(part.vx, part.vy, part.vz); body.force.set(0, body.mass * G, 0);
-      body.quaternion.setFromEuler(0, part.yaw, 0); body.aabbNeedsUpdate = true;
+      body.position.set(
+        part.x - part.vx * dt,
+        part.y - part.vy * dt,
+        part.z - part.vz * dt,
+      );
+      body.velocity.set(part.vx, part.vy, part.vz);
+      body.force.set(0, body.mass * G, 0);
+      body.quaternion.setFromEuler(0, part.yaw, 0);
+      body.aabbNeedsUpdate = true;
     }
-    for (const [id, body] of this.products) if (!live.has(id)) { this.world.removeBody(body); this.products.delete(id); }
+    for (const [id, body] of this.products)
+      if (!live.has(id)) {
+        this.world.removeBody(body);
+        this.products.delete(id);
+      }
+    const motions = snapshotMotions(this.world, dt, starts);
     this.world.step(dt);
+    const swept = resolveContinuous(this.world, motions, dt, (a, b) => {
+      // Fast legacy products get swept against physical scene geometry and
+      // each other, while ordinary-speed contacts keep the conveyor fast path.
+      if (reverse.has(a) || reverse.has(b)) return true;
+      return !!(
+        a.collisionFilterGroup & b.collisionFilterMask &&
+        b.collisionFilterGroup & a.collisionFilterMask
+      );
+    });
     // Only transfer impulses for actual component contacts. Existing conveyor,
     // stack and robot behavior is otherwise unchanged.
-    const touched = new Set<CANNON.Body>();
+    const touched = swept;
     for (const contact of this.world.contacts) {
-      if (reverse.has(contact.bi) && contact.bj.collisionFilterGroup !== GROUP_PRODUCT) touched.add(contact.bi);
-      if (reverse.has(contact.bj) && contact.bi.collisionFilterGroup !== GROUP_PRODUCT) touched.add(contact.bj);
+      if (
+        reverse.has(contact.bi) &&
+        contact.bj.collisionFilterGroup !== GROUP_PRODUCT
+      )
+        touched.add(contact.bi);
+      if (
+        reverse.has(contact.bj) &&
+        contact.bi.collisionFilterGroup !== GROUP_PRODUCT
+      )
+        touched.add(contact.bj);
     }
     for (const body of touched) {
-      const part = reverse.get(body)!;
-      part.x = body.position.x; part.y = body.position.y; part.z = body.position.z;
-      part.vx = body.velocity.x; part.vy = body.velocity.y; part.vz = body.velocity.z;
+      const part = reverse.get(body);
+      if (!part) continue;
+      part.x = body.position.x;
+      part.y = body.position.y;
+      part.z = body.position.z;
+      part.vx = body.velocity.x;
+      part.vy = body.velocity.y;
+      part.vz = body.velocity.z;
     }
   }
 
   reset(items: readonly SceneItem[]) {
     for (const entry of this.entries.values()) this.world.removeBody(entry.body);
-    this.entries.clear(); this.clearProducts(); this.sync(items);
+    this.entries.clear(); this.clearProducts(); this.sweepWorld = false; this.sync(items);
   }
 }

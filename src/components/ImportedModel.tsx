@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedModelData, ModelUnits } from "../types";
 import { extension, getCachedModel, materialsOf, TEXTURE_SLOTS } from "../utils/modelImport";
+import { buildImportedCollision, importedCollision, registerImportedCollision } from "../utils/modelCollision";
 
 type Pbr = THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
 type SourceMaterial = THREE.Material & { color?: THREE.Color; emissive?: THREE.Color; map?: THREE.Texture | null; normalMap?: THREE.Texture | null; roughnessMap?: THREE.Texture | null; metalnessMap?: THREE.Texture | null; aoMap?: THREE.Texture | null; emissiveMap?: THREE.Texture | null; alphaMap?: THREE.Texture | null; bumpMap?: THREE.Texture | null; displacementMap?: THREE.Texture | null; vertexColors?: boolean };
@@ -93,6 +94,10 @@ export function useImportedModelInstance(model: ImportedModelData) {
     setLoaded(null); setError("");
     getCachedModel(asset).then(({root, clips}) => {
       if (!alive) return;
+      if (!importedCollision(model)) {
+        const collision = buildImportedCollision(root);
+        if (collision) registerImportedCollision(asset, collision);
+      }
       instance = cloneModel(root, clips); setLoaded(instance); gl.shadowMap.needsUpdate = true; invalidate();
     }).catch((cause: unknown) => { if (alive) { setError(cause instanceof Error ? cause.message : String(cause)); invalidate(); } });
     const cache = overrideMaps.current;
@@ -160,17 +165,8 @@ export function useImportedModelInstance(model: ImportedModelData) {
   return {loaded, error, transform};
 }
 
-export function ImportedModel({ model, id, onMeasure }: { model: ImportedModelData; id: string; onMeasure?: (sourceSize: [number, number, number]) => void }) {
+export function ImportedModel({ model, id }: { model: ImportedModelData; id: string }) {
   const {loaded, error, transform} = useImportedModelInstance(model);
-  useEffect(() => {
-    if (!loaded || model.sourceSize || !onMeasure) return;
-    // Ignore the viewport's parent transform and measure source coordinates.
-    const source = loaded.object.clone(true);
-    source.updateMatrixWorld(true);
-    const bounds = new THREE.Box3().setFromObject(source);
-    const size = bounds.getSize(new THREE.Vector3());
-    if (!bounds.isEmpty() && [size.x, size.y, size.z].every(Number.isFinite)) onMeasure([size.x, size.y, size.z]);
-  }, [loaded, model.sourceSize, onMeasure]);
   if (error) return <mesh userData={{importError:error, itemId:id}} position={[0,.5,0]}><boxGeometry args={[1,1,1]} /><meshStandardMaterial color="#c04444" wireframe /></mesh>;
   if (!loaded) return <mesh position={[0,.5,0]}><boxGeometry args={[.8,1,.8]} /><meshStandardMaterial color="#96a2aa" wireframe /></mesh>;
   return <group userData={{isImportedModel:true, itemId:id}} position={transform.offset} scale={transform.scale}><group rotation={[model.axis === "z" ? -Math.PI / 2 : 0,0,0]}><primitive object={loaded.object} /></group></group>;

@@ -1,4 +1,5 @@
 import type { ImportedModelData, SceneItem } from "../types";
+import { importedCollision, importedCollisionRevision } from "../utils/modelCollision";
 
 export type ProductShape = "box" | "cookie" | "cylinder" | "bottle" | "sphere" | "gear" | "board" | "frame";
 
@@ -58,39 +59,109 @@ export const PRODUCTS: Product[] = [
 
 export const IMPORTED_PRODUCT_PREFIX = "imported:";
 export const importedProductId = (item: SceneItem) => `${IMPORTED_PRODUCT_PREFIX}${item.id}`;
+const sourceCache = new WeakMap<readonly SceneItem[], Map<string,SceneItem>>();
 export function importedProductSource(id: unknown, items: readonly SceneItem[]): SceneItem | undefined {
   if (typeof id !== "string" || !id.startsWith(IMPORTED_PRODUCT_PREFIX)) return undefined;
-  return items.find((item) => item.kind === "imported-model" && item.id === id.slice(IMPORTED_PRODUCT_PREFIX.length) && item.imported);
+  let sources=sourceCache.get(items);
+  if (!sources) {
+    sources=new Map();
+    // First entry wins, as in Array.find: a live source precedes its catalog fallback.
+    for (const item of items) if (item.kind === "imported-model" && item.imported && !sources.has(item.id)) sources.set(item.id,item);
+    sourceCache.set(items,sources);
+  }
+  return sources.get(id.slice(IMPORTED_PRODUCT_PREFIX.length));
+}
+
+/** Workpiece definitions are project assets, not scene objects. Keep a snapshot
+ * of each imported model so deleting its scene instance does not break products. */
+export function updateWorkpieceCatalog(items: readonly SceneItem[], catalog: readonly SceneItem[] = []): SceneItem[] {
+  const next = new Map(catalog.map((entry) => [entry.id, entry]));
+  let changed = false;
+  for (const item of items) {
+    if (item.kind !== "imported-model" || !item.imported) continue;
+    const previous = next.get(item.id);
+    if (previous && previous.imported === item.imported && previous.name === item.name && previous.scale === item.scale && previous.color === item.color && previous.props.physicsMass === (item.props.physicsMass ?? 1) && previous.props.magnetic === (item.props.magnetic === true)) continue;
+    next.set(item.id, {id:item.id, kind:"imported-model", name:item.name, position:[0,0,0], rotation:0, scale:item.scale,
+      color:item.color, visible:false, props:{physicsMass:item.props.physicsMass ?? 1, magnetic:item.props.magnetic === true}, imported:item.imported});
+    changed = true;
+  }
+  return changed ? [...next.values()] : catalog as SceneItem[];
+}
+
+/** Make definitions available to existing product lookups without putting
+ * them in the visible scene. A live scene instance takes precedence. */
+export function itemsWithWorkpieces(items: SceneItem[], catalog: readonly SceneItem[] = []): SceneItem[] {
+  if (!catalog.length) return items;
+  const ids = new Set(items.map((item) => item.id));
+  const missing = catalog.filter((entry) => !ids.has(entry.id));
+  return missing.length ? [...items, ...missing] : items;
 }
 
 /** Match the imported renderer's Y-up and unit conversion. */
-export function importedModelSize(model: ImportedModelData, scale = 1): Product["size"] {
-  const raw = model.sourceSize ?? [0.34, 0.26, 0.34];
+export function importedModelSize(
+  model: ImportedModelData,
+  scale = 1,
+): Product["size"] {
+  const collision = importedCollision(model);
+  const raw =
+    model.sourceSize ??
+    (collision
+      ? collision.max.map((v, i) => v - collision.min[i])
+      : [0.34, 0.26, 0.34]);
   const oriented = model.axis === "z" ? [raw[0], raw[2], raw[1]] : raw;
-  const units = {m: 1, mm: .001, cm: .01, in: .0254, ft: .3048};
-  const factor = model.units === "auto" ? (Math.max(...oriented) > 50 ? .001 : 1) : units[model.units];
-  return oriented.map((v) => Math.max(0.01, Math.min(1000, v * factor * scale))) as Product["size"];
+  const units = { m: 1, mm: 0.001, cm: 0.01, in: 0.0254, ft: 0.3048 };
+  const factor =
+    model.units === "auto"
+      ? Math.max(...oriented) > 50
+        ? 0.001
+        : 1
+      : units[model.units];
+  return oriented.map((v) =>
+    Math.max(0.01, Math.min(1000, v * factor * scale)),
+  ) as Product["size"];
 }
 
 const stockById = new Map(PRODUCTS.map((product) => [product.id, product]));
 const emptyItems: readonly SceneItem[] = [];
 // Scene arrays are immutable snapshots. Resolving many workpieces on each
 // simulation step should not rescan/reallocate the entire imported catalogue.
-const importedCache = new WeakMap<readonly SceneItem[], Map<string, Product>>();
+const importedCache = new WeakMap<
+  readonly SceneItem[],
+  { revision: number; products: Map<string, Product> }
+>();
 function importedProductMap(items: readonly SceneItem[]): Map<string, Product> {
-  let products = importedCache.get(items);
-  if (products) return products;
-  products = new Map();
-  for (const item of items) if (item.kind === "imported-model" && item.imported) {
-    const id = importedProductId(item);
-    products.set(id, {id, name: item.name, ru: item.name, category: "Imported models", tags: ["imported", item.imported.asset.entry],
-      shape: "box", size: importedModelSize(item.imported, item.scale),
-      color: parseInt((item.imported.materials[0]?.color ?? item.color ?? "#9aa7b4").replace("#", ""), 16) || 0x9aa7b4,
-      mass: Math.max(0.01, Number(item.props.physicsMass) || 1), magnetic: item.props.magnetic === true});
-  }
-  importedCache.set(items, products);
+  const revision = importedCollisionRevision(),
+    cached = importedCache.get(items);
+  if (cached?.revision === revision) return cached.products;
+  const products = new Map<string, Product>();
+  for (const item of items)
+    if (item.kind === "imported-model" && item.imported) {
+      const id = importedProductId(item);
+      products.set(id, {
+        id,
+        name: item.name,
+        ru: item.name,
+        category: "Imported models",
+        tags: ["imported", item.imported.asset.entry],
+        shape: "box",
+        size: importedModelSize(item.imported, item.scale),
+        color:
+          parseInt(
+            (
+              item.imported.materials[0]?.color ??
+              item.color ??
+              "#9aa7b4"
+            ).replace("#", ""),
+            16,
+          ) || 0x9aa7b4,
+        mass: Math.max(0.01, Number(item.props.physicsMass) || 1),
+        magnetic: item.props.magnetic === true,
+      });
+    }
+  importedCache.set(items, { revision, products });
   return products;
 }
+
 export function importedProducts(items: readonly SceneItem[]): Product[] { return [...importedProductMap(items).values()]; }
 
 export const getProduct = (id: unknown, items: readonly SceneItem[] = emptyItems): Product => {

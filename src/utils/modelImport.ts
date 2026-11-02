@@ -21,6 +21,7 @@ import { TGALoader } from "three/examples/jsm/loaders/TGALoader.js";
 import { DDSLoader } from "three/examples/jsm/loaders/DDSLoader.js";
 import occtFactory from "occt-import-js";
 import { readPackedAsset } from "./embeddedAsset";
+import { buildImportedCollision } from "./modelCollision";
 import dracoJs from "three/examples/jsm/libs/draco/draco_wasm_wrapper.js?raw";
 import dracoWasm from "three/examples/jsm/libs/draco/draco_decoder.wasm?url&inline";
 import basisJs from "three/examples/jsm/libs/basis/basis_transcoder.js?raw";
@@ -347,7 +348,7 @@ export function describeImportedModel(asset: ModelAsset, root: THREE.Object3D, c
   const bounds = new THREE.Box3().setFromObject(root), rawSize = bounds.getSize(new THREE.Vector3());
   const sourceSize: [number, number, number] | undefined = !bounds.isEmpty() && [rawSize.x, rawSize.y, rawSize.z].every(Number.isFinite)
     ? [rawSize.x, rawSize.y, rawSize.z] : undefined;
-  return {asset, axis: cad || ["3mf","amf"].includes(ext) ? "z" : "y", units, materials: inspectMaterials(root), meshCount, triangleCount, sourceSize, rigged, animationNames: clips.map((clip) => clip.name)};
+  return {asset, axis: cad || ["3mf","amf"].includes(ext) ? "z" : "y", units, materials: inspectMaterials(root), meshCount, triangleCount, sourceSize, collision:buildImportedCollision(root), rigged, animationNames: clips.map((clip) => clip.name)};
 }
 
 // Parsed geometry is shared by instances; each instance creates its own materials.

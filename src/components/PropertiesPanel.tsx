@@ -30,13 +30,15 @@ import { ModelMaterialEditor } from "./ModelMaterialEditor";
 import { WorkerEditor } from "./WorkerEditor";
 import { workerShirtColor } from "./RiggedHuman";
 import { PalletPattern } from "./PalletPattern";
-import { MACHINE_KINDS } from "../data/products";
+import { importedProductId, MACHINE_KINDS } from "../data/products";
 import { t, useLanguage } from "../i18n";
 import { isSignalSource, signalTargets, signalTargetsPatch, signalWireColor } from "../utils/signalPorts";
 
 interface PropertiesPanelProps {
   selected: SceneItem | null;
   items: SceneItem[];
+  productItems?: SceneItem[];
+  onRemoveWorkpiece?: (id: string) => void;
   onUpdate: (id: string, changes: Partial<SceneItem>, record?: boolean) => boolean | void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -166,8 +168,38 @@ function Toggle({ checked, onChange, label: accessibleLabel }: { checked: boolea
   );
 }
 
-function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSelect, selectedPoint, onSelectPoint, onAddPoint, onRemovePoint, onReversePath, onEditProgram, onBeginEdit, onImportCharacter, layoutName }: PropertiesPanelProps) {
+function WorkerPatrolRoute({item, onUpdate, onBeginEdit}: {item:SceneItem; onUpdate:PropertiesPanelProps["onUpdate"]; onBeginEdit:()=>void}) {
+  const points: [number,number][] = item.points ?? [[0,0],[3,0],[3,2],[0,2]];
+  const updatePoint = (index:number, axis:0|1|2, value:number) => {
+    if (!Number.isFinite(value)) return;
+    if (axis === 2) {
+      const pointHeights = points.map((_,i) => i === index ? value : item.pointHeights?.[i] ?? 0);
+      onUpdate(item.id,{points,pointHeights},false);
+    } else {
+      const next = points.map((p,i) => i === index ? (axis === 0 ? [value,p[1]] : [p[0],value]) as [number,number] : p);
+      onUpdate(item.id,{points:next},false);
+    }
+  };
+  return <Section title={t("Patrol waypoints")}>
+    <p className="mb-2 text-[10px] leading-relaxed text-white/45">{t("Waypoint Y is relative to the worker's starting height. Stairs connect floors automatically.")}</p>
+    <div className="space-y-1">{points.map((point,index)=><div key={index} className="grid grid-cols-[1rem_1fr_1fr_1fr_auto] gap-1">
+      <span className="pt-2 text-[9px] text-white/45">{index+1}</span>
+      {[point[0],point[1],item.pointHeights?.[index] ?? ""].map((value,axis)=><input key={axis} type="number" step={.25} value={value} placeholder={axis===2 ? t("Auto") : undefined}
+        aria-label={`${t("Waypoint")} ${index+1} ${["X","Z","Y"][axis]}`} onFocus={onBeginEdit}
+        onChange={(e)=>updatePoint(index,axis as 0|1|2,Number(e.target.value))} className={cn(inputCls,"min-w-0")} />)}
+      <button type="button" aria-label={`${t("Remove waypoint")} ${index+1}`} disabled={points.length<=2} onClick={()=>onUpdate(item.id,{points:points.filter((_,i)=>i!==index),pointHeights:item.pointHeights?.filter((_,i)=>i!==index)})} className="rounded border border-white/10 px-2 text-white/50 disabled:opacity-30">×</button>
+    </div>)}</div>
+    <div className="mt-2 flex flex-wrap gap-2">
+      <button type="button" onClick={()=>onUpdate(item.id,{points:[...points,[points.at(-1)![0]+1,points.at(-1)![1]]],pointHeights:item.pointHeights ? [...item.pointHeights,item.pointHeights.at(-1) ?? 0] : undefined})} className="rounded border border-white/10 px-2 py-1 text-[10px] text-white/70">{t("Add waypoint")}</button>
+      {item.pointHeights && <button type="button" onClick={()=>onUpdate(item.id,{pointHeights:undefined})} className="rounded border border-white/10 px-2 py-1 text-[10px] text-white/70">{t("Use automatic heights")}</button>}
+    </div>
+  </Section>;
+}
+
+function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiece, onUpdate, onDelete, onDuplicate, onSelect, selectedPoint, onSelectPoint, onAddPoint, onRemovePoint, onReversePath, onEditProgram, onBeginEdit, onImportCharacter, layoutName }: PropertiesPanelProps) {
   useSimSnapshot(500);
+  const sceneIds = new Set(items.map((item) => item.id));
+  const removableWorkpieces = new Set(productItems.filter((item) => item.kind === "imported-model" && !sceneIds.has(item.id)).map(importedProductId));
 
   if (!selected) {
     const counts = CATEGORIES.filter((c) => c !== "All").map((category) => ({
@@ -409,16 +441,17 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
         )}
 
         {selected.kind === "feeder" && <>
-          <Section title={t("Products")}><ProductPicker items={items} label={t("Spawn product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} />{String(selected.props.product || "").startsWith("imported:") && <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("Keep the source model in the project; you can hide it from the scene.")}</p>}{selected.props.requireSupply && <p className="mt-2 text-[10px] text-white/45">{t("Supply")}: {sim.feeders.get(selected.id)?.supply ?? 0}</p>}</Section>
+          <Section title={t("Products")}><ProductPicker items={productItems} removableWorkpieces={removableWorkpieces} onRemoveWorkpiece={onRemoveWorkpiece} label={t("Spawn product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} />{String(selected.props.product || "").startsWith("imported:") && <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("The workpiece is saved independently of its scene model.")}</p>}{selected.props.requireSupply && <p className="mt-2 text-[10px] text-white/45">{t("Supply")}: {sim.feeders.get(selected.id)?.supply ?? 0}</p>}</Section>
           <Section title={t("Feeder control")}>
             <div className="flex items-center justify-between text-[11px] text-white/75"><span>{t("Mode")}</span><span className="font-medium text-[var(--app-accent-bright)]">{t(feederSources.length ? "Signal-controlled" : "Automatic")}</span></div>
             <p className="mt-2 text-[10px] leading-relaxed text-white/45">{t(feederSources.length ? "One part per signal activation. Requests wait if the output is blocked or supply is empty; the spawn interval sets the minimum spacing." : "Runs automatically. Connect a button, sensor, laser or PLC to produce one part per signal activation.")}</p>
             {feederSources.length > 0 && <p className="mt-2 text-[10px] text-white/55">{t("Signal sources")}: {feederSources.map((item) => item.name).join(", ")} · {t("Pending")}: {sim.pendingFeederSignals(selected.id)}</p>}
           </Section>
         </>}
-        {MACHINE_KINDS.has(selected.kind) && <Section title={t("Product transformation")}><div className="space-y-3"><ProductPicker items={items} label={t("Input product")} allowAny value={String(selected.props.inputProduct || "any")} onChange={(inputProduct) => onUpdate(selected.id, { props: { ...selected.props, inputProduct } })} /><ProductPicker items={items} label={t("Output product")} value={String(selected.props.outputProduct || "machined")} onChange={(outputProduct) => onUpdate(selected.id, { props: { ...selected.props, outputProduct } })} />{selected.kind === "paint" && <label className="block text-[10px] text-white/45">{t("Paint colour")}<input aria-label={t("Paint colour")} type="color" value={String(selected.props.paintColor || "#d6534c")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, paintColor: e.target.value } })} className="mt-1 h-8 w-full rounded border border-white/15 bg-transparent" /></label>}{selected.kind === "assembly" && <label className="block text-[10px] text-white/45">{t("Required parts")}<input aria-label={t("Required parts")} type="number" min={1} max={8} value={Number(selected.props.requiredParts ?? 2)} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, requiredParts: Math.max(1, Math.min(8, Number(e.target.value))) } })} className={cn(inputCls, "mt-1")} /></label>}<p className="text-[10px] leading-relaxed text-white/35">{t("One product in, one product out. The item keeps its physical identity.")}{selected.kind === "assembly" ? " " + t("Multiple parts are combined into one assembly.") : ""}</p></div></Section>}
+        {MACHINE_KINDS.has(selected.kind) && <Section title={t("Product transformation")}><div className="space-y-3"><ProductPicker items={productItems} removableWorkpieces={removableWorkpieces} onRemoveWorkpiece={onRemoveWorkpiece} label={t("Input product")} allowAny value={String(selected.props.inputProduct || "any")} onChange={(inputProduct) => onUpdate(selected.id, { props: { ...selected.props, inputProduct } })} /><ProductPicker items={productItems} removableWorkpieces={removableWorkpieces} onRemoveWorkpiece={onRemoveWorkpiece} label={t("Output product")} value={String(selected.props.outputProduct || "machined")} onChange={(outputProduct) => onUpdate(selected.id, { props: { ...selected.props, outputProduct } })} />{selected.kind === "paint" && <label className="block text-[10px] text-white/45">{t("Paint colour")}<input aria-label={t("Paint colour")} type="color" value={String(selected.props.paintColor || "#d6534c")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, paintColor: e.target.value } })} className="mt-1 h-8 w-full rounded border border-white/15 bg-transparent" /></label>}{selected.kind === "assembly" && <label className="block text-[10px] text-white/45">{t("Required parts")}<input aria-label={t("Required parts")} type="number" min={1} max={8} value={Number(selected.props.requiredParts ?? 2)} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, requiredParts: Math.max(1, Math.min(8, Number(e.target.value))) } })} className={cn(inputCls, "mt-1")} /></label>}<p className="text-[10px] leading-relaxed text-white/35">{t("One product in, one product out. The item keeps its physical identity.")}{selected.kind === "assembly" ? " " + t("Multiple parts are combined into one assembly.") : ""}</p></div></Section>}
         {isRobot && <Section title={t("Tool")}><label className="block"><span className="mb-1.5 block text-[10px] text-white/45">{t("Gripper")}</span><select aria-label={t("Gripper")} value={String(selected.props.gripper || "vacuum")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, gripper: e.target.value } })} className={inputCls}>{[["vacuum", "Vacuum cup"], ["parallel", "Parallel jaws"], ["three-finger", "Three-finger"], ["magnetic", "Magnetic"], ["soft", "Soft gripper"]].map(([id, name]) => <option key={id} value={id}>{t(name)}</option>)}</select></label><p className="mt-2 text-[10px] leading-relaxed text-white/35">{t("Magnetic tools pick metal only. Paint tools apply the program colour to an existing product.")}</p></Section>}
-        {selected.kind === "crates" && <Section title={t("Pallet pattern")}><PalletPattern items={items} props={selected.props} onChange={(patch) => onUpdate(selected.id, { props: { ...selected.props, ...patch } })} /><div className="mt-3"><ProductPicker items={items} label={t("Product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} /></div></Section>}
+        {selected.kind === "crates" && <Section title={t("Pallet pattern")}><PalletPattern items={productItems} props={selected.props} onChange={(patch) => onUpdate(selected.id, { props: { ...selected.props, ...patch } })} /><div className="mt-3"><ProductPicker items={productItems} removableWorkpieces={removableWorkpieces} onRemoveWorkpiece={onRemoveWorkpiece} label={t("Product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} /></div></Section>}
+        {isWorker && String(selected.props.task || "patrol") === "patrol" && <WorkerPatrolRoute item={selected} onUpdate={onUpdate} onBeginEdit={onBeginEdit} />}
         {selected.kind === "operator" && <WorkerEditor item={selected} items={items} onUpdate={onUpdate} onBeginEdit={onBeginEdit} onImportCharacter={onImportCharacter} />}
         {isWorker && <Section title={t(selected.kind === "mobile-robot" ? "Delivery robot task" : "Human tasks")}><div className="space-y-3"><label className="block text-[10px] text-white/45">{t("Task")}<select aria-label={t("Task")} value={String(selected.props.task || "patrol")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, task: e.target.value } })} className={cn(inputCls, "mt-1.5")}>{[["idle", "Stand by"], ["patrol", "Patrol route"], ["inspect", "Inspect products"], ["carry", "Carry products"], ["tend", "Tend a machine"], ["operate", "Operate a machine"], ["replenish", "Replenish feeder"]].map(([id, name]) => <option key={id} value={id}>{t(name)}</option>)}</select></label>{["sourceId", ...(selected.props.task === "carry" ? ["targetId"] : [])].map((key) => <label key={key} className="block text-[10px] text-white/45">{t(key === "sourceId" ? "Source station" : "Destination station")}<select aria-label={t(key === "sourceId" ? "Source station" : "Destination station")} value={String(selected.props[key] || "")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, [key]: e.target.value } })} className={cn(inputCls, "mt-1.5")}><option value="">{t("Nearest station")}</option>{items.filter((i) => MACHINE_KINDS.has(i.kind) || ["feeder", "conveyor", "roller", "crates"].includes(i.kind)).map((i) => <option key={i.id} value={i.id}>{t(i.name)}</option>)}</select></label>)}{selected.kind === "operator" && <div className="space-y-3 border-t border-white/10 pt-3">
           <p className="text-[10px] uppercase tracking-wider text-white/35">{t("Cosmetics")}</p>

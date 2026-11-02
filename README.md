@@ -46,9 +46,9 @@ In **AI Factory → Node graph**, connect several conveyor outputs to one downst
 
 Select an object and use **Move** or **Rotate** for X/Y/Z gizmos. To make a sloped or multi-level conveyor, select a spline sphere or point row and drag its green Y arrow, or enter its local Y height. Existing sphere dragging, snapping, undo and project archives still work. Add **Elevated Platform** and **Industrial Stairs** from the Building catalog and align their heights to arrange upper floors.
 
-Every component has **Properties → Physics → Kinematic/Dynamic** and **Weight (kg)**. Choose a mode for legacy components. Kinematic equipment stays at its edited pose (task-driven workers still walk); dynamic objects fall, collide and keep their usual simulated function. Reset returns them to the authored layout. Tilted equipment uses oriented support faces and simplified compound colliders, not exact meshes; fast motion may tunnel and some operations/navigation remain approximate. See the [user guide](docs/USER_GUIDE.md#physics-and-upper-floors).
+Every component has **Properties → Physics → Kinematic/Dynamic** and **Weight (kg)**. Choose a mode for legacy components. Kinematic equipment stays at its edited pose (task-driven workers still walk); dynamic objects fall, collide and keep their usual simulated function. Reset returns them to the authored layout. Tilted equipment uses oriented support faces, fast bodies and products receive swept collision checks, and workers can route between connected floors. Imported geometry uses mesh-derived compound colliders; complex contacts are still approximate. See the [user guide](docs/USER_GUIDE.md#physics-and-upper-floors).
 
-To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Keep the source model in the project; it may be hidden. Projects embed its asset.
+To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Its saved workpiece definition and embedded asset remain available even if the source scene object is deleted.
 
 ### Signal-controlled feeders and robots
 

@@ -54,6 +54,7 @@ try {
   await page.getByRole('button',{name:'Spawn product',exact:true}).click();
   await page.getByRole('option',{name:/cube/i}).click();
   await page.waitForFunction(({source,feeder})=>window.__larpProject.getItems().find(i=>i.id===feeder).props.product===`imported:${source}`,ids);
+  assert.equal(await page.getByRole('button',{name:'Remove saved workpiece'}).count(),0,'a live scene model cannot be removed as a saved-only definition');
   const loaded=await page.evaluate(({source,button})=>{
     const item=window.__larpProject.getItems().find(i=>i.id===source);
     window.__larp.reset();window.__larp.setRunning(true);window.__larp.setButton(button,true);
@@ -73,7 +74,125 @@ try {
     const size=new T.Box3().setFromObject(part).getSize(new T.Vector3());
     return Math.abs(size.x-.3)<.03&&Math.abs(size.y-.3)<.03&&Math.abs(size.z-.3)<.03;
   },null,{timeout:30000});
+  // Delete the imported scene object: its saved workpiece definition and
+  // asset must still drive and render the feeder, including after export.
+  await page.evaluate(({source})=>window.__larpProject.select(source),ids);
+  await page.getByRole('button',{name:'Delete',exact:true}).last().click();
+  await page.waitForFunction(({source})=>!window.__larpProject.getItems().some(i=>i.id===source),ids);
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await page.waitForFunction(({source})=>window.__larpProject.getItems().some(i=>i.id===source),ids);
+  await page.getByRole('button',{name:'Redo',exact:true}).click();
+  await page.waitForFunction(({source})=>!window.__larpProject.getItems().some(i=>i.id===source),ids);
+  await page.evaluate(({feeder})=>window.__larpProject.select(feeder),ids);
+  await page.waitForFunction(({source})=>window.__larp.items.some(i=>i.id===source && i.visible===false),ids);
+  const saved=await page.evaluate(async({source,button})=>{
+    const text=window.__larpProject.getText();
+    const {parseProject}=await import('/src/utils/project.ts');
+    const parsed=parseProject(text);
+    window.__larp.reset();window.__larp.setRunning(true);window.__larp.setButton(button,true);
+    for(let i=0;i<90;i++)window.__larp.step(1/60);
+    return {catalog:parsed.workpieces?.map(i=>i.id),items:parsed.items.map(i=>i.id),
+      boxes:window.__larp.boxes.map(b=>({product:b.productId,hx:b.hx}))};
+  },ids);
+  assert.ok(saved.catalog.includes(ids.source) && !saved.items.includes(ids.source),'deleted source is a catalog definition, not a scene object');
+  assert.ok(saved.boxes.some(b=>b.product===`imported:${ids.source}` && Math.abs(b.hx-.25)<1e-5),'feeder still spawns the independently saved model');
+  await page.waitForFunction(()=>{let rendered=false;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.isImportedModel&&String(o.userData.itemId).startsWith('workpiece-'))rendered=true});return rendered;},null,{timeout:60000});
+  assert.match(await page.getByRole('button',{name:'Spawn product',exact:true}).innerText(),/cube/i);
+  // Wait for the real IndexedDB autosave, then reload the page rather than
+  // merely parsing an in-memory export.
+  await page.waitForFunction(async({source})=>{
+    const {loadAutosave}=await import('/src/utils/projectStore.ts');
+    const {parseProject}=await import('/src/utils/project.ts');
+    const saved=await loadAutosave();if(!saved)return false;
+    const p=parseProject(saved.text);return !p.items.some(i=>i.id===source)&&p.workpieces?.some(i=>i.id===source&&i.imported?.collision?.boxes?.length);
+  },ids,{timeout:30000});
+  await page.reload({waitUntil:'networkidle',timeout:120000});
+  await page.waitForFunction(({source,feeder})=>window.__larpProject?.getItems().some(i=>i.id===feeder)&&!window.__larpProject.getItems().some(i=>i.id===source)&&window.__larpProject.getWorkpieces().some(i=>i.id===source),ids,{timeout:30000});
+  await page.evaluate(({feeder})=>{
+    window.__larpProject.select(feeder);
+    window.__larpProject.setItems(window.__larpProject.getItems().map(i=>i.id===feeder?{...i,props:{...i.props,physicsMode:'kinematic'}}:i));
+  },ids);
+  await page.waitForFunction(({feeder})=>window.__larp.rigidBodies.active && !!window.__larp.rigidBodies.body(feeder),ids);
+  await page.evaluate(({source,button})=>{
+    window.__larp.reset();window.__larp.setRunning(true);window.__larp.setButton(button,true);
+    for(let i=0;i<90;i++)window.__larp.step(1/60);
+    if(window.__larp.rigidBodies.body(source))throw new Error('catalog created a ghost scene body');
+  },ids);
+  await page.waitForFunction(({source})=>window.__larp.boxes.some(b=>b.productId===`imported:${source}`),ids);
+  assert.ok(await page.evaluate(()=>window.__larp.rigidBodies.world.bodies.some(b=>b.collisionFilterGroup===4 && b.shapes.length>1)), 'restored workpiece has its mesh-derived compound collider');
+  await page.waitForFunction(()=>{let rendered=false;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.isImportedModel&&String(o.userData.itemId).startsWith('workpiece-'))rendered=true});return rendered;},null,{timeout:60000});
+  assert.match(await page.getByRole('button',{name:'Spawn product',exact:true}).innerText(),/cube/i);
+  // A retained definition can also be intentionally removed to free project
+  // space. Confirmation, component references and undo/redo stay coherent.
+  const machineId=await page.evaluate(async({source})=>{
+    const {makeItem}=await import('/src/data/library.ts');
+    const machine=makeItem('cnc',[5,0,0],0,{props:{inputProduct:`imported:${source}`,outputProduct:`imported:${source}`}});
+    window.__larpProject.setItems([...window.__larpProject.getItems(),machine]);return machine.id;
+  },ids);
+  const remove=page.getByRole('button',{name:'Remove saved workpiece',exact:true});
+  await remove.waitFor({state:'visible'});
+  page.once('dialog',dialog=>dialog.dismiss());
+  await remove.click();
+  assert.ok(await page.evaluate(({source})=>window.__larpProject.getWorkpieces().some(i=>i.id===source),ids),'cancelling preserves the saved workpiece');
+  page.once('dialog',dialog=>dialog.accept());
+  await remove.click();
+  await page.waitForFunction(({source,feeder,machine})=>!window.__larpProject.getWorkpieces().some(i=>i.id===source)&&window.__larpProject.getItems().find(i=>i.id===feeder).props.product==='carton'&&window.__larpProject.getItems().find(i=>i.id===machine).props.inputProduct==='carton'&&window.__larpProject.getItems().find(i=>i.id===machine).props.outputProduct==='carton',{...ids,machine:machineId});
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await page.waitForFunction(({source,feeder,machine})=>window.__larpProject.getWorkpieces().some(i=>i.id===source)&&window.__larpProject.getItems().find(i=>i.id===feeder).props.product===`imported:${source}`&&window.__larpProject.getItems().find(i=>i.id===machine).props.inputProduct===`imported:${source}`,{...ids,machine:machineId});
+  await page.getByRole('button',{name:'Redo',exact:true}).click();
+  await page.waitForFunction(({source})=>!window.__larpProject.getWorkpieces().some(i=>i.id===source),ids);
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await page.waitForFunction(({source})=>window.__larpProject.getWorkpieces().some(i=>i.id===source),ids);
+  console.log('browser: saved workpiece cleanup, confirmation and undo/redo OK');
+  // Legacy definitions without size or collider metadata are measured even
+  // if their source was never rendered and is already absent from the scene.
+  const legacyId=await page.evaluate(({source})=>{
+    const saved=window.__larpProject.getWorkpieces().find(i=>i.id===source);
+    const legacy={...saved,id:'legacy-hidden-workpiece',name:'Legacy hidden workpiece',scale:.4,
+      imported:{...saved.imported,asset:{...saved.imported.asset,id:'legacy-hidden-asset'},sourceSize:undefined,collision:undefined}};
+    const current=window.__larpProject.getItems();
+    window.__larpProject.setItems([...current,legacy]);
+    window.__larpProject.setItems(current);
+    return legacy.id;
+  },ids);
+  await page.waitForFunction(id=>{
+    const model=window.__larpProject.getWorkpieces().find(i=>i.id===id)?.imported;
+    return !window.__larpProject.getItems().some(i=>i.id===id)&&model?.sourceSize?.[0]===1000&&model?.collision?.boxes?.length>1&&window.__larp.items.some(i=>i.id===id&&i.imported?.sourceSize);
+  },legacyId,{timeout:60000});
+  const legacy=await page.evaluate(async id=>{
+    const {parseProject}=await import('/src/utils/project.ts');
+    const stored=parseProject(window.__larpProject.getText()).workpieces.find(i=>i.id===id);
+    const part=window.__larp.spawn(`imported:${id}`,0,2,0);
+    return {size:stored.imported.sourceSize,shapes:stored.imported.collision.boxes.length,half:part.hx};
+  },legacyId);
+  assert.deepEqual(legacy.size,[1000,1000,1000]);assert.ok(legacy.shapes>1&&Math.abs(legacy.half-.2)<1e-6,'hidden legacy workpiece has measured size and collider');
+  console.log('browser: legacy hidden workpiece measured without a scene instance OK');
+  console.log('browser: deleted source survives undo/redo, autosave and reload without ghost bodies');
   console.log('browser: imported model feeder and real workpiece mesh OK');
+
+  // Waypoint controls persist relative heights, allow restoring automatic
+  // heights, and drive a worker through stairs between overlapping floors.
+  const patrol=await page.evaluate(async()=>{
+    const {makeItem}=await import('/src/data/library.ts');
+    const stairs=makeItem('stairs',[0,0,0],0,{props:{width:1.5,length:4,height:2}});
+    const deck=makeItem('platform',[4,0,0],0,{props:{width:4,depth:4,height:2}});
+    const worker=makeItem('operator',[4,0,1],0,{points:[[0,0],[0,0]],props:{task:'patrol',walkSpeed:1}});
+    window.__larpProject.setItems([stairs,deck,worker]);window.__larpProject.select(worker.id);window.__larp.setRunning(false);return worker.id;
+  });
+  assert.equal(await page.getByLabel('Waypoint 1 Y').inputValue(),'');
+  await page.getByLabel('Waypoint 1 Y').fill('0');
+  await page.getByLabel('Waypoint 2 Y').fill('2');
+  await page.waitForFunction(id=>JSON.stringify(window.__larpProject.getItems().find(i=>i.id===id).pointHeights)==='[0,2]',patrol);
+  const route=await page.evaluate(async id=>{
+    const {parseProject}=await import('/src/utils/project.ts');const parsed=parseProject(window.__larpProject.getText());
+    window.__larp.reset();window.__larp.setRunning(true);for(let i=0;i<32*60;i++)window.__larp.step(1/60);
+    return {heights:parsed.items.find(i=>i.id===id).pointHeights,stage:window.__larp.humans.get(id).stage};
+  },patrol);
+  assert.deepEqual(route.heights,[0,2]);assert.ok(route.stage>=3,'worker walked up and down the stairs');
+  await page.getByRole('button',{name:'Use automatic heights'}).click();
+  await page.waitForFunction(id=>!window.__larpProject.getItems().find(i=>i.id===id).pointHeights,patrol);
+  assert.equal(await page.getByLabel('Waypoint 2 Y').inputValue(),'');
+  console.log('browser: multi-floor patrol height controls and round trip OK');
 
   // All component types expose the mode and weight; visible body motion and
   // live runtime anchors are driven by the same solver pose.
@@ -110,10 +229,13 @@ try {
   await page.getByRole('button',{name:'Edit signal connections'}).click();
   const sourcePort=page.getByRole('button',{name:'Signal output: Falling switch'});
   await sourcePort.waitFor({state:'visible'});
-  const beforePort=await sourcePort.boundingBox();
   const wirePoint=async()=>page.evaluate(({source,target})=>{let tube;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.signalWire&&o.userData.sourceId===source&&o.userData.targetId===target)tube=o.getObjectByName('signal-cable')});const p=tube?.geometry.parameters.path.getPoint(0);return p&&[p.x,p.y,p.z];},wiring);
-  await page.waitForFunction(({source,target})=>{let found=false;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.signalWire&&o.userData.sourceId===source&&o.userData.targetId===target)found=true});return found;},wiring);
-  const beforeWire=await wirePoint();
+  await page.waitForFunction(({source})=>!!window.__larp.rigidBodies.body(source),wiring);
+  // Reset after React has synced the new scene: a slow frame or a pending UI
+  // running-state effect must not let the source fall before the baseline.
+  await page.evaluate(()=>{window.__larp.setRunning(false);window.__larp.reset();});
+  await page.waitForFunction(({source,target})=>{let tube;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.signalWire&&o.userData.sourceId===source&&o.userData.targetId===target)tube=o.getObjectByName('signal-cable')});return window.__larp.getPhysicsPose(source)?.position[1]>3.9&&tube?.geometry.parameters.path.getPoint(0).y>4.7;},wiring);
+  const beforePort=await sourcePort.boundingBox(), beforeWire=await wirePoint();
   await page.evaluate(()=>{window.__larp.setRunning(true);for(let i=0;i<240;i++)window.__larp.step(1/60);window.__larp.setRunning(false);});
   await page.waitForFunction(async({source,target})=>{
     let tube;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.signalWire&&o.userData.sourceId===source&&o.userData.targetId===target)tube=o.getObjectByName('signal-cable')});

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import * as THREE from "three";
 import { isRobotKind } from "./utils/kinds";
 import { CheckCircle2, Info, SlidersHorizontal, X } from "lucide-react";
 import { AppChrome } from "./components/WorkspaceChrome";
@@ -8,6 +9,7 @@ import { PropertiesPanel } from "./components/PropertiesPanel";
 import { BottomDock, type DockTab } from "./components/BottomDock";
 import { GeneratorDialog } from "./components/GeneratorDialog";
 import { getDef, makeItem } from "./data/library";
+import { IMPORTED_PRODUCT_PREFIX, itemsWithWorkpieces, updateWorkpieceCatalog } from "./data/products";
 import { DEFAULT_LAYOUT, cloneItems, defaultScene } from "./data/layouts";
 import { DEFAULT_GEN, type GenOptions } from "./sim/generator";
 import { sim } from "./sim/engine";
@@ -32,6 +34,8 @@ import { FloorMapWindow } from "./components/FloorMapWindow";
 import { WindowResizeHandle, type WindowSize } from "./components/WindowResizeHandle";
 import { setPanel, useLayout } from "./layout";
 import { loadAutosave, saveAutosave } from "./utils/projectStore";
+import { getCachedModel } from "./utils/modelImport";
+import { buildImportedCollision, importedCollision, registerImportedCollision } from "./utils/modelCollision";
 import { programToCode } from "./sim/programCode";
 import type { ComponentKind, ImportedModelData, LayoutPreset, SceneItem, ToolMode, Vec3 } from "./types";
 import { cn } from "./utils/cn";
@@ -41,6 +45,7 @@ const STORAGE_TIME_KEY = "larp-components-project-v2-time";
 
 interface ProjectData {
   items: SceneItem[];
+  workpieces: SceneItem[];
   projectName: string;
   layoutName: string;
   activeLayoutId: string | null;
@@ -57,6 +62,7 @@ interface Toast {
 function loadInitialProject(): ProjectData {
   const fallback: ProjectData = {
     items: defaultScene(),
+    workpieces: [],
     projectName: "Assembly cell",
     layoutName: DEFAULT_LAYOUT.name,
     activeLayoutId: DEFAULT_LAYOUT.id,
@@ -65,7 +71,7 @@ function loadInitialProject(): ProjectData {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = parseProject(stored);
-      return { items: parsed.items, projectName: parsed.projectName, layoutName: parsed.layoutName, activeLayoutId: parsed.activeLayoutId };
+      return { items: parsed.items, workpieces: parsed.workpieces ?? [], projectName: parsed.projectName, layoutName: parsed.layoutName, activeLayoutId: parsed.activeLayoutId };
     }
   } catch {
     // a corrupt project must never block the studio
@@ -112,12 +118,15 @@ export default function App() {
   const [modelTarget, setModelTarget] = useState<string | null>(null);
   const [initial] = useState<ProjectData>(() => {
     const project = loadInitialProject();
-    sim.sync(project.items);
+    sim.sync(itemsWithWorkpieces(project.items, updateWorkpieceCatalog(project.items, project.workpieces)));
     bootLog();
     return project;
   });
   const [items, setItems] = useState<SceneItem[]>(initial.items);
   const itemsRef = useRef<SceneItem[]>(initial.items);
+  const [workpieces, setWorkpieces] = useState<SceneItem[]>(() => updateWorkpieceCatalog(initial.items, initial.workpieces));
+  const workpiecesRef = useRef(workpieces);
+  const productItems = useMemo(() => itemsWithWorkpieces(items, workpieces), [items, workpieces]);
   const [projectName, setProjectName] = useState(initial.projectName);
   useEffect(() => { document.documentElement.lang = language; document.title = `${projectName} - ${SKINS[appearance.skin].appName}`; }, [language, projectName, appearance.skin]);
   const [layoutName, setLayoutName] = useState(initial.layoutName);
@@ -153,8 +162,9 @@ export default function App() {
   useEffect(() => { let alive = true; const generation = handleGeneration.current; void loadExportHandle().then((handle) => { if (alive && generation === handleGeneration.current && handle) { fileHandle.current = handle; setExportedName(handle.name); } }); return () => { alive = false; }; }, []);
   const detachExportHandle = () => { handleGeneration.current++; fileHandle.current = null; setExportedName(null); void clearExportHandle(); };
 
-  const pastRef = useRef<SceneItem[][]>([]);
-  const futureRef = useRef<SceneItem[][]>([]);
+  type SceneSnapshot = {items: SceneItem[]; workpieces: SceneItem[]};
+  const pastRef = useRef<SceneSnapshot[]>([]);
+  const futureRef = useRef<SceneSnapshot[]>([]);
   const [historyCounts, setHistoryCounts] = useState({ past: 0, future: 0 });
 
   const selected = useMemo(() => items.find((item) => item.id === selectedId) ?? null, [items, selectedId]);
@@ -272,8 +282,8 @@ export default function App() {
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {
-    sim.sync(items);
-  }, [items]);
+    sim.sync(productItems);
+  }, [productItems]);
   useEffect(() => {
     sim.setRunning(running);
   }, [running]);
@@ -295,12 +305,16 @@ export default function App() {
 
   const syncHistory = useCallback(() => setHistoryCounts({ past: pastRef.current.length, future: futureRef.current.length }), []);
   const remember = useCallback((snapshot: SceneItem[]) => {
-    pastRef.current = [...pastRef.current.slice(-39), snapshot];
+    pastRef.current = [...pastRef.current.slice(-39), {items: snapshot, workpieces: workpiecesRef.current}];
     futureRef.current = [];
   }, []);
-  const applyItems = useCallback((next: SceneItem[]) => {
+  const applyItems = useCallback((next: SceneItem[], catalog?: SceneItem[]) => {
+    const nextCatalog = updateWorkpieceCatalog(next, catalog ?? workpiecesRef.current);
     itemsRef.current = next;
+    workpiecesRef.current = nextCatalog;
     setItems(next);
+    setWorkpieces(nextCatalog);
+    return nextCatalog;
   }, []);
   // Restore IndexedDB after V1's synchronous localStorage fallback, without
   // allowing an initial render to overwrite a newer large project.
@@ -313,9 +327,9 @@ export default function App() {
       if (saved.updatedAt < localTime) return;
       try {
         const project = parseProject(saved.text);
-        applyItems(project.items); setProjectName(project.projectName); setLayoutName(project.layoutName); setActiveLayoutId(project.activeLayoutId);
+        const catalog = applyItems(project.items, project.workpieces ?? []); setProjectName(project.projectName); setLayoutName(project.layoutName); setActiveLayoutId(project.activeLayoutId);
         setSelectedId(project.items.find((i) => isRobotKind(i.kind))?.id ?? null);
-        sim.sync(project.items); sim.setRunning(project.items.length > 0); setRunning(project.items.length > 0);
+        sim.sync(itemsWithWorkpieces(project.items, catalog)); sim.setRunning(project.items.length > 0); setRunning(project.items.length > 0);
       } catch { notify("Stored project could not be restored; using the local fallback.", "info"); }
     }).catch(() => { /* localStorage remains the fallback */ }).finally(() => { if (alive && !skipRestore.current) { window.clearTimeout(timeout); setStorageReady(true); } });
     return () => { alive = false; window.clearTimeout(timeout); };
@@ -329,10 +343,102 @@ export default function App() {
   const fitsProject = useCallback((next: SceneItem[]) => {
     if (next.length > 500) { notify(t("A project can contain at most 500 components."), "info"); return false; }
     // Count UTF-8 bytes without copying base64 payloads. Reserve room for later title edits.
-    if (estimateProjectBytes({items:next, projectName, layoutName, activeLayoutId}) <= MAX_PROJECT_CHARS - 4096) return true;
+    const catalog = updateWorkpieceCatalog(next, workpiecesRef.current);
+    if (catalog.length > 500) { notify(t("A project can contain at most 500 imported workpiece definitions."), "info"); return false; }
+    if (estimateProjectBytes({items:next, workpieces:catalog, projectName, layoutName, activeLayoutId}) <= MAX_PROJECT_CHARS - 4096) return true;
     notify(t("Project would exceed the 180 MB limit. Remove assets or start a new project."), "info");
     return false;
   }, [activeLayoutId, layoutName, notify, projectName]);
+
+  // Older projects may have hidden or already-deleted imported sources with
+  // no saved bounds/collider. Derive those assets in the background, without
+  // requiring a scene object to be made visible. Process one asset at a time.
+  const examinedAssets = useRef(new WeakSet<object>());
+  useEffect(() => {
+    if (!storageReady) return;
+    let alive = true;
+    void (async () => {
+      for (const entry of productItems) {
+        const model = entry.imported;
+        if (
+          entry.kind !== "imported-model" ||
+          !model ||
+          (model.sourceSize && model.collision) ||
+          examinedAssets.current.has(model.asset)
+        )
+          continue;
+        try {
+          const { root } = await getCachedModel(model.asset);
+          if (!alive) return;
+          examinedAssets.current.add(model.asset);
+          root.updateMatrixWorld(true);
+          const bounds = new THREE.Box3().setFromObject(root),
+            size = bounds.getSize(new THREE.Vector3());
+          const sourceSize: Vec3 | undefined =
+            !bounds.isEmpty() && [size.x, size.y, size.z].every(Number.isFinite)
+              ? [size.x, size.y, size.z]
+              : undefined;
+          const collision =
+            importedCollision(model) ?? buildImportedCollision(root);
+          if (collision && !importedCollision(model))
+            registerImportedCollision(model.asset, collision);
+          const update = (item: SceneItem) => {
+            const current = item.imported;
+            if (
+              !current ||
+              current.asset !== model.asset ||
+              ((current.sourceSize || !sourceSize) &&
+                (current.collision || !collision))
+            )
+              return item;
+            return {
+              ...item,
+              imported: {
+                ...current,
+                sourceSize: current.sourceSize ?? sourceSize,
+                collision: current.collision ?? collision,
+              },
+            };
+          };
+          const next = itemsRef.current.map(update),
+            catalog = updateWorkpieceCatalog(
+              next,
+              workpiecesRef.current.map(update),
+            );
+          const changed =
+            next.some((item, i) => item !== itemsRef.current[i]) ||
+            catalog.some((item, i) => item !== workpiecesRef.current[i]);
+          if (
+            changed &&
+            estimateProjectBytes({
+              items: next,
+              workpieces: catalog,
+              projectName,
+              layoutName,
+              activeLayoutId,
+            }) <=
+              MAX_PROJECT_CHARS - 4096
+          ) {
+            applyItems(next, catalog);
+            return; // The updated catalogue starts the next pass.
+          }
+        } catch {
+          if (!alive) return;
+          examinedAssets.current.add(model.asset); // Keep other imports usable if one asset is invalid.
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [
+    activeLayoutId,
+    applyItems,
+    layoutName,
+    productItems,
+    projectName,
+    storageReady,
+  ]);
 
   const updateItem = useCallback(
     (id: string, changes: Partial<SceneItem>, record = true) => {
@@ -377,6 +483,25 @@ export default function App() {
     [applyItems, notify, remember, syncHistory],
   );
 
+  const removeWorkpiece = useCallback((productId: string) => {
+    if (!productId.startsWith(IMPORTED_PRODUCT_PREFIX)) return;
+    const id = productId.slice(IMPORTED_PRODUCT_PREFIX.length);
+    const saved = workpiecesRef.current.find((item) => item.id === id);
+    // A live scene model is still the definition, so remove that object first.
+    if (!saved || itemsRef.current.some((item) => item.id === id)) return;
+    if (!window.confirm(t("Remove this saved workpiece? Components using it will switch to cartons. Existing products may need a simulation reset. You can undo this action."))) return;
+    const next = itemsRef.current.map((item) => {
+      const props = { ...item.props };
+      let changed = false;
+      for (const key of ["product", "inputProduct", "outputProduct"]) if (props[key] === productId) { props[key] = "carton"; changed = true; }
+      return changed ? { ...item, props } : item;
+    });
+    remember(itemsRef.current);
+    applyItems(next, workpiecesRef.current.filter((item) => item.id !== id));
+    syncHistory();
+    notify(t("Saved workpiece removed"), "info");
+  }, [applyItems, notify, remember, syncHistory]);
+
   const duplicateItem = useCallback(
     (id: string) => {
       const source = itemsRef.current.find((item) => item.id === id);
@@ -409,18 +534,18 @@ export default function App() {
   const undo = useCallback(() => {
     const previous = pastRef.current.pop();
     if (!previous) return;
-    futureRef.current = [itemsRef.current, ...futureRef.current].slice(0, 40);
-    applyItems(previous);
-    setSelectedId((current) => (current && previous.some((item) => item.id === current) ? current : null));
+    futureRef.current = [{items: itemsRef.current, workpieces: workpiecesRef.current}, ...futureRef.current].slice(0, 40);
+    applyItems(previous.items, previous.workpieces);
+    setSelectedId((current) => (current && previous.items.some((item) => item.id === current) ? current : null));
     syncHistory();
   }, [applyItems, syncHistory]);
 
   const redo = useCallback(() => {
     const next = futureRef.current.shift();
     if (!next) return;
-    pastRef.current = [...pastRef.current, itemsRef.current].slice(-40);
-    applyItems(next);
-    setSelectedId((current) => (current && next.some((item) => item.id === current) ? current : null));
+    pastRef.current = [...pastRef.current, {items: itemsRef.current, workpieces: workpiecesRef.current}].slice(-40);
+    applyItems(next.items, next.workpieces);
+    setSelectedId((current) => (current && next.items.some((item) => item.id === current) ? current : null));
     syncHistory();
   }, [applyItems, syncHistory]);
 
@@ -447,7 +572,7 @@ export default function App() {
     remember(itemsRef.current); applyItems(next); syncHistory(); setSelectedId(item.id); notify(`${item.name} pasted`);
   }, [applyItems, fitsProject, notify, remember, syncHistory]);
 
-  const projectText = useCallback(() => serializeProject({ items: itemsRef.current, projectName, layoutName, activeLayoutId }), [activeLayoutId, layoutName, projectName]);
+  const projectText = useCallback(() => serializeProject({ items: itemsRef.current, workpieces: workpiecesRef.current, projectName, layoutName, activeLayoutId }), [activeLayoutId, layoutName, projectName]);
 
   const saveProject = useCallback(async (silent = false) => {
     if (silent && autosaveDisabled.current) return;
@@ -513,7 +638,7 @@ export default function App() {
     if (!storageReady) return;
     const timer = window.setTimeout(() => void saveProject(true), 900);
     return () => window.clearTimeout(timer);
-  }, [items, projectName, layoutName, activeLayoutId, saveProject, storageReady]);
+  }, [items, workpieces, projectName, layoutName, activeLayoutId, saveProject, storageReady]);
 
   /* ----- simulation control ----- */
 
@@ -525,10 +650,10 @@ export default function App() {
   }, []);
 
   const replaceScene = useCallback(
-    (next: SceneItem[], name: string, layoutId: string | null) => {
+    (next: SceneItem[], name: string, layoutId: string | null, workpieceCatalog: SceneItem[] = []) => {
       remember(itemsRef.current);
-      applyItems(next);
-      sim.sync(next);
+      const catalog = applyItems(next, workpieceCatalog);
+      sim.sync(itemsWithWorkpieces(next, catalog));
       sim.setRunning(false);
       sim.reset();
       setProjectName(name);
@@ -603,7 +728,7 @@ export default function App() {
       if (file.size > (/\.lcmx$/i.test(file.name) ? MAX_ARCHIVE_BYTES : 180_000_000)) throw new Error("Project exceeds the 180 MB limit.");
       const parsed = parseProject(/\.lcmx$/i.test(file.name) ? readProjectArchive(new Uint8Array(await file.arrayBuffer())) : await file.text());
       if (parsed.items.some((i) => i.script?.trim() && (!i.program || i.script.trim() !== programToCode(i.program).trim())) && !window.confirm(t("This project contains executable JavaScript. Only open scripts from a trusted source. Continue?"))) return;
-      replaceScene(parsed.items, parsed.projectName || file.name.replace(/\.(txt|json|lcmx)$/i, ""), parsed.activeLayoutId);
+      replaceScene(parsed.items, parsed.projectName || file.name.replace(/\.(txt|json|lcmx)$/i, ""), parsed.activeLayoutId, parsed.workpieces ?? []);
       setLayoutName(parsed.layoutName);
       detachExportHandle();
       setMobilePanel(null);
@@ -636,7 +761,7 @@ export default function App() {
     return true;
   }, [applyItems, fitsProject, mobile, modelTarget, notify, remember, syncHistory, updateItem]);
 
-  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getText: projectText, setItems: applyItems, select: setSelectedId};
+  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getWorkpieces: () => workpiecesRef.current, getText: projectText, setItems: applyItems, select: setSelectedId};
 
   /* ----- spline editing ----- */
 
@@ -872,6 +997,8 @@ export default function App() {
     <PropertiesPanel
       selected={selected}
       items={items}
+      productItems={productItems}
+      onRemoveWorkpiece={removeWorkpiece}
       onBeginEdit={beginEdit}
       onImportCharacter={(id) => openModelImport(undefined, id)}
       onUpdate={updateItem}
@@ -970,7 +1097,7 @@ export default function App() {
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1">
-            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} selectedId={selectedId} onSelect={setSelectedId} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onImportFiles={(files) => openModelImport(files)} onUpdateItem={updateItem} onBeginEdit={beginEdit} onDeleteItem={deleteItem} onDuplicateItem={duplicateItem} onShowFloorMap={() => setFloorMapOpen(true)} />
+            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} onSelect={setSelectedId} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onImportFiles={(files) => openModelImport(files)} onUpdateItem={updateItem} onBeginEdit={beginEdit} onDeleteItem={deleteItem} onDuplicateItem={duplicateItem} onShowFloorMap={() => setFloorMapOpen(true)} />
             {!mobile && <div className="absolute bottom-3 left-[110px] z-20 flex gap-1.5 xl:hidden"><button type="button" onClick={() => setMobilePanel("inspector")} className="flex items-center gap-1.5 rounded border border-white/15 bg-[#2a2a2c]/95 px-2.5 py-1.5 text-[10px] text-white/80"><SlidersHorizontal size={12} className="text-[var(--teal)]" />{t("Properties")}</button></div>}
           </div>
           {dockNode}

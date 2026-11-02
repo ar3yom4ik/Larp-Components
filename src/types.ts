@@ -95,6 +95,12 @@ export interface ImportedMaterial {
   /** Missing key means preserve the source; null explicitly removes the map. */
   textures: Partial<Record<TextureSlot, TextureOverride | null>>;
 }
+/** Source-space, surface-following compound collision geometry. */
+export interface ImportedCollision {
+  min: Vec3;
+  max: Vec3;
+  boxes: {center: Vec3; size: Vec3}[];
+}
 export interface ImportedModelData {
   asset: ModelAsset;
   axis: "y" | "z";
@@ -104,6 +110,7 @@ export interface ImportedModelData {
   triangleCount: number;
   /** Source-space bounds before the axis/unit conversion; absent on older imports. */
   sourceSize?: Vec3;
+  collision?: ImportedCollision;
   rigged?: boolean;
   animationNames?: string[];
 }

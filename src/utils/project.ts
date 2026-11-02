@@ -1,4 +1,4 @@
-import type { ImportedMaterial, ImportedModelData, ModelAsset, ModelUnits, RobotProgram, SceneItem, TextureOverride, TextureSlot, WorkerMotionRole, WorkerSettings } from "../types";
+import type { ImportedCollision, ImportedMaterial, ImportedModelData, ModelAsset, ModelUnits, RobotProgram, SceneItem, TextureOverride, TextureSlot, WorkerMotionRole, WorkerSettings } from "../types";
 import { COMPONENTS, getDef } from "../data/library";
 
 export interface ProjectFile {
@@ -7,6 +7,8 @@ export interface ProjectFile {
   layoutName: string;
   activeLayoutId: string | null;
   items: SceneItem[];
+  /** Saved imported-workpiece definitions; these are not scene objects. */
+  workpieces?: SceneItem[];
 }
 const HEADER = "LARP COMPONENTS 5.1\n";
 export const MAX_PROJECT_CHARS = 180_000_000;
@@ -26,7 +28,7 @@ function projectForDisk(project: Omit<ProjectFile, "version">) {
     return asset.id;
   };
   const modelForDisk = (model: ImportedModelData) => { const {asset, ...settings} = model; return {...settings, assetId: storeAsset(asset)}; };
-  const items = project.items.map((item) => {
+  const storeItem = (item: SceneItem) => {
     if (!item.imported && !item.worker) return item;
     const worker = item.worker ? {...item.worker,
       model: item.worker.model ? modelForDisk(item.worker.model) : undefined,
@@ -36,8 +38,10 @@ function projectForDisk(project: Omit<ProjectFile, "version">) {
       }))
     } : undefined;
     return {...item, imported: item.imported ? modelForDisk(item.imported) : undefined, worker};
-  });
-  return { ...project, items, ...(assets.size ? {assets: [...assets.values()]} : {}), version: "5.1" };
+  };
+  const items = project.items.map(storeItem);
+  const workpieces = project.workpieces?.map(storeItem);
+  return { ...project, items, ...(workpieces?.length ? {workpieces} : {workpieces: undefined}), ...(assets.size ? {assets: [...assets.values()]} : {}), version: "5.1" };
 }
 export function serializeProject(project: Omit<ProjectFile, "version">) {
   return HEADER + JSON.stringify(projectForDisk(project), null, 2);
@@ -96,11 +100,21 @@ function cleanMaterial(input: ImportedMaterial, index: number): ImportedMaterial
   };
 }
 
+function cleanCollision(value: unknown): ImportedCollision | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const data = value as ImportedCollision;
+  const vec = (v: unknown): v is [number,number,number] => Array.isArray(v) && v.length === 3 && v.every((n) => finite(n) && Math.abs(n) <= 1_000_000_000);
+  if (!vec(data.min) || !vec(data.max) || data.min.some((v,i) => v >= data.max[i]) || !Array.isArray(data.boxes) || !data.boxes.length || data.boxes.length > 128) return undefined;
+  if (!data.boxes.every((b) => b && vec(b.center) && vec(b.size) && b.size.every((v,i) =>
+    v > 0 && b.center[i]-v/2 >= data.min[i]-1e-6 && b.center[i]+v/2 <= data.max[i]+1e-6))) return undefined;
+  return {min:data.min, max:data.max, boxes:data.boxes.map((b) => ({center:b.center, size:b.size}))};
+}
+
 type StoredModel = Partial<ImportedModelData> & {assetId?: string};
 function cleanModel(model: StoredModel | undefined, assets: Map<string, ModelAsset>): ImportedModelData {
   const asset = model?.assetId ? assets.get(model.assetId) : model?.asset ? cleanAsset(model.asset) : undefined;
   if (!model || !asset || !Array.isArray(model.materials) || model.materials.length > 2000) throw new Error("Imported model is missing its asset or material data");
-  return {asset, axis: model.axis === "z" ? "z" : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), sourceSize: Array.isArray(model.sourceSize) && model.sourceSize.length === 3 && model.sourceSize.every((n) => finite(n) && n >= 0 && n <= 1_000_000) ? model.sourceSize as [number, number, number] : undefined, rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
+  return {asset, axis: model.axis === "z" ? "z" : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), sourceSize: Array.isArray(model.sourceSize) && model.sourceSize.length === 3 && model.sourceSize.every((n) => finite(n) && n >= 0 && n <= 1_000_000) ? model.sourceSize as [number, number, number] : undefined, collision: cleanCollision(model.collision), rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
 }
 function cleanWorker(value: unknown, assets: Map<string, ModelAsset>): WorkerSettings {
   const worker = value as WorkerSettings & {model?: StoredModel};
@@ -127,42 +141,48 @@ export function parseProject(text: string): ProjectFile {
   if (!data || !Array.isArray(data.items) || data.items.length > 500) throw new Error("Invalid project");
   const assets = new Map<string, ModelAsset>();
   if (data.assets !== undefined) {
-    if (!Array.isArray(data.assets) || data.assets.length > 500) throw new Error("Invalid model asset list");
+    if (!Array.isArray(data.assets) || data.assets.length > 1000) throw new Error("Invalid model asset list");
     for (const candidate of data.assets) { const asset = cleanAsset(candidate); if (assets.has(asset.id)) throw new Error("Duplicate model asset identifier"); assets.set(asset.id, asset); }
   }
-  const ids = new Set<string>();
-  const items: SceneItem[] = data.items.map((item: SceneItem & {imported?: ImportedModelData & {assetId?: string}}) => {
-    if (!item || !COMPONENTS.some((c) => c.kind === item.kind) || typeof item.id !== "string" || ids.has(item.id) || !Array.isArray(item.position) || item.position.length !== 3 || !item.position.every(finite)) throw new Error("Invalid component");
-    ids.add(item.id);
-    const props = Object.fromEntries(Object.entries(item.props ?? {}).filter(([key, value]) => !["__proto__", "constructor", "prototype"].includes(key) && (["string", "boolean"].includes(typeof value) || finite(value))));
-    let points = item.points?.map((p) => {
-      if (!Array.isArray(p) || p.length !== 2 || !p.every(finite)) throw new Error("Invalid path point");
-      return [Math.max(-200, Math.min(200, p[0])), Math.max(-200, Math.min(200, p[1]))] as [number, number];
+  const parseItems = (rawItems: unknown[], catalog = false): SceneItem[] => {
+    const ids = new Set<string>();
+    return rawItems.map((candidate) => {
+      const item = candidate as SceneItem & {imported?: ImportedModelData & {assetId?: string}};
+      if (!item || !COMPONENTS.some((c) => c.kind === item.kind) || (catalog && item.kind !== "imported-model") || typeof item.id !== "string" || !item.id || item.id.length > 1024 || ids.has(item.id) || !Array.isArray(item.position) || item.position.length !== 3 || !item.position.every(finite)) throw new Error("Invalid component");
+      ids.add(item.id);
+      const props = Object.fromEntries(Object.entries(item.props ?? {}).filter(([key, value]) => !["__proto__", "constructor", "prototype"].includes(key) && (["string", "boolean"].includes(typeof value) || finite(value))));
+      let points = item.points?.map((p) => {
+        if (!Array.isArray(p) || p.length !== 2 || !p.every(finite)) throw new Error("Invalid path point");
+        return [Math.max(-200, Math.min(200, p[0])), Math.max(-200, Math.min(200, p[1]))] as [number, number];
+      });
+      if (!points && ["fence", "conveyor", "roller"].includes(item.kind)) {
+        const half = item.kind === "fence" ? 1.5 : Math.max(1, Math.min(20, Number(props.length) || 5)) / 2;
+        points = [[-half, 0], [half, 0]];
+      }
+      if (points && (points.length < 2 || points.length > 100)) throw new Error("Invalid path");
+      let pointHeights: number[] | undefined;
+      if (item.pointHeights !== undefined) {
+        if (!points || !Array.isArray(item.pointHeights) || item.pointHeights.length !== points.length || !item.pointHeights.every(finite)) throw new Error("Invalid path heights");
+        pointHeights = item.pointHeights.map((height) => Math.max(-200, Math.min(200, height)));
+      }
+      let program: RobotProgram | undefined;
+      if (item.program) {
+        const p = item.program;
+        if (!["palletize", "transfer", "tend", "paint", "assemble"].includes(p.mode) || typeof p.sourceId !== "string" || typeof p.targetId !== "string") throw new Error("Invalid program");
+        program = { mode: p.mode, sourceId: p.sourceId, targetId: p.targetId, machineId: typeof p.machineId === "string" ? p.machineId : undefined, repeat: p.repeat !== false, delay: Math.max(0, Math.min(60, Number(p.delay) || 0)), clearance: Math.max(0.05, Math.min(0.6, Number(p.clearance) || 0.3)), paintColor: /^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
+      }
+      let imported: ImportedModelData | undefined;
+      if (item.kind === "imported-model") {
+        imported = cleanModel(item.imported, assets);
+      }
+      const worker = item.kind === "operator" && item.worker ? cleanWorker(item.worker, assets) : undefined;
+      if (item.signalTargets !== undefined && (!Array.isArray(item.signalTargets) || item.signalTargets.length > 500 || item.signalTargets.some((id) => typeof id !== "string" || !id || id.length > 1024))) throw new Error("Invalid signal destinations");
+      const signalTargets = item.signalTargets?.length ? [...new Set(item.signalTargets)] : undefined;
+      return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
     });
-    if (!points && ["fence", "conveyor", "roller"].includes(item.kind)) {
-      const half = item.kind === "fence" ? 1.5 : Math.max(1, Math.min(20, Number(props.length) || 5)) / 2;
-      points = [[-half, 0], [half, 0]];
-    }
-    if (points && (points.length < 2 || points.length > 100)) throw new Error("Invalid path");
-    let pointHeights: number[] | undefined;
-    if (item.pointHeights !== undefined) {
-      if (!points || !Array.isArray(item.pointHeights) || item.pointHeights.length !== points.length || !item.pointHeights.every(finite)) throw new Error("Invalid path heights");
-      pointHeights = item.pointHeights.map((height) => Math.max(-200, Math.min(200, height)));
-    }
-    let program: RobotProgram | undefined;
-    if (item.program) {
-      const p = item.program;
-      if (!["palletize", "transfer", "tend", "paint", "assemble"].includes(p.mode) || typeof p.sourceId !== "string" || typeof p.targetId !== "string") throw new Error("Invalid program");
-      program = { mode: p.mode, sourceId: p.sourceId, targetId: p.targetId, machineId: typeof p.machineId === "string" ? p.machineId : undefined, repeat: p.repeat !== false, delay: Math.max(0, Math.min(60, Number(p.delay) || 0)), clearance: Math.max(0.05, Math.min(0.6, Number(p.clearance) || 0.3)), paintColor: /^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
-    }
-    let imported: ImportedModelData | undefined;
-    if (item.kind === "imported-model") {
-      imported = cleanModel(item.imported, assets);
-    }
-    const worker = item.kind === "operator" && item.worker ? cleanWorker(item.worker, assets) : undefined;
-    if (item.signalTargets !== undefined && (!Array.isArray(item.signalTargets) || item.signalTargets.length > 500 || item.signalTargets.some((id) => typeof id !== "string" || !id || id.length > 1024))) throw new Error("Invalid signal destinations");
-    const signalTargets = item.signalTargets?.length ? [...new Set(item.signalTargets)] : undefined;
-    return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
-  });
-  return { version: "5.1", projectName: String(data.projectName || "Untitled factory").slice(0, 120), layoutName: String(data.layoutName || data.projectName || "Imported factory").slice(0, 120), activeLayoutId: typeof data.activeLayoutId === "string" ? data.activeLayoutId : null, items };
+  };
+  const items = parseItems(data.items);
+  if (data.workpieces !== undefined && (!Array.isArray(data.workpieces) || data.workpieces.length > 500)) throw new Error("Invalid workpiece catalog");
+  const workpieces = data.workpieces ? parseItems(data.workpieces, true).map((item) => ({...item, visible:false})) : [];
+  return { version: "5.1", projectName: String(data.projectName || "Untitled factory").slice(0, 120), layoutName: String(data.layoutName || data.projectName || "Imported factory").slice(0, 120), activeLayoutId: typeof data.activeLayoutId === "string" ? data.activeLayoutId : null, items, workpieces };
 }
