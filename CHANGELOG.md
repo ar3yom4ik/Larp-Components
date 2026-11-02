@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [Unreleased]
+
+- Added resizable dialogs, floating windows, simulation settings and touch sheets. Settings window size and position are remembered, with reset controls.
+- Feeders can receive signals from buttons, proximity sensors, lasers, PLCs and robot outputs. Each incoming rising edge requests one part, respecting the interval, output clearance and any supply requirements; unconnected feeders stay automatic.
+- Signal sources can connect to multiple destinations. Each source has an independent saved wire colour; active wires glow and show a directional pulse. Connections remain undoable and persist in project archives.
+- Added engine and browser regression coverage for feeder signals, wire appearance, connections and desktop/touch resizing.
+
 ## [3.0.0-alpha.2] - 2026-11-01 (prerelease)
 
 - Keep the workspace visible when 3D renderer creation fails, with a retry button and guidance for enabling WebGL. The viewport still requires a working renderer.

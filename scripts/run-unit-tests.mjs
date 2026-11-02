@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
-const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "project-archive", "signal-ports", "settings", "ui-layout", "floor-plan-and-shirt", "ui-render", "performance", "speed-multiplier", "rust-kernel", "rust-feeder-parity", "rust-machine-clock", "rust-machine-workflow", "rust-logic", "rust-navigation-route", "rust-robot-kinematics", "rust-product-integration", "rust-combined-parity", "rust-memory-growth", "component-graph", "v3-graphics", "v4-nodegraph"];
+const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "project-archive", "signal-ports", "signal-feeder", "settings", "ui-layout", "floor-plan-and-shirt", "ui-render", "performance", "speed-multiplier", "rust-kernel", "rust-feeder-parity", "rust-machine-clock", "rust-machine-workflow", "rust-logic", "rust-navigation-route", "rust-robot-kinematics", "rust-product-integration", "rust-combined-parity", "rust-memory-growth", "component-graph", "v3-graphics", "v4-nodegraph"];
 const outDir = await mkdtemp(path.join(tmpdir(), "larp-unit-"));
 let failed = 0;
 

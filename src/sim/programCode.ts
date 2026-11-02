@@ -1,0 +1,5 @@
+import type { RobotProgram } from "../types";
+
+export function programToCode(program: RobotProgram) {
+  return `// Larp Components 5.1 - generated visual workflow\n// References use stable component IDs; targets follow layout edits.\nconst input = world.conveyor(${JSON.stringify(program.sourceId)});\nconst output = world.${program.mode === "palletize" ? "pallet" : "conveyor"}(${JSON.stringify(program.targetId)});\n${["tend", "paint", "assemble"].includes(program.mode) ? `const machine = world.machine(${JSON.stringify(program.machineId)});\n` : ""}\nawait robot.home();\ndo {\n  const part = await robot.waitForPart(input.end());\n  if (!(await robot.pick(part))) continue;\n${["tend", "paint", "assemble"].includes(program.mode) ? "  await robot.place(machine.table());\n  await machine.process();\n  await robot.pick(machine.part());\n" : ""}  await robot.place(output.${program.mode === "palletize" ? "nextSlot()" : "at(0.48)"});\n${program.mode === "palletize" ? "  if (output.isFull()) await output.swap();\n" : ""}  await robot.wait(${program.delay});\n} while (${program.repeat});\n`;
+}

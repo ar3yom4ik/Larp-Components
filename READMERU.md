@@ -25,6 +25,7 @@ npm run dev
 | `npm run typecheck` | Проверка типов TypeScript через `tsc --noEmit`. |
 | `npm run test:unit` | Браузерные тесты симуляции, промптов, навигации, размера проекта, настроек, раскладки, плана этажа, футболок рабочих, производительности и серверного рендеринга UI. |
 | `npm run test:signals-browser` | Playwright-тесты редактирования сигнальных портов во вьюпорте. |
+| `npm run test:interaction-browser` | Playwright-тесты сигналов питателя, цветных проводов и изменения размера окон мышью и касанием. |
 | `npm run test:archive-browser` | Playwright-тесты импорта/экспорта `.LCMX` и сохранения/автосохранения. |
 | `npm run test:browser` | Четыре основных набора Playwright UI-тестов против dev-сервера на порту 4173. |
 | `npm run test:typescript-parity` | Сравнение выбранного состояния симуляции с Git-базой (см. `docs/TYPESCRIPT_OPTIMIZATION.md`). |

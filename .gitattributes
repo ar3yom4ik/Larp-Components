@@ -1,0 +1,28 @@
+# Normalize text files to LF in the index; check out with native endings except Windows scripts.
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# Binary assets: never diff or EOL-convert them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ktx2 binary
+*.wasm binary
+*.gz binary
+*.glb binary
+*.gltf -text
+*.bin binary
+*.fbx binary
+*.zip binary
+*.stl binary
+*.ply binary
+*.3mf binary
+*.step binary
+*.stp binary
+*.igs binary
+*.iges binary
+*.brep binary
+*.ttf binary
+*.woff2 binary
