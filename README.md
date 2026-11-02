@@ -1,3 +1,5 @@
+**Read in:** [English](README.md) | [Русский](READMERU.md)
+
 # Larp Components
 
 A browser-based 3D factory layout editor and discrete-time simulator built with React, Three.js, and React Three Fiber. Place machines, conveyors, robots, workers, and pallets in a 3D scene, program robots in JavaScript, and run the plant in real time.
