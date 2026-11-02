@@ -1,13 +1,4 @@
 import { Engine } from '../src/sim/engine';
-import * as wasm from '../src/sim/wasm/kernel';
-
-export function enable(engine:Engine, api:typeof wasm = wasm) {
-  const feeder=api.createRustFeederStepper(), machine=api.createRustMachineStepper(), logic=api.createRustLogicStepper();
-  const navigation=api.createRustNavigator(), robot=api.createRustRobotKinematics(), product=api.createRustProductIntegrator();
-  engine.feederStepper=feeder;engine.machineStepper=machine;engine.logicStepper=logic;
-  engine.navigator=navigation;engine.robotKinematics=robot;engine.productIntegrator=product;
-  return ()=>{engine.feederStepper=null;engine.machineStepper=null;engine.logicStepper=null;engine.navigator=null;engine.robotKinematics=null;engine.productIntegrator=null;feeder.dispose();machine.dispose();logic.dispose();navigation.dispose();robot.dispose();product.dispose();};
-}
 export function snapshot(e:Engine) {
   return {
     time:e.time,stats:e.stats,signals:[...e.signalState],

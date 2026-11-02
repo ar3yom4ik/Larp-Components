@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 
 /**
- * DEV-only Cornell box for visual GI debugging, modelled on the reference render in
+ * Cornell box for visual GI comparisons, modelled on the reference render in
  * `docs/benchmarks/cornell-reference.png`. It is a closed room with a red left wall,
  * green right wall, and white floor, ceiling, and back wall, plus a tall box, a glossy
  * blue sphere, and a bright ceiling light. The camera side is open. Sun, fill, sky,

@@ -9,16 +9,16 @@ export function LogicModel({ item }: { item: SceneItem }) {
   const signal = sim.signalState.get(item.id) ?? false;
   const accent = signal ? '#b6ff8a' : item.color || '#8fa9c2';
   if (item.kind === 'laser') {
-    const range = Number(item.props.range ?? 3);
+    const range = Math.max(.2, Number(item.props.range ?? 3));
+    const beamHeight = item.props.mountedTo ? .1 : .85;
     return <group>
       {[-1, 1].map((side) => <group key={side} position={[side * range / 2, 0, 0]}>
-        <mesh position={[0, 0.58, 0]} castShadow><boxGeometry args={[0.14, 1.16, 0.14]} /></mesh>
-        <mesh position={[0, 0.05, 0]} castShadow><boxGeometry args={[0.3, 0.1, 0.3]} /></mesh>
-        <mesh position={[0, 1.18, 0]} material={getMaterial('dark')} castShadow><boxGeometry args={[0.2, 0.2, 0.18]} /></mesh>
-        <mesh position={[side * -0.1, 1.18, 0.01]}><circleGeometry args={[0.045, 14]} /><meshStandardMaterial color={signal ? '#79ef92' : '#ff5656'} emissive={signal ? '#b6ff8a' : '#ff3d3d'} emissiveIntensity={2} /></mesh>
+        <mesh position={[0, beamHeight / 2, 0]} castShadow><boxGeometry args={[0.07, beamHeight, 0.07]} /></mesh>
+        <mesh position={[0, 0.025, 0]} castShadow><boxGeometry args={[0.14, 0.05, 0.14]} /></mesh>
+        <mesh position={[0, beamHeight, 0]} material={getMaterial('dark')} castShadow><boxGeometry args={[0.12, 0.1, 0.12]} /></mesh>
+        <mesh position={[side * -0.061, beamHeight, 0.01]}><circleGeometry args={[0.025, 14]} /><meshStandardMaterial color={signal ? '#79ef92' : '#ff5656'} emissive={signal ? '#b6ff8a' : '#ff3d3d'} emissiveIntensity={2} /></mesh>
       </group>)}
-      <mesh position={[0, 1.18, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.009, 0.009, range - 0.2, 6]} /><meshBasicMaterial color={signal ? '#7eff99' : '#ff4e4e'} transparent opacity={signal ? 0.95 : 0.55} toneMapped={false} /></mesh>
-      <mesh position={[0, 1.18, 0]}><sphereGeometry args={[0.075, 10, 10]} /><meshBasicMaterial color={signal ? '#8effa6' : '#ff5b5b'} toneMapped={false} /></mesh>
+      <mesh position={[0, beamHeight, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.005, 0.005, Math.max(.01, range - 0.12), 6]} /><meshBasicMaterial color={signal ? '#7eff99' : '#ff4e4e'} transparent opacity={signal ? 0.95 : 0.55} toneMapped={false} /></mesh>
     </group>;
   }
   if (item.kind === 'button') return <group>
@@ -32,6 +32,7 @@ export function LogicModel({ item }: { item: SceneItem }) {
     {[0, 1, 2, 3].map((i) => <mesh key={i} position={[-0.3 + i * 0.2, 1.28, 0.22]}><planeGeometry args={[0.09, 0.04]} /><meshStandardMaterial color={i === 0 ? accent : '#94a6b7'} emissive={i === 0 ? accent : '#000'} emissiveIntensity={1} /></mesh>)}
   </group>;
   // proximity sensor
+  if (item.props.mountedTo) return <group><mesh position={[0,.07,0]} castShadow><boxGeometry args={[.12,.14,.12]} /></mesh><mesh position={[0,.15,0]}><sphereGeometry args={[.045,12,8]} /><meshStandardMaterial color={signal ? '#78ef91' : '#66c8ee'} emissive={signal ? '#b6ff8a' : '#52b8e8'} emissiveIntensity={1.5} /></mesh></group>;
   return <group>
     <mesh position={[0, 0.52, 0]} castShadow><boxGeometry args={[0.14, 1.04, 0.14]} /></mesh>
     <mesh position={[0, 1.08, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow><cylinderGeometry args={[0.09, 0.09, 0.18, 14]} /></mesh>

@@ -384,9 +384,9 @@ export function SettingsWindow(props: SettingsWindowProps) {
                 <p className="mt-1.5 text-[10.5px] leading-relaxed text-white/40">{t("Drag the title bar to move the window and the bottom corner to resize it. Double-click the title bar to re-centre. Size, position and dimming are remembered.")}</p>
               </div>
             </Section>
-            {import.meta.env.DEV && <Section title="Developer">
-              <ToggleRowUi label="Cornell benchmark room (DEV)" help="Replaces the factory with a Cornell box for GI debugging. Development builds only." checked={cornell} onChange={(value) => { setCornellRoom(value); }} onHelp={sectionHelp} />
-            </Section>}
+            <Section title="GI benchmark scene">
+              <ToggleRowUi label="Cornell benchmark room" help="Temporarily replaces the factory with a Cornell room for comparing global illumination. Turn it off to return to your factory and previous camera." checked={cornell} onChange={setCornellRoom} onHelp={sectionHelp} />
+            </Section>
           </>
         );
       case "keybinds":

@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { ComponentKind, GripperKind, SceneItem } from "../types";
 import { sim, ROBOT_SPECS } from "../sim/engine";
+import { conveyorWidth } from "../utils/conveyor";
 import { useSimulationDelta } from "../sim/animationClock";
 import { samplePath } from "../sim/spline";
 import { palletSize } from "../data/products";
@@ -178,9 +179,9 @@ function ConveyorModel({ item, roller }: { item: SceneItem; roller: boolean }) {
     if (typeof item.props.mergeTargetId === "string" && item.props.mergeSide !== 0) {
       entries.push({ along: path.length, side: 0, radius: 0.65 });
     }
-    return buildConveyorGeometry(path, stopper, entries);
+    return buildConveyorGeometry(path, stopper, entries, conveyorWidth(item));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointsKey, stopper, item.props.mergeEntries, item.props.mergeTargetId, item.props.mergeSide]);
+  }, [pointsKey, stopper, item.props.width, item.props.mergeEntries, item.props.mergeTargetId, item.props.mergeSide]);
   const texture = useMemo(() => {
     const tex = beltTexture(roller ? "roller" : "belt").clone();
     tex.needsUpdate = true;

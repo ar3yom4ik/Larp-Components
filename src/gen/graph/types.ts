@@ -53,6 +53,8 @@ export interface ParamDef {
   min?: number;
   max?: number;
   step?: number;
+  /** Permit typed numeric values beyond the convenient slider bounds. */
+  unbounded?: boolean;
   options?: { value: string; label: string }[];
   help?: string;
 }

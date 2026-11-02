@@ -1,6 +1,7 @@
 import type { SceneItem, Vec3 } from '../types';
 import { isRobotKind } from './kinds';
 import { itemLocalToWorld } from './transform';
+import { conveyorWidth } from './conveyor';
 
 export const DEFAULT_WIRE_COLOR = '#4da9d8';
 
@@ -47,11 +48,11 @@ export function signalWireColor(value: unknown): string {
 export function signalAnchor(item: SceneItem, end: 'source' | 'target'): Vec3 {
   let local: Vec3;
   if (item.kind === 'button') local = [0.16, 0.85, 0];
-  else if (item.kind === 'sensor') local = [0, 1.08, 0.1];
-  else if (item.kind === 'laser') { const range = Number(item.props.range); local = [Math.max(0.5, Number.isFinite(range) && range > 0 ? range : 3) / 2, 0.95, 0]; }
+  else if (item.kind === 'sensor') local = [0, item.props.mountedTo ? 0.15 : 1.08, 0.1];
+  else if (item.kind === 'laser') { const range = Number(item.props.range); local = [Math.max(0.5, Number.isFinite(range) && range > 0 ? range : 3) / 2, item.props.mountedTo ? 0.1 : 0.85, 0]; }
   else if (item.kind === 'plc') local = [0.45, 0.9, 0];
   else if (item.kind === 'feeder') local = [0.43, 2.1, 0];
-  else if (item.kind === 'conveyor' || item.kind === 'roller') local = [0, 0.8, 0.31];
+  else if (item.kind === 'conveyor' || item.kind === 'roller') local = [0, 0.8, conveyorWidth(item) / 2];
   else if (['robot', 'cobot', 'kuka', 'fanuc'].includes(item.kind)) local = [0.4, 0.55, 0];
   else local = [0, end === 'source' ? 0.7 : 0.8, 0];
   return itemLocalToWorld(item, local, item.kind !== 'conveyor' && item.kind !== 'roller');

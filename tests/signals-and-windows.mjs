@@ -95,7 +95,7 @@ try {
   const robotId = await page.evaluate(async ({ feeder }) => {
     const { makeItem } = await import('/src/data/library.ts');
     window.__larp.setRunning(false);
-    const robot = makeItem('robot', [-3, 0, 0], 0, { name: 'Signal robot' });
+    const robot = makeItem('robot', [-3, 0, 0], 0, { name: 'Signal robot', props: {outputMode: 'moving'} });
     const feederItem = window.__larp.items.find((item) => item.id === feeder);
     window.__larpProject.setItems([feederItem, robot]);
     return robot.id;

@@ -12,7 +12,7 @@ function PortAnchor({item, height, children}: {item: SceneItem; height: number; 
   const group = useRef<THREE.Group>(null);
   const wasPhysical = useRef(false);
   useFrame(() => {
-    const pose = sim.getPhysicsPose(item.id);
+    const pose = sim.getPhysicsPose(item.id) ?? (item.props.mountedTo ? sim.getLiveItem(item.id) : undefined);
     if (!group.current) return;
     if (pose) wasPhysical.current = true;
     else if (!wasPhysical.current) return;
@@ -20,7 +20,7 @@ function PortAnchor({item, height, children}: {item: SceneItem; height: number; 
     const position = (pose ?? item).position;
     group.current.position.set(position[0], position[1] + height, position[2]);
   });
-  return <group ref={group} position={[item.position[0], item.position[1] + height, item.position[2]]}><Html center zIndexRange={[30, 20]}>{children}</Html></group>;
+  return <group ref={group} userData={{signalPortFor:item.id}} position={[item.position[0], item.position[1] + height, item.position[2]]}><Html center zIndexRange={[30, 20]}>{children}</Html></group>;
 }
 
 interface Gesture {
@@ -113,7 +113,7 @@ export function SignalPortLayer({ items, sourceId, targets, onSource, onTarget, 
       const incoming = incomingByTarget.get(item.id) ?? [];
       const connected = sourceId ? targets.includes(item.id) : incoming.length > 0;
       const dragSource = sourceId ? (targets.includes(item.id) ? sourceId : null) : incoming.length === 1 ? incoming[0].id : null;
-      const height = Math.max(1.2, (MODEL_HEIGHTS[item.kind] ?? 1) * item.scale + 0.4);
+      const height = item.props.mountedTo ? .55 * item.scale : Math.max(1.2, (MODEL_HEIGHTS[item.kind] ?? 1) * item.scale + 0.4);
       return <PortAnchor key={item.id} item={item} height={height}>
         <div className="flex items-center gap-1 whitespace-nowrap rounded bg-[#1d252c]/95 px-1 py-1 shadow-lg" onPointerDown={event => event.stopPropagation()}>
           {output && <button type="button" data-signal-output={item.id} aria-label={`${t('Signal output')}: ${item.name}`} title={`${t('Signal output')}: ${item.name} — ${t('drag to an IN port')}`} onPointerDown={event => begin(event, item.id)} onClick={event => {event.stopPropagation(); if (!suppressClick.current) onSource(item.id);}} style={{touchAction:'none'}} className={`rounded px-1.5 py-1 text-[10px] font-bold ${sourceId === item.id ? 'bg-[#f4c260] text-black' : 'bg-[#357b8f] text-white'}`}>OUT</button>}

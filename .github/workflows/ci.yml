@@ -40,10 +40,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Start development preview
+        run: |
+          npm run dev -- --host 0.0.0.0 --port 4173 > /tmp/larp-vite.log 2>&1 &
+          for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/larp-vite.log
+          exit 1
+      - name: Catalog, camera and sensor regressions
+        run: npm run test:catalog-browser && npm run test:camera-browser && npm run test:sensor-browser
+
   # Only an already-published prerelease at this exact internal PR head is
   # eligible. Forks and unrelated PRs never receive a write-capable token.
   attach-prerelease:
-    needs: build
+    needs: [build, browser]
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15

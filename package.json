@@ -1,6 +1,6 @@
 {
   "name": "larp-components",
-  "version": "3.0.0-alpha.3",
+  "version": "3.0.0-alpha.4",
   "description": "Browser-based React/Three.js factory layout editor and discrete-time simulator (Larp Components 5.1, V3 prerelease).",
   "private": true,
   "type": "module",
@@ -13,11 +13,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build:rust": "node scripts/build-rust-kernel.mjs",
-    "test:rust": "cargo test --manifest-path rust/larp-kernel/Cargo.toml --offline",
     "typecheck": "tsc --noEmit",
     "test:unit": "node scripts/run-unit-tests.mjs",
-    "bench:hybrid": "node scripts/bench-hybrid.mjs",
     "bench:typescript": "node scripts/bench-typescript.mjs",
     "test:typescript-parity": "node scripts/bench-typescript.mjs --parity",
     "build": "vite build && node scripts/embed-assets.mjs",
@@ -34,7 +31,10 @@
     "test:physics-standalone": "node tests/physics-standalone.mjs",
     "test:speed-browser": "node tests/simulation-speed-browser.mjs",
     "test:startup-browser": "node tests/startup-fallback-browser.mjs",
-    "test:speed-standalone": "node tests/simulation-speed-standalone.mjs"
+    "test:speed-standalone": "node tests/simulation-speed-standalone.mjs",
+    "test:catalog-browser": "node tests/catalog-browser.mjs",
+    "test:camera-browser": "node tests/camera-settings-browser.mjs",
+    "test:sensor-browser": "node tests/sensor-mounted-browser.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

@@ -110,6 +110,8 @@ export interface ImportedModelData {
   materials: ImportedMaterial[];
   meshCount: number;
   triangleCount: number;
+  /** Stable mesh traversal indices removed from every instance of this asset. */
+  hiddenMeshes?: number[];
   /** Source-space bounds before the axis/unit conversion; absent on older imports. */
   sourceSize?: Vec3;
   collision?: ImportedCollision;

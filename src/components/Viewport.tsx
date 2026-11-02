@@ -69,7 +69,9 @@ interface ViewportProps {
   onSimSpeed: (speed: number) => void;
   layoutName: string;
   onAddAt: (kind: ComponentKind, position: Vec3) => void;
-  onImportFiles: (files: File[]) => void;
+  onAddCatalogAt: (id:string, position:Vec3) => void;
+  onImportFiles: (files: File[], position?:Vec3) => void;
+  loadingPosition: Vec3 | null;
   onUpdateItem: (id: string, changes: Partial<SceneItem>, record?: boolean) => void;
   onBeginEdit: () => void;
   onDeleteItem: (id: string) => void;
@@ -96,6 +98,9 @@ const VIEWS: Record<CameraPreset, { position: Vec3; target: Vec3 }> = {
   room: { position: [0, 8.5, 34], target: [0, 7, 0] },
 };
 
+interface CameraSnapshot { position: Vec3; target: Vec3; viewNonce: number; fitNonce: number; fitSelected: number; zoomNonce: number }
+type CameraRestore = { position: Vec3; target: Vec3; nonce: number };
+
 function CameraRig({
   view,
   viewNonce,
@@ -106,6 +111,9 @@ function CameraRig({
   focusId,
   controlsRef,
   items,
+  savedCamera,
+  restoreCamera,
+  handledRestore,
 }: {
   view: CameraPreset;
   viewNonce: number;
@@ -116,8 +124,22 @@ function CameraRig({
   focusId: string | null;
   controlsRef: RefObject<OrbitControlsImpl | null>;
   items: SceneItem[];
+  savedCamera: RefObject<CameraSnapshot | null>;
+  restoreCamera: CameraRestore | null;
+  handledRestore: RefObject<number>;
 }) {
   const { camera, invalidate, size } = useThree();
+  const commands = useRef({ viewNonce, fitNonce, fitSelected, zoomNonce: zoom.nonce });
+  commands.current = { viewNonce, fitNonce, fitSelected, zoomNonce: zoom.nonce };
+  const captureCamera = () => {
+    const target = controlsRef.current?.target;
+    if (target) savedCamera.current = {position: camera.position.toArray() as Vec3, target: target.toArray() as Vec3, ...commands.current};
+  };
+  useFrame(captureCamera);
+  useEffect(() => () => captureCamera(), [camera, controlsRef, savedCamera]);
+  const appliedView = useRef<{viewNonce: number; fitNonce: number} | null>(null);
+  const appliedFit = useRef(savedCamera.current?.fitSelected ?? 0);
+  const appliedZoom = useRef(savedCamera.current?.zoomNonce ?? 0);
   // Selection, scene edits and window resizes must not move the camera. They are read
   // through refs so that only an explicit camera command (view button, Fit, new layout)
   // re-frames the view. Depending on them directly reset the camera on every object click.
@@ -127,6 +149,19 @@ function CameraRig({
   const sizeRef = useRef(size); sizeRef.current = size;
 
   useEffect(() => {
+    if (appliedView.current?.viewNonce === viewNonce && appliedView.current.fitNonce === fitNonce) return;
+    const first = !appliedView.current;
+    appliedView.current = {viewNonce, fitNonce};
+    const saved = savedCamera.current;
+    // WebGL context settings require Canvas to remount. Restore the actual orbit
+    // instead of replaying a preset (or old fit/zoom commands) on that remount.
+    if (first && saved && saved.viewNonce === viewNonce && saved.fitNonce === fitNonce) {
+      camera.position.fromArray(saved.position);
+      controlsRef.current?.target.fromArray(saved.target);
+      controlsRef.current?.update();
+      invalidate();
+      return;
+    }
     let { position, target } = VIEWS[view];
     if (view === "iso") {
       const points = itemsRef.current.flatMap((i) => {
@@ -164,7 +199,8 @@ function CameraRig({
   // "Frame selection" (Ctrl+Alt+F in Visual Components). Frames the selected object — or
   // the followed human — from the same three-quarter angle the iso view uses.
   useEffect(() => {
-    if (!fitSelected) return;
+    if (!fitSelected || fitSelected === appliedFit.current) return;
+    appliedFit.current = fitSelected;
     const f = focusRef.current;
     if (!f) return;
     const live = focusIdRef.current ? sim.humans.get(focusIdRef.current) : undefined;
@@ -179,7 +215,8 @@ function CameraRig({
 
   // Wheel-free zoom (Ctrl +/- shortcuts, ribbon buttons) keeps the orbit target fixed.
   useEffect(() => {
-    if (!zoom.nonce) return;
+    if (!zoom.nonce || zoom.nonce === appliedZoom.current) return;
+    appliedZoom.current = zoom.nonce;
     const target = controlsRef.current?.target ?? new THREE.Vector3();
     const offset = camera.position.clone().sub(target);
     const factor = zoom.direction > 0 ? 0.82 : 1.22;
@@ -188,6 +225,14 @@ function CameraRig({
     controlsRef.current?.update();
     invalidate();
   }, [zoom, camera, controlsRef, invalidate]);
+  useEffect(() => {
+    if (!restoreCamera || restoreCamera.nonce === handledRestore.current) return;
+    handledRestore.current = restoreCamera.nonce;
+    camera.position.fromArray(restoreCamera.position);
+    controlsRef.current?.target.fromArray(restoreCamera.target);
+    controlsRef.current?.update();
+    invalidate();
+  }, [restoreCamera, camera, controlsRef, handledRestore, invalidate]);
 
   return (
     <OrbitControls
@@ -204,7 +249,7 @@ function CameraRig({
   );
 }
 
-function DropTarget({ onAddAt }: { onAddAt: (kind: ComponentKind, position: Vec3) => void }) {
+function DropTarget({ onAddAt, onAddCatalogAt, onImportFiles }: { onAddAt: (kind: ComponentKind, position: Vec3) => void; onAddCatalogAt:(id:string,position:Vec3)=>void; onImportFiles:(files:File[],position?:Vec3)=>void }) {
   const { camera, gl } = useThree();
 
   useEffect(() => {
@@ -219,12 +264,17 @@ function DropTarget({ onAddAt }: { onAddAt: (kind: ComponentKind, position: Vec3
     const drop = (event: DragEvent) => {
       event.preventDefault();
       const kind = event.dataTransfer?.getData("application/x-factory-component") as ComponentKind;
-      if (!kind || !COMPONENTS.some((component) => component.kind === kind)) return;
+      const catalogId = event.dataTransfer?.getData("application/x-factory-catalog");
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if ((!kind || !COMPONENTS.some((component) => component.kind === kind)) && !catalogId && !files.length) return;
       const rect = element.getBoundingClientRect();
       pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(pointer, camera);
       if (raycaster.ray.intersectPlane(GROUND, point)) {
-        onAddAt(kind, [Math.round(point.x * 4) / 4, 0, Math.round(point.z * 4) / 4]);
+        const position:Vec3=[Math.round(point.x * 4) / 4, 0, Math.round(point.z * 4) / 4];
+        if (files.length) { event.stopPropagation(); onImportFiles(files,position); }
+        else if (catalogId) onAddCatalogAt(catalogId,position);
+        else onAddAt(kind,position);
       }
     };
     element.addEventListener("dragover", over);
@@ -233,7 +283,7 @@ function DropTarget({ onAddAt }: { onAddAt: (kind: ComponentKind, position: Vec3
       element.removeEventListener("dragover", over);
       element.removeEventListener("drop", drop);
     };
-  }, [camera, gl, onAddAt]);
+  }, [camera, gl, onAddAt, onAddCatalogAt, onImportFiles]);
 
   return null;
 }
@@ -268,6 +318,21 @@ function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; 
     if (!low ? frame.current % 2 === 0 : frame.current % 3 === 0) gl.shadowMap.needsUpdate = true;
   });
   return null;
+}
+
+function LoadingGhost({position}:{position:Vec3}) {
+  const group=useRef<THREE.Group>(null);
+  useFrame((state,delta)=>{if(group.current)group.current.rotation.y+=delta*1.8;state.invalidate();});
+  return <group ref={group} position={[position[0],position[1]+.7,position[2]]} name="import-loading-placeholder">
+    <mesh><boxGeometry args={[.8,.8,.8]}/><meshBasicMaterial color="#63d7ee" wireframe transparent opacity={.75}/></mesh>
+    <mesh rotation={[Math.PI/2,0,0]}><torusGeometry args={[.65,.025,8,36]}/><meshBasicMaterial color="#a8edff"/></mesh>
+  </group>;
+}
+
+function ProximityRing({item}:{item:SceneItem}) {
+  const group=useRef<THREE.Group>(null), radius=Math.max(.2,Number(item.props.radius ?? .8));
+  useFrame(()=>{if(!group.current)return;const live=sim.getPhysicsPose(item.id) ?? (item.props.mountedTo ? sim.getLiveItem(item.id) : undefined) ?? item;group.current.position.set(live.position[0],live.position[1]+.04,live.position[2]);});
+  return <group ref={group} name={`proximity-radius-${item.id}`} position={[item.position[0],item.position[1]+.04,item.position[2]]}><mesh rotation={[-Math.PI/2,0,0]} raycast={()=>null}><ringGeometry args={[radius-.02,radius,64]}/><meshBasicMaterial color="#66c8ee" transparent opacity={.75} depthWrite={false} side={THREE.DoubleSide}/></mesh></group>;
 }
 
 function SelectionMarker({ item }: { item: SceneItem }) {
@@ -346,12 +411,12 @@ function ObjectGizmo({ item, tool, snap, onBeginEdit, onUpdateItem, onActive }: 
   }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ]);
   useEffect(() => () => { if (active.current) onActive(false); }, [onActive]);
   useFrame(() => {
-    const pose = sim.getPhysicsPose(item.id);
+    const pose = sim.getPhysicsPose(item.id) ?? (item.props.mountedTo ? sim.getLiveItem(item.id) : undefined);
     if (active.current) return;
     if (pose) {
       wasPhysical.current = true;
       anchor.position.set(...pose.position);
-      anchor.rotation.set(pose.rotationX * Math.PI / 180, pose.rotation * Math.PI / 180, pose.rotationZ * Math.PI / 180, 'XYZ');
+      anchor.rotation.set((pose.rotationX ?? 0) * Math.PI / 180, pose.rotation * Math.PI / 180, (pose.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
     } else if (wasPhysical.current) {
       wasPhysical.current = false;
       anchor.position.set(...item.position);
@@ -436,6 +501,10 @@ function PhysicalItemGroup({ item, onPointerDown, onDuplicate, children }: {
   useFrame(() => {
     const node = ref.current, pose = sim.getPhysicsPose(item.id);
     if (!node) return;
+    if (item.props.mountedTo) {
+      const live = sim.getLiveItem(item.id) ?? item;
+      node.position.set(...live.position); node.rotation.set((live.rotationX ?? 0) * Math.PI / 180, live.rotation * Math.PI / 180, (live.rotationZ ?? 0) * Math.PI / 180, 'XYZ'); return;
+    }
     if (pose) wasPhysical.current = true;
     else if (!wasPhysical.current) return;
     else wasPhysical.current = false;
@@ -510,10 +579,10 @@ function SceneContent({
       if (gizmoActive.current) return;
       onSelect(item.id);
       onSelectPoint(null);
+      // Right click selects without activating a pushbutton or beginning a drag.
+      if (event.button !== 0) return;
       if (item.kind === "button" && tool === "select") {
-        const pressed = sim.signalState.get(item.id) === true;
-        sim.setButton(item.id, !pressed);
-        onUpdateItem(item.id, { props: { ...item.props, signal: !pressed } }, false);
+        sim.pressButton(item.id);
       }
       if (tool === "select" || item.locked) return;
       const hit = new THREE.Vector3();
@@ -833,7 +902,9 @@ export const Viewport = memo(function Viewport({
   onSimSpeed,
   layoutName,
   onAddAt,
+  onAddCatalogAt,
   onImportFiles,
+  loadingPosition,
   onUpdateItem,
   onBeginEdit,
   onDeleteItem,
@@ -849,13 +920,22 @@ export const Viewport = memo(function Viewport({
   const [zoom, setZoom] = useState<{ nonce: number; direction: 1 | -1 }>({ nonce: 0, direction: 1 });
   const [viewNonce, setViewNonce] = useState(0);
   const [viewMenu, setViewMenu] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{x:number;y:number} | null>(null);
+  const rightStart = useRef<{x:number;y:number;moved:boolean;shift:boolean} | null>(null);
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close=()=>setContextMenu(null);
+    const key=(event:KeyboardEvent)=>{if(event.key === "Escape")close();};
+    window.addEventListener("pointerdown",close); window.addEventListener("keydown",key);
+    return ()=>{window.removeEventListener("pointerdown",close);window.removeEventListener("keydown",key);};
+  },[contextMenu]);
   const [shell, setShell] = useState(false);
   // Max preset uses WebGPU VXGI when the browser has an adapter and the renderer starts.
   // `gpuFailed` latches after a failed start so the app falls back to WebGL for the session.
   const [gpuSupported, setGpuSupported] = useState<boolean | null>(null);
   const [gpuFailed, setGpuFailed] = useState(false);
   const cornellRoom = useCornellRoom();
-  const benchmark = import.meta.env.DEV && cornellRoom;
+  const benchmark = cornellRoom;
   const [giError, setGiError] = useState<string | null>(null);
   const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed && !giError;
   // VXGI falls back to the approximation whenever WebGPU is missing, the renderer failed
@@ -929,6 +1009,11 @@ export const Viewport = memo(function Viewport({
   }, [running, gfx.contactShadows]);
   const wrapper = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const savedCamera = useRef<CameraSnapshot | null>(null);
+  const factoryCamera = useRef<CameraSnapshot | null>(null);
+  const wasBenchmark = useRef(false);
+  const handledRestore = useRef(0);
+  const [restoreCamera, setRestoreCamera] = useState<CameraRestore | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
   // The custom skin owns the 3D viewport colour too; its brightness decides whether
   // grid, fog and helper colours use the dark or the light palette.
@@ -943,7 +1028,16 @@ export const Viewport = memo(function Viewport({
   const renderDpr = gfx.adaptive && low ? Math.min(1, gfx.pixelRatio) : gfx.pixelRatio;
   const aoActive = effectiveGi === "ao" || effectiveGi === "approx";
   useEffect(() => { setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1); }, [layoutName]);
-  useEffect(() => { setFitNonce(0); setView(benchmark ? "room" : "iso"); setViewNonce((n) => n + 1); }, [benchmark]);
+  useEffect(() => {
+    if (benchmark) {
+      if (!wasBenchmark.current) factoryCamera.current = savedCamera.current;
+      setFitNonce(0); setView("room"); setViewNonce((n) => n + 1);
+    } else if (wasBenchmark.current) {
+      setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1);
+      if (factoryCamera.current) setRestoreCamera((previous) => ({position: factoryCamera.current!.position, target: factoryCamera.current!.target, nonce: (previous?.nonce ?? 0) + 1}));
+    }
+    wasBenchmark.current = benchmark;
+  }, [benchmark]);
 
   const pickView = (next: CameraPreset) => {
     setFitNonce(0);
@@ -997,13 +1091,23 @@ export const Viewport = memo(function Viewport({
       // Visual Components: Shift + right-click sets the centre of interest to the
       // selection, so orbiting afterwards happens around that object.
       onPointerDownCapture={(event) => {
+        if (event.button === 2 && event.target instanceof HTMLCanvasElement) rightStart.current = {x:event.clientX,y:event.clientY,moved:false,shift:event.shiftKey};
         if (event.button === 2 && event.shiftKey && selected) {
           event.preventDefault();
           event.stopPropagation();
           sendViewportCommand({ type: "center-selected" });
         }
       }}
-      onContextMenu={(event) => { if (event.shiftKey) event.preventDefault(); }}
+      onPointerMoveCapture={(event) => {if(rightStart.current && Math.hypot(event.clientX-rightStart.current.x,event.clientY-rightStart.current.y)>5)rightStart.current.moved=true;}}
+      onPointerUpCapture={(event) => {
+        if(event.button !== 2) return;
+        const start=rightStart.current;rightStart.current=null;
+        if(!start || start.moved || start.shift || event.shiftKey || !(event.target instanceof HTMLCanvasElement)) return;
+        const rect=event.currentTarget.getBoundingClientRect();
+        setContextMenu({x:Math.max(4,Math.min(rect.width-190,event.clientX-rect.left)),y:Math.max(4,Math.min(rect.height-220,event.clientY-rect.top))});
+      }}
+      onPointerCancelCapture={() => {rightStart.current=null;}}
+      onContextMenu={(event) => {if(event.target instanceof HTMLCanvasElement)event.preventDefault();}}
       onDragOver={(event) => {
         event.preventDefault();
         if (!dragActive) setDragActive(true);
@@ -1051,7 +1155,7 @@ export const Viewport = memo(function Viewport({
         {benchmark && <directionalLight position={[10, 14, 8]} intensity={0} />}
         <directionalLight position={[-14, 10, -10]} intensity={benchmark ? 0 : gfx.fill} color="#dbe8ff" />
 
-        <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} fitSelected={fitSelected} zoom={zoom} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} />
+        <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} fitSelected={fitSelected} zoom={zoom} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} savedCamera={savedCamera} restoreCamera={restoreCamera} handledRestore={handledRestore} />
         {gpuMode && <GlobalIlluminationPipeline
           voxelKey={voxelKey}
           running={running}
@@ -1060,7 +1164,8 @@ export const Viewport = memo(function Viewport({
           onUnavailable={onGiUnavailable}
         />}
         {benchmark ? <CornellBenchmark /> : <>
-          <DropTarget onAddAt={onAddAt} />
+          <DropTarget onAddAt={onAddAt} onAddCatalogAt={onAddCatalogAt} onImportFiles={onImportFiles} />
+        {loadingPosition && <LoadingGhost position={loadingPosition} />}
           <SimDriver items={items} shell={shell} low={low || gfx.shadowSize === 1024} />
           <SceneContent
             items={items}
@@ -1078,6 +1183,7 @@ export const Viewport = memo(function Viewport({
             building={building}
             onDuplicateItem={onDuplicateItem}
           />
+          {signalMode && items.filter(item => item.visible !== false && item.kind === "sensor").map(item => <ProximityRing key={`radius-${item.id}`} item={item}/>)}
           {signalMode && <SignalPortLayer items={items} sourceId={sourceItem?.id ?? null} targets={sourceItem ? signalTargets(sourceItem) : []} onSource={setSignalSource} onTarget={selectSignalTarget} onConnect={connectSignal} onReroute={rerouteSignal} />}
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[Math.max(80, Math.ceil(Math.max(building.width, building.depth) * 1.4)), 40, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
@@ -1096,6 +1202,15 @@ export const Viewport = memo(function Viewport({
       </Canvas>
       </ViewportErrorBoundary>
 
+      {contextMenu && <div role="menu" aria-label={t("Layout context menu")} onPointerDown={event=>event.stopPropagation()} style={{left:contextMenu.x,top:contextMenu.y}} className="absolute z-[90] w-[185px] rounded border border-white/20 bg-[#252a2e] p-1 text-[11px] text-white/80 shadow-xl">
+        <div className="truncate border-b border-white/10 px-2 py-1.5 text-white/45">{selected?.name ?? t("Layout")}</div>
+        {selected && <><button role="menuitem" type="button" onClick={()=>{onDuplicateItem(selected.id);setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t("Duplicate")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onUpdateItem(selected.id,{locked:!selected.locked});setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t(selected.locked?"Unlock":"Lock")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onUpdateItem(selected.id,{visible:selected.visible===false});setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t(selected.visible===false?"Show":"Hide")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onDeleteItem(selected.id);setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left text-red-300 hover:bg-white/10">{t("Delete")}</button></>}
+        <button role="menuitem" type="button" onClick={()=>{sendViewportCommand({type:"fit"});setContextMenu(null)}} className="w-full rounded border-t border-white/10 px-2 py-1.5 text-left hover:bg-white/10">{t("Fit layout")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onImportFiles([]);setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t("Import 3D model")}</button>
+      </div>}
       {gfx.showFps && <FpsBadge />}
       {/* Floating simulation player (top centre) */}
       <div className="sim-player-wrap pointer-events-none absolute inset-x-0 top-3 flex justify-center">

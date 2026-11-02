@@ -278,9 +278,9 @@ export interface ConveyorGeos {
 export interface RailOpening { along: number; side: number; radius: number }
 
 /** A junction removes only the affected rail sections, not the whole frame. */
-export function buildConveyorGeometry(path: Path, stopper: boolean, openings: RailOpening[] = []): ConveyorGeos {
-  const belt = beltGeometry(path, BELT_WIDTH, BELT_Y);
-  const hw = BELT_WIDTH / 2;
+export function buildConveyorGeometry(path: Path, stopper: boolean, openings: RailOpening[] = [], width = BELT_WIDTH): ConveyorGeos {
+  const belt = beltGeometry(path, width, BELT_Y);
+  const hw = width / 2;
   const steelParts: THREE.BufferGeometry[] = [];
   for (const side of [1, -1]) {
     const l0 = side === 1 ? hw + 0.01 : -hw - 0.07;
@@ -303,7 +303,7 @@ export function buildConveyorGeometry(path: Path, stopper: boolean, openings: Ra
   const darkParts: THREE.BufferGeometry[] = [extrudeBox(path, -0.2, 0.2, BELT_Y - 0.2, BELT_Y - 0.05)];
   const last = path.x.length - 1;
   const endCap = (i: number) => {
-    const g = new THREE.CylinderGeometry(0.1, 0.1, BELT_WIDTH + 0.02, 14);
+    const g = new THREE.CylinderGeometry(0.1, 0.1, width + 0.02, 14);
     g.rotateX(Math.PI / 2);
     g.rotateY(Math.atan2(-path.tz[i], path.tx[i]) + Math.PI / 2 - Math.PI / 2);
     g.translate(path.x[i], BELT_Y + path.y[i] - 0.08, path.z[i]);
@@ -316,8 +316,9 @@ export function buildConveyorGeometry(path: Path, stopper: boolean, openings: Ra
       const legHeight = Math.max(0.04, BELT_Y + path.y[idx] - 0.22);
       const leg = new THREE.BoxGeometry(0.08, legHeight, 0.08);
       leg.translate(0, legHeight / 2, 0);
-      const px = path.x[idx] + -path.tz[idx] * side * 0.27;
-      const pz = path.z[idx] + path.tx[idx] * side * 0.27;
+      const legOffset = Math.max(.05, hw - .04);
+      const px = path.x[idx] + -path.tz[idx] * side * legOffset;
+      const pz = path.z[idx] + path.tx[idx] * side * legOffset;
       leg.translate(px, 0, pz);
       darkParts.push(leg);
       const foot = new THREE.BoxGeometry(0.22, 0.03, 0.22);
@@ -327,7 +328,7 @@ export function buildConveyorGeometry(path: Path, stopper: boolean, openings: Ra
   }
   let warn: THREE.BufferGeometry | null = null;
   if (stopper) {
-    const plate = new THREE.BoxGeometry(0.05, 0.3, BELT_WIDTH + 0.08);
+    const plate = new THREE.BoxGeometry(0.05, 0.3, width + 0.08);
     plate.rotateY(Math.atan2(-path.tz[last], path.tx[last]));
     plate.translate(path.x[last] - path.tx[last] * 0.03, BELT_Y + path.y[last] + 0.15, path.z[last] - path.tz[last] * 0.03);
     warn = mergeNonIndexed([plate]);

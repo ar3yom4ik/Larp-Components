@@ -305,7 +305,7 @@ function SignalsPanel({ items, onSelect }: { items: SceneItem[]; onSelect: (id: 
         <button type="button" onClick={() => onSelect(item.id)} className="truncate text-left text-[#9dcbe8] hover:underline">{item.name} <span className="text-white/25">&lt;{item.kind}&gt;</span></button>
         <span className="text-white/40">{String(item.props.address || "—")}</span>
         <span className="truncate text-white/55" title={targets}>{targets || "—"}</span>
-        <button type="button" onClick={() => item.kind === "button" ? sim.setButton(item.id, !active) : onSelect(item.id)} className={cn("flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[9px]", active ? "border-[var(--green-bright)]/40 bg-[var(--green-bright)]/10 text-[#8af0a3]" : "border-white/10 text-white/35")}><i className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-[var(--green-bright)]" : "bg-white/25")} />{active ? "TRUE" : "FALSE"}</button>
+        <button type="button" onClick={() => item.kind === "button" ? sim.pressButton(item.id) : onSelect(item.id)} className={cn("flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[9px]", active ? "border-[var(--green-bright)]/40 bg-[var(--green-bright)]/10 text-[#8af0a3]" : "border-white/10 text-white/35")}><i className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-[var(--green-bright)]" : "bg-white/25")} />{active ? "TRUE" : "FALSE"}</button>
       </div>;
     })}
     {nodes.length === 0 && <p className="py-6 text-center text-white/35">Add a button, laser trigger, sensor or PLC in CONNECTIVITY.</p>}

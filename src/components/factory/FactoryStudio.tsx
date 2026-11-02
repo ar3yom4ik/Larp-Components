@@ -26,9 +26,11 @@ import "../../gen/graph/nodes";
 export function FactoryStudio({
   onBuild,
   onClose,
+  productItems = [],
 }: {
   onBuild: (items: SceneItem[], options: GenOptions) => void;
   onClose: () => void;
+  productItems?: readonly SceneItem[];
 }) {
   const graph = useFactoryGraph();
   const [selection, setSelection] = useState<GraphSelection>({nodeIds:[],groupId:null});
@@ -204,6 +206,7 @@ export function FactoryStudio({
               </div>
             ) : <NodeInspector
               node={selected}
+              items={productItems}
               onChange={(key, value) => { if (selected) storeGraph(setParam(graph, selected.id, key, value)); }}
               onReset={(key) => {
                 if (!selected) return;

@@ -76,13 +76,18 @@ export function importedProductSource(id: unknown, items: readonly SceneItem[]):
  * of each imported model so deleting its scene instance does not break products. */
 export function updateWorkpieceCatalog(items: readonly SceneItem[], catalog: readonly SceneItem[] = []): SceneItem[] {
   const next = new Map(catalog.map((entry) => [entry.id, entry]));
+  const assets = new Set(catalog.map(entry=>entry.imported?.asset.id).filter((id):id is string=>!!id));
   let changed = false;
   for (const item of items) {
     if (item.kind !== "imported-model" || !item.imported) continue;
     const previous = next.get(item.id);
-    if (previous && previous.imported === item.imported && previous.name === item.name && previous.scale === item.scale && previous.color === item.color && previous.props.physicsMass === (item.props.physicsMass ?? 1) && previous.props.magnetic === (item.props.magnetic === true)) continue;
+    // Placements of the same asset share one base. Keep any pre-existing
+    // definitions (and their IDs) for older project references.
+    if (!previous && assets.has(item.imported.asset.id)) continue;
+    if (previous && previous.imported === item.imported && previous.name === item.name && previous.scale === item.scale && previous.color === item.color && previous.props.physicsMass === (item.props.physicsMass ?? 1) && previous.props.magnetic === (item.props.magnetic === true) && previous.props.physicsMode === (item.props.physicsMode ?? "legacy") && previous.props.collisionShape === (item.props.collisionShape ?? "accurate")) continue;
     next.set(item.id, {id:item.id, kind:"imported-model", name:item.name, position:[0,0,0], rotation:0, scale:item.scale,
-      color:item.color, visible:false, props:{physicsMass:item.props.physicsMass ?? 1, magnetic:item.props.magnetic === true}, imported:item.imported});
+      color:item.color, visible:false, props:{physicsMass:item.props.physicsMass ?? 1, magnetic:item.props.magnetic === true, physicsMode:item.props.physicsMode ?? "legacy", collisionShape:item.props.collisionShape ?? "accurate"}, imported:item.imported});
+    assets.add(item.imported.asset.id);
     changed = true;
   }
   return changed ? [...next.values()] : catalog as SceneItem[];
@@ -162,7 +167,21 @@ function importedProductMap(items: readonly SceneItem[]): Map<string, Product> {
   return products;
 }
 
-export function importedProducts(items: readonly SceneItem[]): Product[] { return [...importedProductMap(items).values()]; }
+export function importedProducts(items: readonly SceneItem[]): Product[] {
+  const products=importedProductMap(items), seen=new Set<string>(), result:Product[]=[];
+  const ids=new Set(items.map(item=>item.id));
+  // Keep the stable base ID in the picker even when the original placement
+  // has been removed and only cloned scene instances remain.
+  for(const item of items) {
+    if(item.kind!=="imported-model" || !item.imported)continue;
+    const baseId=typeof item.props.catalogBaseId === "string" ? item.props.catalogBaseId : undefined;
+    if(baseId && baseId!==item.id && ids.has(baseId))continue;
+    if(seen.has(item.imported.asset.id))continue;
+    const product=products.get(importedProductId(item));
+    if(product){seen.add(item.imported.asset.id);result.push(product);}
+  }
+  return result;
+}
 
 export const getProduct = (id: unknown, items: readonly SceneItem[] = emptyItems): Product => {
   if (typeof id !== "string") return PRODUCTS[0];

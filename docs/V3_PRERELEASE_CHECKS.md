@@ -4,7 +4,7 @@ Date: 2026-11-01. This is a historical prerelease validation, not a claim of com
 
 ## Checks run
 
-- Clean `npm ci`, `npm run typecheck`, `npm run test:unit` (25 test files), `npm run test:typescript-parity`, `npm run build`, `npm audit` (zero advisories at test time) and `git diff --check` passed. The standard unit runner includes regression tests for previously committed experimental Wasm; no Rust development or native Rust build was performed.
+- Clean `npm ci`, `npm run typecheck`, `npm run test:unit` (25 test files), `npm run test:typescript-parity`, `npm run build`, `npm audit` (zero advisories at test time) and `git diff --check` passed.
 - 28 of 30 Playwright scripts completed successfully with Chromium 148 and software WebGL. These include two diagnostic worker-inspection scripts, desktop and touch UI, signal-port connection/disconnection/undo, `.lcmx` archive save and import, file-handle safety, graphics image differences, import formats, material round-trips, worker behavior, and standalone offline and packaged-example checks. `browser.mjs` initially timed out under software rendering with two live canvases; closing the completed desktop page before opening the phone page allowed the test to pass on rerun.
 - `v2-worker-mixamo.mjs` and `v2-retarget-motion.mjs` skipped: no locally licensed Mixamo fixture was supplied. No Mixamo assets are included.
 - Production `dist/index.html` was tested offline, including STL and STEP imports and STEP inside a sandboxed iframe. The extracted V3 bundle was tested using `file://` with the bundled sample project; no network request or script-warning dialog occurred.
@@ -23,3 +23,7 @@ package version is a prerelease, that release is published, and its tag resolves
 exactly to the PR head commit. Forks and unmatched tags are skipped; the normal
 build job retains read-only permissions. If the release is published after CI
 finishes, re-run CI to attach the asset.
+
+## Alpha.4 follow-up
+
+The alpha.4 work adds unit regressions for signal-controlled conveyors/feeders, button pulses, operation-end robot outputs, mounted pickup sensors, pallet replacement, large scenes, imported catalog bases/submodels and collision choices. Browser checks cover camera and GI-room restoration, thumbnails, shared edits, drag/drop, project reload, AI Factory product pickers and an in-scene loading placeholder. The TypeScript comparison uses explicit historical robot-output mode; the new operation-end default has separate signal tests. Physics, sensor opacity and thumbnail fidelity remain approximations.

@@ -114,7 +114,7 @@ type StoredModel = Partial<ImportedModelData> & {assetId?: string};
 function cleanModel(model: StoredModel | undefined, assets: Map<string, ModelAsset>): ImportedModelData {
   const asset = model?.assetId ? assets.get(model.assetId) : model?.asset ? cleanAsset(model.asset) : undefined;
   if (!model || !asset || !Array.isArray(model.materials) || model.materials.length > 2000) throw new Error("Imported model is missing its asset or material data");
-  return {asset, axis: model.axis === "z" ? "z" : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), sourceSize: Array.isArray(model.sourceSize) && model.sourceSize.length === 3 && model.sourceSize.every((n) => finite(n) && n >= 0 && n <= 1_000_000) ? model.sourceSize as [number, number, number] : undefined, collision: cleanCollision(model.collision), rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
+  return {asset, axis: model.axis === "z" ? "z" : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), hiddenMeshes: Array.isArray(model.hiddenMeshes) ? [...new Set(model.hiddenMeshes.filter((v): v is number => Number.isInteger(v) && v >= 0 && v < (model.meshCount ?? 0)))] : undefined, triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), sourceSize: Array.isArray(model.sourceSize) && model.sourceSize.length === 3 && model.sourceSize.every((n) => finite(n) && n >= 0 && n <= 1_000_000) ? model.sourceSize as [number, number, number] : undefined, collision: cleanCollision(model.collision), rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
 }
 function cleanWorker(value: unknown, assets: Map<string, ModelAsset>): WorkerSettings {
   const worker = value as WorkerSettings & {model?: StoredModel};
@@ -138,10 +138,10 @@ export function parseProject(text: string): ProjectFile {
   if (text.length > MAX_PROJECT_CHARS) throw new Error("Project exceeds the 180 MB text limit");
   const raw = text.replace(/^\uFEFF/, "").trim();
   const data = JSON.parse(raw.startsWith("LARP COMPONENTS") ? raw.slice(raw.indexOf("\n") + 1) : raw);
-  if (!data || !Array.isArray(data.items) || data.items.length > 500) throw new Error("Invalid project");
+  if (!data || !Array.isArray(data.items)) throw new Error("Invalid project");
   const assets = new Map<string, ModelAsset>();
   if (data.assets !== undefined) {
-    if (!Array.isArray(data.assets) || data.assets.length > 1000) throw new Error("Invalid model asset list");
+    if (!Array.isArray(data.assets)) throw new Error("Invalid model asset list");
     for (const candidate of data.assets) { const asset = cleanAsset(candidate); if (assets.has(asset.id)) throw new Error("Duplicate model asset identifier"); assets.set(asset.id, asset); }
   }
   const parseItems = (rawItems: unknown[], catalog = false): SceneItem[] => {
@@ -176,13 +176,13 @@ export function parseProject(text: string): ProjectFile {
         imported = cleanModel(item.imported, assets);
       }
       const worker = item.kind === "operator" && item.worker ? cleanWorker(item.worker, assets) : undefined;
-      if (item.signalTargets !== undefined && (!Array.isArray(item.signalTargets) || item.signalTargets.length > 500 || item.signalTargets.some((id) => typeof id !== "string" || !id || id.length > 1024))) throw new Error("Invalid signal destinations");
+      if (item.signalTargets !== undefined && (!Array.isArray(item.signalTargets) || item.signalTargets.some((id) => typeof id !== "string" || !id || id.length > 1024))) throw new Error("Invalid signal destinations");
       const signalTargets = item.signalTargets?.length ? [...new Set(item.signalTargets)] : undefined;
       return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
     });
   };
   const items = parseItems(data.items);
-  if (data.workpieces !== undefined && (!Array.isArray(data.workpieces) || data.workpieces.length > 500)) throw new Error("Invalid workpiece catalog");
+  if (data.workpieces !== undefined && (!Array.isArray(data.workpieces))) throw new Error("Invalid workpiece catalog");
   const workpieces = data.workpieces ? parseItems(data.workpieces, true).map((item) => ({...item, visible:false})) : [];
   return { version: "5.1", projectName: String(data.projectName || "Untitled factory").slice(0, 120), layoutName: String(data.layoutName || data.projectName || "Imported factory").slice(0, 120), activeLayoutId: typeof data.activeLayoutId === "string" ? data.activeLayoutId : null, items, workpieces };
 }

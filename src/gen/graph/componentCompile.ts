@@ -2,6 +2,8 @@ import './components';
 import { makeItem } from '../../data/library';
 import { DEFAULT_GEN, validateFactory } from '../../sim/generator';
 import { programToCode } from '../../sim/programCode';
+import { samplePath } from '../../sim/spline';
+import { resolveMountedSensors } from '../../utils/sensorMount';
 import type { ComponentKind, SceneItem } from '../../types';
 import { indexGraph, makeNode, topoSort, uid, validateGraph } from './graph';
 import type { GraphLink, GraphNode, NodeGraph, PlantResult } from './types';
@@ -78,8 +80,6 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     if (!machineIds.has(node.id)) error('This part is not connected to a production line.', node.id);
     if ((outgoing.get(node.id) ?? []).filter((link) => link.from.port === 'machine').length > 1) error('A machine can be attached to only one robot.', node.id);
   }
-  const extraConnectors = activeGraph.nodes.reduce((sum, node) => node.type === 'part.conveyor' && inFlow(node.id).length > 1 ? sum + inFlow(node.id).length : sum, 0);
-  if (activeGraph.nodes.length + extraConnectors > 500) error('The built factory would exceed the 500-component project limit.');
   if (diagnostics.some((entry) => entry.severity === 'error')) return {plant:null,diagnostics,results:new Map(),ms:performance.now()-start};
 
   const value = (node: GraphNode, key: string, fallback: string | number) => node.params[key] ?? fallback;
@@ -122,11 +122,12 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       const stationLength = consumers.length > 1 ? 2 + Math.floor((consumers.length-1)/2)*3 : 0;
       const beltLength = Math.max(requestedLength,stationLength);
       const kind = value(part,'kind','conveyor') === 'roller' ? 'roller' : 'conveyor';
-      const speed = number(part,'speed',0.6,0.1,3);
+      const speed = number(part,'speed',0.6,-Number.MAX_VALUE,Number.MAX_VALUE);
+      const width = number(part,'width',.62,.1,100);
       const next = byId.get(outFlow(part.id)[0].to.node)!;
       if (parents.length === 1) {
         const {x,z} = parents[0].end;
-        item = makeItem(kind, [x,0,z], 0, {name:`Conveyor ${instances.size}`,points:[[0,0],[beltLength/2,0],[beltLength,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed}});
+        item = makeItem(kind, [x,0,z], 0, {name:`Conveyor ${instances.size}`,points:[[0,0],[beltLength/2,0],[beltLength,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed,width}});
         ends.set(part.id, {x:x+beltLength,z});
       } else {
         const sorted = [...parents].sort((a,b) => a.end.z - b.end.z);
@@ -139,7 +140,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
         const x = farthest + (side ? 3 : Math.max(3, spread * 0.8 + 1.5));
         const length = side ? Math.max(beltLength, 1.9 + secondary.length * 1.2) : beltLength;
         const entries: MergeEntry[] = [{sourceId:primary.node.id,along:0.2,side:0}, ...secondary.map((parent,index) => ({sourceId:parent.node.id,along:side ? 1.1 + index*1.2 : 0.2,side:Math.sign(parent.end.z-z)}))];
-        item = makeItem(kind, [x,0,z], 0, {name:`${side ? 'Side-entry' : 'Multi-head'} conveyor ${instances.size}`,points:[[0,0],[length/2,0],[length,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed,mergeStyle:side?'side':'multi-head',mergeInputs:parents.length,mergeEntries:JSON.stringify(entries.map(({along,side:entrySide}) => ({along,side:entrySide})))}});
+        item = makeItem(kind, [x,0,z], 0, {name:`${side ? 'Side-entry' : 'Multi-head'} conveyor ${instances.size}`,points:[[0,0],[length/2,0],[length,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed,width,mergeStyle:side?'side':'multi-head',mergeInputs:parents.length,mergeEntries:JSON.stringify(entries.map(({along,side:entrySide}) => ({along,side:entrySide})))}});
         // Each incoming path is a real conveyor, so the viewport and simulation
         // use the same visible geometry rather than a decorative graph edge.
         for (const parent of [primary,...secondary]) {
@@ -207,9 +208,17 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     const mode = machine ? (machine.kind==='assembly' ? 'assemble' : machine.kind==='paint' ? 'paint' : 'tend') : target.kind==='crates' ? 'palletize' : 'transfer';
     robot.program = {mode,sourceId:source.id,targetId:target.id,machineId:machine?.id,repeat:true,delay:0,clearance:0.3,...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack} : {})};
     robot.script = programToCode(robot.program);
+    const detection = String(value(part,'detection','laser'));
+    if (detection !== 'none') {
+      const length=samplePath(source.points ?? [[-2,0],[2,0]],.1,source.pointHeights).length;
+      const fraction=Math.max(0,Math.min(1,(length-(robot.program.pickupBack ?? .3))/length));
+      const kind=detection === 'proximity' ? 'sensor' : 'laser';
+      items.push(makeItem(kind, [0,0,0], 0, {name:`Pickup ${kind === 'laser' ? 'laser' : 'proximity'} ${items.length+1}`, props:{mountedTo:source.id,mountPosition:fraction,connectedTo:robot.id,radius:.5}}));
+    }
   }
-  const warnings = validateFactory(items);
+  const resolvedItems = resolveMountedSensors(items);
+  const warnings = validateFactory(resolvedItems);
   warnings.forEach((message,index) => diagnostics.push({id:`reach:${index}`,severity:'warning',message}));
-  const plant: PlantResult = {options:{...DEFAULT_GEN},items,summary:`${feeders.length} production line(s) · ${items.length} components`,warnings};
+  const plant: PlantResult = {options:{...DEFAULT_GEN},items:resolvedItems,summary:`${feeders.length} production line(s) · ${items.length} components`,warnings};
   return {plant,diagnostics,results:new Map(),ms:Math.round((performance.now()-start)*10)/10};
 }

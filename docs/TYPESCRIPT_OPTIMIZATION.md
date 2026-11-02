@@ -68,3 +68,5 @@ that commit must be available in the local Git history, so shallow checkouts may
 need to fetch history. `TS_BENCH_BASELINE` still overrides it. Per-frame parity
 for the four legacy scenes passes against this baseline. See `PHYSICS.md` for
 the separate dynamic-body benchmark and its limitations.
+
+For the current parity harness, robot outputs explicitly use the historical **moving or holding** mode. New projects default to the operation-end pulse, which is covered by separate signal tests and is intentionally not identical to the historical default.

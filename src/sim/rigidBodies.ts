@@ -4,6 +4,7 @@ import type { SceneItem, Vec3 } from "../types";
 import { importedModelSize, palletSize } from "../data/products";
 import { samplePath } from "./spline";
 import { upperFloorDimensions } from "../utils/upperFloor";
+import { conveyorWidth } from "../utils/conveyor";
 import { importedCollision, importedCollisionBoxes, importedCollisionRevision } from "../utils/modelCollision";
 import { resolveContinuous, snapshotMotions, type SweepStart } from "./continuous";
 
@@ -37,16 +38,29 @@ function shapesFor(item: SceneItem, items: readonly SceneItem[]): Shape[] {
   const scaled = (size: Vec3, center: Vec3) => box(size.map((x) => x * scale) as Vec3, center.map((x) => x * scale) as Vec3);
   if (item.kind === "conveyor" || item.kind === "roller") {
     const path = samplePath(item.points ?? [[-2, 0], [2, 0]], .1, item.pointHeights), parts: Shape[] = [];
-    // Cap compound complexity for long paths while keeping short belts detailed.
-    const stride = Math.max(4, Math.ceil((path.x.length - 1) / 128));
-    for (let i = 0; i < path.x.length - 1; i += stride) {
-      const j = Math.min(path.x.length - 1, i + stride);
-      parts.push(segment(new THREE.Vector3(path.x[i], .58 + path.y[i], path.z[i]), new THREE.Vector3(path.x[j], .58 + path.y[j], path.z[j]), .62, .16));
+    const width = conveyorWidth(item), last = path.x.length - 1;
+    // Weld consecutive collinear samples into one collider: separate boxes on a
+    // straight run expose seams that catch dynamic props and make them jitter.
+    // Curves retain short segments; long paths remain bounded to 128 sections.
+    const stride = Math.max(1, Math.ceil(last / 128));
+    for (let i = 0; i < last;) {
+      const start = new THREE.Vector3(path.x[i], .58 + path.y[i], path.z[i]);
+      const first = Math.min(last, i + stride);
+      const direction = new THREE.Vector3(path.x[first] - path.x[i], path.y[first] - path.y[i], path.z[first] - path.z[i]).normalize();
+      let j = first;
+      while (j < last) {
+        const next = Math.min(last, j + stride);
+        const delta = new THREE.Vector3(path.x[next] - path.x[j], path.y[next] - path.y[j], path.z[next] - path.z[j]).normalize();
+        if (direction.dot(delta) < .9999) break;
+        j = next;
+      }
+      parts.push(segment(start, new THREE.Vector3(path.x[j], .58 + path.y[j], path.z[j]), width, .16));
+      i = j;
     }
     const legStride = Math.max(14, Math.ceil(path.x.length / 64));
     for (let i = Math.min(5, path.x.length - 1); i < path.x.length - 1; i += legStride) {
       const h = Math.max(.05, .44 + path.y[i]);
-      for (const side of [-1, 1]) parts.push(box([.09, h, .09], [path.x[i] - path.tz[i] * side * .27, h / 2, path.z[i] + path.tx[i] * side * .27]));
+      for (const side of [-1, 1]) parts.push(box([.09, h, .09], [path.x[i] - path.tz[i] * side * Math.max(.05, width / 2 - .04), h / 2, path.z[i] + path.tx[i] * side * Math.max(.05, width / 2 - .04)]));
     }
     return parts;
   }
@@ -69,6 +83,11 @@ function shapesFor(item: SceneItem, items: readonly SceneItem[]): Shape[] {
     const run = l / count, rise = h / count;
     return Array.from({length: count}, (_, i) => scaled([run, rise * (i + 1), w], [-l / 2 + (i + .5) * run, (i + 1) * rise / 2, 0]));
   }
+  if (item.kind === "laser") {
+    const range=n(item.props.range,3,.2,1000), height=item.props.mountedTo ? .1 : .85;
+    return [-1,1].map(side=>scaled([.14,height+.1,.14],[side*range/2,(height+.1)/2,0]));
+  }
+  if (item.kind === "sensor" && item.props.mountedTo) return [scaled([.12,.2,.12],[0,.1,0])];
   if (item.kind === "feeder") {
     const parts = [scaled([1.05, .28, .8], [0, 1.85, 0])];
     for (const x of [-.48, .48]) for (const z of [-.34, .34]) parts.push(scaled([.08, 1.7, .08], [x, .85, z]));
@@ -97,6 +116,50 @@ function shapesFor(item: SceneItem, items: readonly SceneItem[]): Shape[] {
   };
   const size = dims[item.kind] ?? [1, 1, 1];
   return [scaled(size, [0, size[1] / 2, 0])];
+}
+
+function selectedShapes(item: SceneItem, items: readonly SceneItem[]): Shape[] {
+  const shapes = shapesFor(item, items);
+  if (item.props.collisionShape !== "box" || shapes.length <= 1) return shapes;
+  const bounds = new THREE.Box3();
+  for (const shape of shapes) {
+    const half = new THREE.Vector3(...shape.size).multiplyScalar(.5);
+    const rotation = shape.rotation ?? new THREE.Quaternion();
+    for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) {
+      const corner = new THREE.Vector3(x * half.x, y * half.y, z * half.z).applyQuaternion(rotation).add(new THREE.Vector3(...shape.center));
+      bounds.expandByPoint(corner);
+    }
+  }
+  const center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
+  return [box([size.x,size.y,size.z], [center.x,center.y,center.z])];
+}
+
+/** Intersect a finite laser segment with the same oriented compound proxies used
+ * by physics. Precomputed at scene sync; includes static and dynamic equipment. */
+export function makeBeamBlocker(item: SceneItem, items: readonly SceneItem[]) {
+  const shapes = selectedShapes(item, items);
+  const inverseItem = qItem(item).invert();
+  const origin = new THREE.Vector3(...item.position);
+  const inverseShapes = shapes.map(shape => shape.rotation?.clone().invert());
+  return (from: Vec3, to: Vec3) => {
+    const a = new THREE.Vector3(...from).sub(origin).applyQuaternion(inverseItem);
+    const b = new THREE.Vector3(...to).sub(origin).applyQuaternion(inverseItem);
+    for (let i=0;i<shapes.length;i++) {
+      const shape=shapes[i], center=new THREE.Vector3(...shape.center);
+      const p=a.clone().sub(center), q=b.clone().sub(center);
+      if(inverseShapes[i]) { p.applyQuaternion(inverseShapes[i]!); q.applyQuaternion(inverseShapes[i]!); }
+      let near=0, far=1;
+      for (const [axis,half] of [['x',shape.size[0]/2],['y',shape.size[1]/2],['z',shape.size[2]/2]] as const) {
+        const d=q[axis]-p[axis];
+        if(Math.abs(d)<1e-9) { if(Math.abs(p[axis])>half){near=2;break;} continue; }
+        let lo=(-half-p[axis])/d, hi=(half-p[axis])/d;
+        if(lo>hi) [lo,hi]=[hi,lo]; near=Math.max(near,lo); far=Math.min(far,hi);
+        if(near>far) break;
+      }
+      if(near<=far && near<=1 && far>=0) return true;
+    }
+    return false;
+  };
 }
 
 export interface RigidPose { position: Vec3; rotationX: number; rotation: number; rotationZ: number }
@@ -146,7 +209,7 @@ export class RigidBodyWorld {
 
   private shapeKey(item: SceneItem, items: readonly SceneItem[]) {
     return JSON.stringify([item.kind, item.scale, item.points, item.pointHeights, item.props.physicsMode, item.props.physicsMass, this.productCollider(item),
-      item.props.width, item.props.depth, item.props.height, item.props.length, item.props.gateOpen, item.props.gateSegment,
+      item.props.width, item.props.depth, item.props.height, item.props.length, item.props.collisionShape, item.props.gateOpen, item.props.gateSegment,
       item.props.product, item.props.cols, item.props.rows, item.props.gap, item.kind === "crates" ? palletSize(item.props, items) : null, item.imported?.sourceSize, item.imported?.units, item.imported?.axis, this.collisionId(item)]);
   }
 
@@ -166,7 +229,7 @@ export class RigidBodyWorld {
       if (!entry || entry.shapeKey !== shapeKey) {
         const previous = entry;
         if (entry) this.world.removeBody(entry.body);
-        const shapes = shapesFor(item, items);
+        const shapes = selectedShapes(item, items);
         const total = shapes.reduce((sum, s) => sum + s.size[0] * s.size[1] * s.size[2], 0) || 1;
         const center = new CANNON.Vec3();
         for (const s of shapes) {
@@ -294,7 +357,7 @@ export class RigidBodyWorld {
       live.add(part.id);
       const mass = massOf(part.productId);
       const source = sourceOf?.(part.productId);
-      const shapeKey = `${part.hx},${part.hy},${part.hz},${mass},${this.collisionId(source)},${source?.imported?.axis},${source?.imported?.units}`;
+      const shapeKey = `${part.hx},${part.hy},${part.hz},${mass},${this.collisionId(source)},${source?.imported?.axis},${source?.imported?.units},${source?.props.collisionShape}`;
       let body = this.products.get(part.id);
       if (body && this.productShapes.get(body) !== shapeKey) {
         this.world.removeBody(body);
@@ -313,7 +376,7 @@ export class RigidBodyWorld {
           allowSleep: false,
         });
         const model = source?.imported;
-        const collision = model && importedCollisionBoxes(model);
+        const collision = model && source?.props.collisionShape !== "box" ? importedCollisionBoxes(model) : null;
         if (model && collision?.length) {
           // Products keep their spawn-time dimensions, even if the source is edited.
           const sourceSize = importedModelSize(model);

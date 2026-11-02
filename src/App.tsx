@@ -18,11 +18,13 @@ import { useDevice } from "./utils/device";
 import { t, useLanguage } from "./i18n";
 import { useAppearance, SKINS, setBuilding } from "./theme";
 import { estimateProjectBytes, MAX_PROJECT_CHARS, parseProject, serializeProject } from "./utils/project";
+import { nearestSensorFraction, resolveMountedSensors } from "./utils/sensorMount";
 import { createProjectArchive, MAX_ARCHIVE_BYTES, readProjectArchive } from "./utils/projectArchive";
 import { loadExportHandle, storeExportHandle, clearExportHandle, permission, type ExportHandle } from "./utils/handles";
 import { MobileChrome, MobileNav, ProjectSettings, type TouchPanel } from "./components/MobileChrome";
 import { MobileTools } from "./components/MobileTools";
 import { ModelImportDialog } from "./components/ModelImportDialog";
+import { CatalogModelEditor } from "./components/CatalogModelEditor";
 import { DEFAULT_WORKER_SETTINGS } from "./components/RiggedHuman";
 import { eventMatches, isCapturing } from "./keybinds";
 import { closeSettings, openSettings, useSettingsWindow } from "./settingsWindow";
@@ -114,6 +116,13 @@ export default function App() {
   const skipRestore = useRef(false);
   const autosaveDisabled = useRef(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [catalogEditId, setCatalogEditId] = useState<string | null>(null);
+  const [loadingPosition, setLoadingPosition] = useState<Vec3 | null>(null);
+  const importPosition = useRef<Vec3 | null>(null);
+  const setImportLoading = useCallback((loading:boolean) => {
+    if (loading) { importPosition.current ??= freeSpot(itemsRef.current); setLoadingPosition(importPosition.current); }
+    else { setLoadingPosition(null); importPosition.current = null; }
+  }, []);
   const [modelFiles, setModelFiles] = useState<File[] | null>(null);
   const [modelTarget, setModelTarget] = useState<string | null>(null);
   const [initial] = useState<ProjectData>(() => {
@@ -169,116 +178,6 @@ export default function App() {
 
   const selected = useMemo(() => items.find((item) => item.id === selectedId) ?? null, [items, selectedId]);
 
-  /* Experimental, explicitly opt-in Rust feeder path. Everything else remains
-     TypeScript; failure to load the module leaves the original backend active. */
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("rustFeeders") !== "1") return;
-    let cancelled = false;
-    let stepper: ReturnType<typeof import("./sim/wasm/kernel").createRustFeederStepper> | null = null;
-    void import("./sim/wasm/kernel").then(({ createRustFeederStepper }) => {
-      if (cancelled) return;
-      stepper = createRustFeederStepper();
-      sim.feederStepper = stepper;
-      sim.log("Experimental Rust feeder kernel active; other simulation systems use TypeScript.", "info");
-    }).catch((error: unknown) => {
-      if (!cancelled) sim.log(`Rust feeder kernel unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
-    });
-    return () => {
-      cancelled = true;
-      if (stepper && sim.feederStepper === stepper) sim.feederStepper = null;
-      stepper?.dispose();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("rustMachines") !== "1") return;
-    let cancelled = false;
-    let clock: ReturnType<typeof import("./sim/wasm/kernel").createRustMachineClock> | null = null;
-    void import("./sim/wasm/kernel").then(({ createRustMachineClock }) => {
-      if (cancelled) return;
-      clock = createRustMachineClock();
-      sim.machineClock = clock;
-      sim.log("Experimental Rust machine clock active; machine behavior remains host-managed.", "info");
-    }).catch((error: unknown) => {
-      if (!cancelled) sim.log(`Rust machine clock unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
-    });
-    return () => {
-      cancelled = true;
-      if (clock && sim.machineClock === clock) sim.machineClock = null;
-      clock?.dispose();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("rustMachineWorkflow") !== "1") return;
-    let cancelled = false;
-    let stepper: ReturnType<typeof import("./sim/wasm/kernel").createRustMachineStepper> | null = null;
-    void import("./sim/wasm/kernel").then(({ createRustMachineStepper }) => {
-      if (cancelled) return;
-      stepper = createRustMachineStepper(); sim.machineStepper = stepper;
-      sim.log("Experimental Rust automatic machine workflow active.", "info");
-    }).catch((error: unknown) => {
-      if (!cancelled) sim.log(`Rust machine workflow unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
-    });
-    return () => { cancelled = true; if (stepper && sim.machineStepper === stepper) sim.machineStepper = null; stepper?.dispose(); };
-  }, []);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("rustLogic") !== "1") return;
-    let cancelled = false;
-    let stepper: ReturnType<typeof import("./sim/wasm/kernel").createRustLogicStepper> | null = null;
-    void import("./sim/wasm/kernel").then(({ createRustLogicStepper }) => {
-      if (cancelled) return;
-      stepper = createRustLogicStepper(); sim.logicStepper = stepper;
-      sim.log("Experimental Rust automation signal evaluation active.", "info");
-    }).catch((error: unknown) => {
-      if (!cancelled) sim.log(`Rust automation signals unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
-    });
-    return () => { cancelled = true; if (stepper && sim.logicStepper === stepper) sim.logicStepper = null; stepper?.dispose(); };
-  }, []);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("rustNavigation") !== "1") return;
-    let cancelled = false;
-    let navigator: ReturnType<typeof import("./sim/wasm/kernel").createRustNavigator> | null = null;
-    void import("./sim/wasm/kernel").then(({ createRustNavigator }) => {
-      if (cancelled) return;
-      navigator = createRustNavigator(); sim.navigator = navigator;
-      sim.log("Experimental Rust human route planning active.", "info");
-    }).catch((error: unknown) => {
-      if (!cancelled) sim.log(`Rust navigation unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
-    });
-    return () => { cancelled = true; if (navigator && sim.navigator === navigator) sim.navigator = null; navigator?.dispose(); };
-  }, []);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("rustKinematics") !== "1") return;
-    let cancelled = false;
-    let kinematics: ReturnType<typeof import("./sim/wasm/kernel").createRustRobotKinematics> | null = null;
-    void import("./sim/wasm/kernel").then(({ createRustRobotKinematics }) => {
-      if (cancelled) return;
-      kinematics = createRustRobotKinematics(); sim.robotKinematics = kinematics;
-      sim.log("Experimental Rust robot kinematics active; scripts and motion remain host-managed.", "info");
-    }).catch((error: unknown) => {
-      if (!cancelled) sim.log(`Rust robot kinematics unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
-    });
-    return () => { cancelled = true; if (kinematics && sim.robotKinematics === kinematics) sim.robotKinematics = null; kinematics?.dispose(); };
-  }, []);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("rustProducts") !== "1") return;
-    let cancelled = false;
-    let integrator: ReturnType<typeof import("./sim/wasm/kernel").createRustProductIntegrator> | null = null;
-    void import("./sim/wasm/kernel").then(({ createRustProductIntegrator }) => {
-      if (cancelled) return;
-      integrator = createRustProductIntegrator(); sim.productIntegrator = integrator;
-      sim.log("Experimental Rust product integration active; collision handling remains host-managed.", "info");
-    }).catch((error: unknown) => {
-      if (!cancelled) sim.log(`Rust product integration unavailable; using TypeScript: ${error instanceof Error ? error.message : String(error)}`, "warn");
-    });
-    return () => { cancelled = true; if (integrator && sim.productIntegrator === integrator) sim.productIntegrator = null; integrator?.dispose(); };
-  }, []);
-
   /* ----- simulation bridge ----- */
 
   useLayoutEffect(() => {
@@ -309,6 +208,7 @@ export default function App() {
     futureRef.current = [];
   }, []);
   const applyItems = useCallback((next: SceneItem[], catalog?: SceneItem[]) => {
+    next = resolveMountedSensors(next);
     const nextCatalog = updateWorkpieceCatalog(next, catalog ?? workpiecesRef.current);
     itemsRef.current = next;
     workpiecesRef.current = nextCatalog;
@@ -341,10 +241,8 @@ export default function App() {
   }, [remember, syncHistory]);
 
   const fitsProject = useCallback((next: SceneItem[]) => {
-    if (next.length > 500) { notify(t("A project can contain at most 500 components."), "info"); return false; }
     // Count UTF-8 bytes without copying base64 payloads. Reserve room for later title edits.
     const catalog = updateWorkpieceCatalog(next, workpiecesRef.current);
-    if (catalog.length > 500) { notify(t("A project can contain at most 500 imported workpiece definitions."), "info"); return false; }
     if (estimateProjectBytes({items:next, workpieces:catalog, projectName, layoutName, activeLayoutId}) <= MAX_PROJECT_CHARS - 4096) return true;
     notify(t("Project would exceed the 180 MB limit. Remove assets or start a new project."), "info");
     return false;
@@ -442,18 +340,25 @@ export default function App() {
 
   const updateItem = useCallback(
     (id: string, changes: Partial<SceneItem>, record = true) => {
+      const moving = itemsRef.current.find((item) => item.id === id);
+      if (changes.position && moving && (moving.kind === "laser" || moving.kind === "sensor") && moving.props.mountedTo) {
+        const belt = itemsRef.current.find((item) => item.id === moving.props.mountedTo);
+        if (belt) changes = {...changes, props:{...moving.props, ...changes.props, mountPosition:nearestSensorFraction(sim.getLiveItem(belt.id) ?? belt,changes.position)}};
+      }
+      const assetId = changes.imported && moving?.imported?.asset.id;
       const next = itemsRef.current.map((item) => item.id === id ? {
         ...item, ...changes,
         position: changes.position ? ([...changes.position] as Vec3) : item.position,
         props: changes.props ? { ...changes.props } : item.props,
-      } : item);
-      if ((changes.imported || changes.worker) && !fitsProject(next)) return false;
+      } : assetId && item.imported?.asset.id === assetId ? {...item, imported:changes.imported} : item);
+      const catalog = assetId ? workpiecesRef.current.map(item => item.imported?.asset.id === assetId ? {...item,imported:changes.imported} : item) : workpiecesRef.current;
+      if ((changes.imported || changes.worker) && estimateProjectBytes({items:next,workpieces:catalog,projectName,layoutName,activeLayoutId}) > MAX_PROJECT_CHARS - 4096) { notify(t("Project would exceed the 180 MB limit. Remove assets or start a new project."), "info"); return false; }
       if (record) remember(itemsRef.current);
-      applyItems(next);
+      applyItems(next, catalog);
       if (record) syncHistory();
       return true;
     },
-    [applyItems, fitsProject, remember, syncHistory],
+    [applyItems, activeLayoutId, layoutName, notify, projectName, remember, syncHistory],
   );
 
   const addComponent = useCallback(
@@ -469,6 +374,23 @@ export default function App() {
     },
     [applyItems, fitsProject, notify, remember, syncHistory],
   );
+
+  const addCatalogModel = useCallback((id:string, position?:Vec3) => {
+    const base = workpiecesRef.current.find(item => item.id === id);
+    if (!base?.imported) return;
+    const instance = makeItem("imported-model", position ?? freeSpot(itemsRef.current), 0, {name:base.name, scale:base.scale, color:base.color, props:{...base.props,catalogBaseId:base.id}, imported:base.imported});
+    const next=[...itemsRef.current,instance]; if(!fitsProject(next)) return;
+    remember(itemsRef.current);applyItems(next);syncHistory();setSelectedId(instance.id);
+  },[applyItems,fitsProject,remember,syncHistory]);
+  const updateCatalogModel = useCallback((id:string, changes:Partial<SceneItem>, record=true) => {
+    const base=workpiecesRef.current.find(item=>item.id===id), assetId=base?.imported?.asset.id;
+    if(!assetId) return false;
+    const update=(item:SceneItem):SceneItem => item.imported?.asset.id===assetId ? {...item,...(changes.imported?{imported:changes.imported}:{}),...(changes.props?{props:{...item.props,...changes.props}}:{})} : item;
+    const next=itemsRef.current.map(update), catalog=workpiecesRef.current.map(update);
+    if(estimateProjectBytes({items:next,workpieces:catalog,projectName,layoutName,activeLayoutId})>MAX_PROJECT_CHARS-4096) return false;
+    if(record) remember(itemsRef.current);
+    applyItems(next,catalog);if(record)syncHistory();return true;
+  },[activeLayoutId,applyItems,layoutName,projectName,remember,syncHistory]);
 
   const deleteItem = useCallback(
     (id: string) => {
@@ -488,7 +410,7 @@ export default function App() {
     const id = productId.slice(IMPORTED_PRODUCT_PREFIX.length);
     const saved = workpiecesRef.current.find((item) => item.id === id);
     // A live scene model is still the definition, so remove that object first.
-    if (!saved || itemsRef.current.some((item) => item.id === id)) return;
+    if (!saved || itemsRef.current.some((item) => item.imported?.asset.id === saved.imported?.asset.id)) return;
     if (!window.confirm(t("Remove this saved workpiece? Components using it will switch to cartons. Existing products may need a simulation reset. You can undo this action."))) return;
     const next = itemsRef.current.map((item) => {
       const props = { ...item.props };
@@ -511,7 +433,7 @@ export default function App() {
         name: `${source.name} copy`,
         scale: source.scale,
         color: source.color,
-        props: { ...source.props },
+        props: { ...source.props, ...(source.imported ? {catalogBaseId: typeof source.props.catalogBaseId === "string" ? source.props.catalogBaseId : source.id} : {}) },
         signalTargets: source.signalTargets ? [...source.signalTargets] : undefined,
         points: source.points ? source.points.map((p) => [...p] as [number, number]) : undefined,
         pointHeights: source.pointHeights ? [...source.pointHeights] : undefined,
@@ -669,21 +591,23 @@ export default function App() {
 
   const loadLayout = useCallback(
     (layout: LayoutPreset) => {
-      replaceScene(cloneItems(layout.items), layout.id === "blank" ? "Untitled factory" : layout.name, layout.id);
+      if (!fitsProject(layout.items)) return;
+      replaceScene(cloneItems(layout.items), layout.id === "blank" ? "Untitled factory" : layout.name, layout.id, workpiecesRef.current);
       notify(`${layout.name} loaded`);
       sim.log(`Layout "${layout.name}" loaded (${layout.items.length} components)`, "ok");
     },
-    [notify, replaceScene],
+    [fitsProject, notify, replaceScene],
   );
 
   const buildGenerated = useCallback(
     (generated: SceneItem[], options: GenOptions) => {
+      if (!fitsProject(generated)) return;
       setGenOptions(options);
       setGenOpen(false);
       const xs = generated.map((i) => i.position[0]), zs = generated.map((i) => i.position[2]);
       setBuilding({ width: Math.max(20, Math.max(...xs, 8) - Math.min(...xs, -8) + 12), depth: Math.max(16, Math.max(...zs, 6) - Math.min(...zs, -6) + 12), height: 7 });
 
-      replaceScene(cloneItems(generated), `AI Factory ${options.style}-${options.seed}`, null);
+      replaceScene(cloneItems(generated), `AI Factory ${options.style}-${options.seed}`, null, workpiecesRef.current);
       const robots = generated.filter((i) => isRobotKind(i.kind)).length;
       sim.log(`AIFactory: built ${generated.length} components (${robots} robots) - seed ${options.seed}`, "ok");
       notify("Factory generated - simulation running");
@@ -738,7 +662,7 @@ export default function App() {
     }
   };
 
-  const openModelImport = useCallback((files?: File[], workerId?: string) => { setModelFiles(files?.length ? files : null); setModelTarget(workerId || null); setModelOpen(true); }, []);
+  const openModelImport = useCallback((files?: File[], workerId?: string, position?:Vec3) => { importPosition.current = position ?? null; setModelFiles(files?.length ? files : null); setModelTarget(workerId || null); setModelOpen(true); }, []);
   const addImportedModel = useCallback((model: ImportedModelData, warnings: string[]) => {
     if (modelTarget) {
       const worker = itemsRef.current.find((candidate) => candidate.id === modelTarget && candidate.kind === "operator");
@@ -749,7 +673,7 @@ export default function App() {
       notify("Rigged character assigned to worker"); return true;
     }
     const name = model.asset.entry.split("/").pop()?.replace(/\.[^.]+$/, "") || "Imported model";
-    const item = makeItem("imported-model", freeSpot(itemsRef.current), 0, {name, imported:model});
+    const item = makeItem("imported-model", importPosition.current ?? freeSpot(itemsRef.current), 0, {name, imported:model});
     const next = [...itemsRef.current, item];
     if (!fitsProject(next)) return false;
     remember(itemsRef.current); applyItems(next); syncHistory(); setSelectedId(item.id);
@@ -984,6 +908,10 @@ export default function App() {
   const libraryPanel = (
     <LibraryPanel
       onAdd={(kind) => addComponent(kind)}
+      catalog={workpieces}
+      onAddCatalog={addCatalogModel}
+      onEditCatalog={setCatalogEditId}
+      onLoadingChange={setImportLoading}
       onImportModel={() => openModelImport()}
       onLoadLayout={loadLayout}
       activeLayoutId={activeLayoutId}
@@ -1097,7 +1025,7 @@ export default function App() {
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1">
-            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} onSelect={setSelectedId} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onImportFiles={(files) => openModelImport(files)} onUpdateItem={updateItem} onBeginEdit={beginEdit} onDeleteItem={deleteItem} onDuplicateItem={duplicateItem} onShowFloorMap={() => setFloorMapOpen(true)} />
+            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} onSelect={setSelectedId} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onUpdateItem={updateItem} onBeginEdit={beginEdit} onDeleteItem={deleteItem} onDuplicateItem={duplicateItem} onShowFloorMap={() => setFloorMapOpen(true)} />
             {!mobile && <div className="absolute bottom-3 left-[110px] z-20 flex gap-1.5 xl:hidden"><button type="button" onClick={() => setMobilePanel("inspector")} className="flex items-center gap-1.5 rounded border border-white/15 bg-[#2a2a2c]/95 px-2.5 py-1.5 text-[10px] text-white/80"><SlidersHorizontal size={12} className="text-[var(--teal)]" />{t("Properties")}</button></div>}
           </div>
           {dockNode}
@@ -1130,7 +1058,8 @@ export default function App() {
         aria-hidden
         onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void importProject(file); }}
       />
-      <ModelImportDialog open={modelOpen} initialFiles={modelFiles} requireRig={!!modelTarget} onClose={() => { setModelOpen(false); setModelFiles(null); setModelTarget(null); }} onImported={addImportedModel} />
+      {catalogEditId && workpieces.find(item=>item.id===catalogEditId) && <CatalogModelEditor item={workpieces.find(item=>item.id===catalogEditId)!} onUpdate={updateCatalogModel} onBeginEdit={beginEdit} onClose={()=>setCatalogEditId(null)} />}
+      <ModelImportDialog open={modelOpen} initialFiles={modelFiles} requireRig={!!modelTarget} onLoadingChange={setImportLoading} onClose={() => { setModelOpen(false); setModelFiles(null); setModelTarget(null); }} onImported={addImportedModel} />
       {!storageReady && <div role="status" className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-4 bg-[#1e1e1e]/95 text-sm text-white/75">
         <span>{t("Restoring project…")}</span>
         {restoreSlow && <button type="button" className="rounded border border-white/30 px-4 py-2 text-xs text-white hover:bg-white/10" onClick={() => {
@@ -1140,7 +1069,7 @@ export default function App() {
         }}>{t("Continue without restoring or autosave — export a copy")}</button>}
       </div>}
       {storageFailed && <div role="alert" className="fixed bottom-8 right-4 z-[105] max-w-[300px] rounded border border-amber-400/40 bg-[#382c1b] p-3 text-[11px] text-amber-100">{t("Browser autosave is unavailable. Export a project copy to keep your work.")}</div>}
-      <GeneratorDialog open={genOpen} initial={genOptions} onClose={() => setGenOpen(false)} onBuild={buildGenerated} />
+      <GeneratorDialog open={genOpen} initial={genOptions} productItems={productItems} onClose={() => setGenOpen(false)} onBuild={buildGenerated} />
       {settingsOpen && <SettingsDialog>{projectSettings}</SettingsDialog>}
       <div className={cn("pointer-events-none fixed left-1/2 z-[100] flex w-full max-w-[420px] -translate-x-1/2 flex-col items-center gap-1.5 px-4", mobile ? "bottom-[78px]" : "top-[158px]")}>
         {toasts.map((toast) => <div key={toast.id} className={cn("pointer-events-auto flex w-full items-center gap-2.5 rounded border bg-[#2b2b2d]/97 px-3 py-2 shadow-xl", toast.tone === "success" ? "border-[var(--green)]/40" : "border-[var(--app-accent)]/35", "animate-[toast-in_.2s_ease-out]")}>{toast.tone === "success" ? <CheckCircle2 size={13} className="shrink-0 text-[var(--green)]" /> : <Info size={13} className="shrink-0 text-[var(--app-accent-bright)]" />}<span className="flex-1 text-[11px] leading-snug text-white/80">{t(toast.message)}</span><button type="button" aria-label={t("Close")} onClick={() => setToasts((cur) => cur.filter((entry) => entry.id !== toast.id))} className="shrink-0 rounded p-0.5 text-white/30"><X size={10} /></button></div>)}

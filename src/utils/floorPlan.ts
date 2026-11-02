@@ -1,5 +1,6 @@
 import type { ComponentKind, SceneItem } from '../types';
 import { samplePath } from '../sim/spline';
+import { conveyorWidth } from './conveyor';
 import { isRobotKind } from '../utils/kinds';
 
 /**
@@ -63,7 +64,7 @@ export function buildFloorPlan(items: SceneItem[], options: { padding?: number; 
     if ((item.kind === 'conveyor' || item.kind === 'roller') && item.points) {
       const points = worldPath(item);
       points.forEach(([x, z]) => add(x, z));
-      paths.push({ id: item.id, points, color: CONVEYOR_COLOR, width: 0.62 });
+      paths.push({ id: item.id, points, color: CONVEYOR_COLOR, width: conveyorWidth(item) });
       continue;
     }
     if (item.kind === 'fence') {

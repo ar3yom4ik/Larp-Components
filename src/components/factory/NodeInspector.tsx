@@ -1,6 +1,7 @@
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { getNodeDef } from '../../gen/graph/registry';
-import { PRODUCTS } from '../../data/products';
+import { ProductPicker } from '../ProductPicker';
+import type { SceneItem } from '../../types';
 import type { GraphNode, ParamDef } from '../../gen/graph/types';
 import { t } from '../../i18n';
 import { cn } from '../../utils/cn';
@@ -13,12 +14,14 @@ import { cn } from '../../utils/cn';
  */
 export function NodeInspector({
   node,
+  items = [],
   onChange,
   onReset,
   onDelete,
   onClose,
 }: {
   node: GraphNode | null;
+  items?: readonly SceneItem[];
   onChange: (key: string, value: unknown) => void;
   onReset: (key: string) => void;
   onDelete: () => void;
@@ -57,7 +60,7 @@ export function NodeInspector({
 
         <div className="space-y-2.5">
           {def.params.map((param) => (
-            <label key={param.key} className="block" title={param.help ? t(param.help) : undefined}>
+            <div key={param.key} className="block" title={param.help ? t(param.help) : undefined}>
               <span className="mb-1 flex items-center justify-between gap-2">
                 <span className="text-[10px] uppercase tracking-wider text-white/45">{t(param.label)}</span>
                 {isSet(param) && (
@@ -94,10 +97,10 @@ export function NodeInspector({
                   />
                   <input
                     type="number"
-                    min={param.min}
-                    max={param.max}
+                    min={param.unbounded ? undefined : param.min}
+                    max={param.unbounded ? undefined : param.max}
                     value={Number(value(param))}
-                    onChange={(event) => onChange(param.key, Math.max(param.min ?? 0, Math.min(param.max ?? 9999, Number(event.target.value))))}
+                    onChange={(event) => onChange(param.key, param.unbounded ? Number(event.target.value) : Math.max(param.min ?? 0, Math.min(param.max ?? 9999, Number(event.target.value))))}
                     className="w-14 rounded border border-white/12 bg-[#1e1e20] px-1 py-1 text-right font-mono text-[10.5px] text-white/85"
                   />
                 </span>
@@ -114,12 +117,9 @@ export function NodeInspector({
               )}
 
               {param.kind === 'product' && (
-                <select value={String(value(param))} onChange={(event) => onChange(param.key, event.target.value)} className="w-full rounded border border-white/12 bg-[#1e1e20] px-2 py-1.5 text-[11px] text-white/85">
-                  <option value="auto">{t('Recipe default')}</option>
-                  {PRODUCTS.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                </select>
+                <ProductPicker value={String(value(param))} onChange={(next) => onChange(param.key, next)} label={param.label} showLabel={false} allowAuto={param.default === 'auto'} allowAny={param.key === 'inputProduct'} items={items} />
               )}
-            </label>
+            </div>
           ))}
         </div>
 

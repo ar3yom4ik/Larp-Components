@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.4] - 2026-11-03 (prerelease)
+
+- Removed fixed scene, workpiece, signal-target and live-product count ceilings; rendering grows as needed. The 180 MB project-size limit and device resources still apply.
+- Added shared imported-model catalog entries with generated previews, fullscreen browsing, drag-to-scene, animated import placeholder and a resizable base editor. Material/unit changes propagate across instances; submodels can be removed or restored with updated bounds/collision. Poly Haven imports directly; links to Sloyd, Poly Pizza and Thingiverse support manual downloads under each model's licence.
+- Feeder and machine product pickers in AI Factory include searchable built-in and imported products. Robot pickup defaults to a mounted laser; proximity and no-sensor options are available.
+- Connected buttons control conveyors; buttons can toggle or use retriggerable timed pulses. Robot operation-end output can request another feeder part. Added low mounted laser/proximity sensors, adjustable placement and proximity-range visualization.
+- Added conveyor width, belt/roller selection and signed typed speed, welded straight-belt colliders, accurate/box collision options, and retained full pallets that wait for replacement. These remain approximate physics, not engineering guarantees.
+- Preserve the viewport across settings changes and restore the Cornell GI benchmark toggle. Added a layout context menu while keeping camera gestures.
+- Added focused unit and browser tests for large scenes, signals, belt support, pallet replacement, sensors, catalog editing, camera restoration and persistence. Existing 180 MB project, per-import and browser/device limits remain.
+
 ## [Unreleased]
 
 ## [3.0.0-alpha.3] - 2026-11-02 (prerelease)
@@ -45,7 +55,7 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 - Added `.LCMX` compressed project archives, including deduplicated embedded custom model, texture and worker assets, alongside legacy text project support. Archive imports validate structure, limits and checksums before accepting a scene.
 - Save picks `.lcmx` where browser file access is available and autosaves to the chosen handle; ordered writes prevent older autosaves overtaking newer ones. Other browsers download a copy instead. Browser sandboxes cannot set an arbitrary default local folder.
-- Added project archive unit and browser tests and an incremental roadmap. The Rust rewrite is dropped; the experimental code remains historical and opt-in. Remaining roadmap features, VC interoperability and robot-controller code are not implemented.
+- Added project archive unit and browser tests and an incremental roadmap. Remaining roadmap features, VC interoperability and robot-controller code are not implemented.
 
 ## [2.5.0-alpha.13] - 2026-11-01 (prerelease)
 
@@ -58,71 +68,19 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 - Updated vulnerable fflate, Vite and esbuild dependencies; `npm audit` reported zero vulnerabilities after a clean install.
 - Rechecked TypeScript simulation parity and benchmarks, production and offline builds, import formats and worker workflows. No new simulation optimization was merged in this maintenance audit.
-- Four older UI test scripts did not complete, Mixamo-specific tests were skipped and native Cargo tests were unavailable. Existing component graph branching and 3D I/O work remain incomplete. See `docs/AUDIT_2.5.0-alpha.12.md` for coverage and limitations.
+- Four older UI test scripts did not complete, Mixamo-specific tests were skipped. Existing component graph branching and 3D I/O work remain incomplete. See `docs/AUDIT_2.5.0-alpha.12.md` for coverage and limitations.
 
 ## [2.5.0-alpha.11] - 2026-11-01 (prerelease)
 
 - Continued simulation optimization in TypeScript. Larger product sets use conveyor-specific candidate groups for blocking checks; product contact checks avoid temporary axis arrays. No visual quality or simulation fidelity settings were reduced.
 - Fixed spatial-index query stamps colliding when the same object belongs to multiple indexes. Added a before/after TypeScript parity test and benchmark, including crowded conveyor transfers.
 - In one Node benchmark, median total simulation-step time was 9.7–10.7% lower in two dense scenarios; the human-cell result was 0.6% higher. Browser FPS and broader workloads were not measured. See `docs/TYPESCRIPT_OPTIMIZATION.md`.
-- TypeScript remains the default. Rust prototypes remain experimental and opt-in; the Rust port is incomplete.
-
-## [2.5.0-alpha.10] - 2026-11-01 (prerelease)
-
-- Reduced temporary allocations in the experimental feeder, machine, robot and product Wasm bridges and refreshed views after shared-memory growth, including growth in feeder callbacks.
-- Added forced-memory-growth regression coverage and an interleaved comparison against the alpha.9 bridge. In one Node run the optimized bridge was 5–9% faster than alpha.9, but remained slower than the pre-Rust and current TypeScript engines in those scenes. Results are noisy and do not establish browser performance.
-- The full Rust port and complete parity remain unfinished. See `docs/RUST_HYBRID_BENCHMARK.md`.
-
-## [2.5.0-alpha.9] - 2026-11-01 (prerelease)
-
-- Added reproducible side-by-side Node benchmarks of the historical pre-Rust engine, current TypeScript engine, and combined experimental Rust hybrid, plus per-frame selected-state hybrid comparisons. The historical engine is linked to current shared dependencies.
-- The hybrid was 15.7–23.7% slower than the pre-Rust engine by median total step time in three measured scenes. Parity passed only for selected fields and scenes; full migration, universal parity, browser behavior and performance remain unverified. See `docs/RUST_HYBRID_BENCHMARK.md`.
-- Avoided empty Rust signal evaluation when a scene contains no logic items. Experimental paths remain opt-in.
-
-## [2.5.0-alpha.8] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm free-product integration (`?rustProducts=1`): gravity, support response, conveyor motion, friction and tilt. Support lookup, collision response, statistics and lifecycle remain TypeScript; the default remains TypeScript.
-- Added 10,000 motion comparisons and live factory, pallet, collector, floor and fence tests. Browser behavior, performance and full-engine parity remain unverified. The Rust port is still incomplete.
-
-## [2.5.0-alpha.7] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm robot reachability and inverse kinematics (`?rustKinematics=1`), with host-managed transforms, programs, commands and motion. The default remains TypeScript.
-- Added 20,000 randomized comparisons, a 130-second factory comparison and a JavaScript robot-script test. These are not full robot or engine parity; browser behavior and performance remain unverified. The Rust port is incomplete.
-
-## [2.5.0-alpha.6] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm bounded A* route planning for humans (`?rustNavigation=1`). Destination projection, task logic, steering and motion remain TypeScript; the default remains TypeScript.
-- In 500 route comparisons, reachability and grid cost matched but five routes took different equal-cost paths. Four human-task scenarios completed with the Rust planner; full behavior parity and browser performance are not established.
-- The complete Rust port is still unfinished.
-
-## [2.5.0-alpha.5] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm automation signals for buttons, lasers, proximity sensors and PLCs (`?rustLogic=1`), with ordered signal propagation. Wiring, user input and robot signals remain host-managed. The default remains TypeScript.
-- Added 3,000 randomized circuit comparisons and an engine integration test. The full Rust migration, full-engine parity, browser behavior and performance remain unverified.
-
-## [2.5.0-alpha.4] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm automatic machine workflow (`?rustMachineWorkflow=1`): selection, assembly and cycle decisions. The TypeScript host retains spatial candidate ordering, product mutations and explicit robot/human process calls. The default remains TypeScript.
-- Added generated-factory hybrid comparisons and machine edge-case/randomized tests. Browser behavior, performance and full-engine parity are not established; the Rust migration is still incomplete.
 
 ## [2.5.0-alpha.3] - 2026-11-01 (prerelease)
 
-- Experimental Rust/Wasm machine cycle clock, independently opt-in via `?rustMachines=1`. All machine decisions and product transitions still run in TypeScript; this is not a complete machine or engine port.
-- Added numerical edge-case and actual machine-cycle comparisons, and enabled the clock in the hybrid factory tests. Browser behavior and performance remain unverified.
-- The full Rust engine migration, full-engine parity, physical graph branching/merging and 3D I/O editing remain unfinished.
-
-## [2.5.0-alpha.2] - 2026-11-01 (prerelease)
-
-- Experimental batched Rust/Wasm feeder decisions can be enabled with `?rustFeeders=1`; the default remains TypeScript. The rest of the factory simulation still runs in TypeScript with Three.js rendering.
-- Added side-by-side tests of selected state for generated factories and feeder edge cases. Both sides share all non-feeder systems; this is not full-engine parity. Browser behavior and performance have not been validated.
-- The full Rust migration, physical graph branching and merging, and 3D I/O editing remain incomplete. See `docs/RUST_ENGINE_MIGRATION.md`.
+- At that release, physical graph branching/merging and 3D I/O editing remained unfinished.
 
 ## [2.5.0-alpha.1] - 2026-11-01 (prerelease)
-
-### Experimental: Rust engine migration
-- A Rust/WebAssembly navigation prototype implements point-to-segment distance and obstacle/barrier checks against a packed scene. The real Wasm module is tested against the TypeScript reference (10,000 distance cases and 20,000 scene queries), alongside the existing simulator regression suite.
-- **The migration is not complete.** The released application still runs the TypeScript simulation, including its JavaScript robot programs. The Rust prototype is not wired into the production simulation; no claim of full feature parity, improved speed or Rust-based app runtime is made.
-- A Node microbenchmark of the prototype showed no performance benefit in this environment; further batched engine work and browser measurements are needed before switching production paths. See `docs/RUST_ENGINE_MIGRATION.md`.
 
 ### Other work in progress
 - The graph editor contains early physical feeder, conveyor, robot, machine, human and pallet nodes; it supports selected linear production setups, not arbitrary branching/merging. Node insertion, search, copy/paste and disconnected nodes are experimental.

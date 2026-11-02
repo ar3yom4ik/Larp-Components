@@ -111,6 +111,18 @@ for (const [x, shouldPass] of [
   );
 }
 
+// Box mode is intentionally cheaper and fills the opening; it applies to
+// dynamic and kinematic imported component bodies without changing the asset.
+{
+  const simple = {...arch, props:{...arch.props, collisionShape:'box'}};
+  const moving = projectile(0), e = new Engine();
+  e.sync([simple,moving]);
+  assert.equal(e.rigidBodies.body(simple.id)!.shapes.length,1);
+  const probe = e.rigidBodies.body(moving.id)!; probe.velocity.set(0,0,-3);
+  for (let i=0;i<40;i++) {probe.force.y=probe.mass*9.81;e.rigidBodies.step(1/60,[],()=>1);}
+  assert.ok(e.getPhysicsPose(moving.id)!.position[2] > .1, 'box mode blocks the opening');
+}
+
 const text = serializeProject({
   items: [arch],
   projectName: "collider",

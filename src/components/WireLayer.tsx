@@ -19,7 +19,7 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
   const glow = useRef<THREE.MeshBasicMaterial>(null);
   const color = signalWireColor(source.props.wireColor);
   const packetColor = useMemo(() => new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.6), [color]);
-  const curve = useMemo(() => wireCurve(source, target), [source.kind, source.position, source.rotation, source.rotationX, source.rotationZ, source.scale, source.props.range, target.kind, target.position, target.rotation, target.rotationX, target.rotationZ, target.scale, target.props.range]);
+  const curve = useMemo(() => wireCurve(source, target), [source.kind, source.position, source.rotation, source.rotationX, source.rotationZ, source.scale, source.props.range, source.props.mountedTo, target.kind, target.position, target.rotation, target.rotationX, target.rotationZ, target.scale, target.props.range, target.props.mountedTo]);
   const curveRef = useRef(curve);
   const cableMesh = useRef<THREE.Mesh>(null), glowMesh = useRef<THREE.Mesh>(null);
   const endpoints = useRef<(THREE.Mesh | null)[]>([]);
@@ -36,7 +36,8 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
   useFrame((_, delta) => {
     // Rebuild only moving wires, at a bounded rate; ordinary factory wiring
     // continues to use the shared static geometry fast path.
-    const sourcePose = sim.getPhysicsPose(source.id), targetPose = sim.getPhysicsPose(target.id);
+    const sourcePose = sim.getPhysicsPose(source.id) ?? (source.props.mountedTo ? sim.getLiveItem(source.id) : undefined);
+    const targetPose = sim.getPhysicsPose(target.id) ?? (target.props.mountedTo ? sim.getLiveItem(target.id) : undefined);
     const motion = moving.current;
     motion.elapsed += delta;
     if ((sourcePose || targetPose) && motion.elapsed >= 0.05) {
@@ -97,7 +98,9 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
     if (glow.current) glow.current.opacity = energized ? 0.28 : 0;
   });
 
-  const start = curve.getPoint(0), end = curve.getPoint(1);
+  // Keep JSX endpoint props stable; otherwise an unrelated React render can
+  // overwrite the live positions after the moving-geometry key has settled.
+  const [start, end] = useMemo(() => [curve.getPoint(0), curve.getPoint(1)], [curve]);
   return <group name="signal-wire" userData={{ signalWire: true, sourceId: source.id, targetId: target.id }}>
     <mesh ref={cableMesh} name="signal-cable" geometry={geometry} raycast={() => null}>
       <meshStandardMaterial ref={cable} color={color} emissive={color} emissiveIntensity={0.12} roughness={0.4} />

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, RotateCcw, Trash2 } from "lucide-react";
 import type { ImportedMaterial, ImportedModelData, ModelUnits, SceneItem, TextureSlot } from "../types";
-import { getCachedModel, inspectMaterials, readBlobAsDataUrl } from "../utils/modelImport";
+import { getCachedModel, inspectMaterials, modelMeshList, modelSubset, readBlobAsDataUrl } from "../utils/modelImport";
 import { t } from "../i18n";
 
 const field = "w-full rounded border border-white/15 bg-[#1e1e1e] px-2 py-1.5 text-[11px] text-white/85 outline-none focus:border-[var(--app-accent)]";
@@ -25,13 +25,24 @@ function Slider({label, value, min=0, max=1, step=.01, disabled, onBegin, onChan
 export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneItem; onUpdate:(id:string, change:Partial<SceneItem>, record?:boolean)=>boolean | void; onBeginEdit:()=>void}) {
   const [index, setIndex] = useState(0);
   const [error, setError] = useState("");
+  const [meshes, setMeshes] = useState<{index:number;name:string}[]>([]);
+  const [filtering, setFiltering] = useState(false);
   const latest = useRef(item); latest.current = item;
   useEffect(() => { setIndex(0); setError(""); }, [item.id]);
+  useEffect(() => { let alive=true;setMeshes([]); if(item.imported) void getCachedModel(item.imported.asset).then(({root})=>{if(alive)setMeshes(modelMeshList(root));}).catch(()=>{}); return ()=>{alive=false}; },[item.imported?.asset]);
   if (!item.imported) return null;
   const model = item.imported;
   const selectedIndex = Math.min(index, Math.max(0, model.materials.length - 1));
   const material = model.materials[selectedIndex];
   const updateModel = (patch: Partial<ImportedModelData>, record = true) => onUpdate(item.id, {imported: {...model, ...patch}}, record);
+  const toggleMesh = async (index:number) => {
+    if(filtering) return;
+    const hidden=new Set(model.hiddenMeshes ?? []); if(hidden.has(index))hidden.delete(index);else hidden.add(index);
+    if(hidden.size >= meshes.length) {setError(t("Keep at least one submodel."));return;}
+    setFiltering(true);setError("");
+    try {const {root}=await getCachedModel(model.asset);const filtered=[...hidden].sort((a,b)=>a-b);const subset=modelSubset(root,filtered);const current=latest.current.imported;if(current)onUpdate(item.id,{imported:{...current,...subset,hiddenMeshes:filtered}},true);}
+    catch(cause){setError(cause instanceof Error?cause.message:String(cause));}finally{setFiltering(false);}
+  };
   const updateMaterial = (patch: Partial<ImportedMaterial>, record = true) => {
     const current = latest.current.imported;
     if (!current) return;
@@ -75,6 +86,8 @@ export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneI
       <h4 className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.12em] text-[#a8a8ad]">{t("Imported model")}</h4>
       <div className="mb-2 break-all text-[10px] text-white/60">{model.asset.entry}</div>
       <div className="mb-3 text-[10px] text-white/40">{model.meshCount} {t("meshes")} · {model.triangleCount.toLocaleString()} {t("triangles")} · {model.asset.files.length} {t("embedded files")}</div>
+      {meshes.length > 1 && <details className="mb-3 rounded border border-white/10 bg-black/10 p-2"><summary className="cursor-pointer text-[11px] text-white/75">{t("Submodels")} · {meshes.length - (model.hiddenMeshes?.length ?? 0)} / {meshes.length}</summary><p className="my-1 text-[10px] text-white/40">{t("Remove unwanted meshes from all instances. Restore them at any time.")}</p><div className="thin-scroll max-h-40 overflow-y-auto">{meshes.map(mesh=><div key={mesh.index} className="flex items-center justify-between gap-2 border-t border-white/5 py-1 text-[10px]"><span className="truncate text-white/65">{mesh.name}</span><button type="button" disabled={filtering || item.locked} aria-label={`${t((model.hiddenMeshes ?? []).includes(mesh.index) ? "Restore submodel" : "Remove submodel")}: ${mesh.name}`} onClick={()=>void toggleMesh(mesh.index)} className="rounded px-2 py-1 text-[var(--app-accent-bright)] hover:bg-white/10 disabled:opacity-40">{t((model.hiddenMeshes ?? []).includes(mesh.index)?"Restore":"Remove")}</button></div>)}</div></details>}
+      {error && <div role="alert" className="mb-2 text-[10px] text-red-200">{error}</div>}
       <label className="mb-2 block text-[10px] text-white/55">{t("Model units")}
         <select aria-label={t("Model units")} value={model.units} disabled={item.locked} onChange={(e) => updateModel({units:e.target.value as ModelUnits})} className={`${field} mt-1`}>
           <option value="auto">{t("Auto (large models → mm)")}</option><option value="m">{t("Meters")}</option><option value="mm">{t("Millimeters")}</option><option value="cm">{t("Centimeters")}</option><option value="in">{t("Inches")}</option><option value="ft">{t("Feet")}</option>

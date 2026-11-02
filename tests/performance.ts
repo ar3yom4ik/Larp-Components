@@ -1,4 +1,4 @@
-import { Engine, MAX_BOXES } from '../src/sim/engine';
+import { Engine } from '../src/sim/engine';
 import { DEFAULT_GEN, generateFactory } from '../src/sim/generator';
 import { makeItem } from '../src/data/library';
 import { SpatialHash } from '../src/sim/spatial';
@@ -88,7 +88,6 @@ for (const box of engine.boxes) {
   if (actual.kind !== expected.kind || Math.abs(actual.top - expected.top) > 1e-9) mismatches += 1;
 }
 assert(mismatches === 0, `${mismatches} products resolved to a different support than the brute-force scan`);
-assert(engine.boxes.length <= MAX_BOXES, 'box cap exceeded');
 // Long-run stability: the grid, timer and condition buffers must not lose work.
 // (The generated line needs about a minute before its first pallet completes.)
 for (let i = 0; i < 60 * 70; i += 1) engine.step(1 / 60);

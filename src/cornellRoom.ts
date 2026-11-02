@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * DEV-only switch for the Cornell benchmark room (see components/CornellBenchmark.tsx).
- * Toggled from Project settings; it is never persisted, so a reload always starts
+ * Switch for the Cornell benchmark room (see components/CornellBenchmark.tsx).
+ * Toggled from Interface settings; it is never persisted, so a reload always starts
  * with the normal factory scene.
  */
 let enabled = false;

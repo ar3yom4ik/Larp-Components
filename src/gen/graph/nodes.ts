@@ -9,7 +9,7 @@
  * testable without a browser.
  */
 import { DEFAULT_GEN, FACTORY_RECIPES, generateFactory, validateFactory, type GenOptions, type ProcessStep } from '../../sim/generator';
-import { PRODUCTS, getProduct } from '../../data/products';
+import { getProduct } from '../../data/products';
 import { analyzePrompt } from '../prompt';
 import { registerNode } from './registry';
 import type {
@@ -39,11 +39,6 @@ function cleanConfig(input: unknown): Partial<GenOptions> {
   }
   return out as Partial<GenOptions>;
 }
-
-const productOptions = [
-  { value: 'auto', label: 'Recipe default' },
-  ...PRODUCTS.map((product) => ({ value: product.id, label: product.name })),
-];
 
 const MACHINE_OPTIONS = [
   { value: 'auto', label: 'Recipe default' },
@@ -92,8 +87,8 @@ registerNode({
   outputs: [{ key: 'config', label: 'Config', type: 'config' }],
   params: [
     { key: 'recipe', label: 'Recipe', kind: 'select', default: 'metalworking', options: FACTORY_RECIPES.map((recipe) => ({ value: recipe.id, label: recipe.name })) },
-    { key: 'product', label: 'Input product', kind: 'select', default: 'auto', options: productOptions },
-    { key: 'outputProduct', label: 'Output product', kind: 'select', default: 'auto', options: productOptions },
+    { key: 'product', label: 'Input product', kind: 'product', default: 'auto' },
+    { key: 'outputProduct', label: 'Output product', kind: 'product', default: 'auto' },
   ],
   summary: (params) => {
     const recipe = FACTORY_RECIPES.find((entry) => entry.id === params.recipe) ?? FACTORY_RECIPES[0];
@@ -183,14 +178,14 @@ registerNode({
   outputs: [{ key: 'config', label: 'Config', type: 'config' }],
   params: [
     { key: 'rate', label: 'Feed rate', kind: 'number', default: 12, min: 1, max: 60, step: 1, help: 'Products per minute.' },
-    { key: 'beltSpeed', label: 'Belt speed', kind: 'number', default: 0.6, min: 0.1, max: 2, step: 0.05, help: 'Metres per second.' },
+    { key: 'beltSpeed', label: 'Belt speed', kind: 'number', default: 0.6, min: -2, max: 2, step: 0.05, unbounded: true, help: 'Metres per second.' },
     { key: 'cycleTime', label: 'Cycle time', kind: 'number', default: 6, min: 1, max: 60, step: 1, help: 'Seconds per machine operation.' },
   ],
   summary: (params) => `${number(params.rate, 12)}/min · ${number(params.beltSpeed, 0.6).toFixed(2)} m/s · ${number(params.cycleTime, 6)} s`,
   evaluate: ({ params, report }) => {
     const config: Partial<GenOptions> = {};
     if (set(params, 'rate')) config.rate = Math.max(1, Math.min(60, Math.round(number(params.rate, 12))));
-    if (set(params, 'beltSpeed')) config.beltSpeed = Math.max(0.1, Math.min(2, number(params.beltSpeed, 0.6)));
+    if (set(params, 'beltSpeed')) config.beltSpeed = number(params.beltSpeed, 0.6);
     if (set(params, 'cycleTime')) config.cycleTime = Math.max(1, Math.min(60, Math.round(number(params.cycleTime, 6))));
     if (config.rate !== undefined && config.cycleTime !== undefined) {
       const cellCapacity = 60 / config.cycleTime;

@@ -4,7 +4,6 @@ import { makeItem } from '../src/data/library';
 import { itemLocalToWorld } from '../src/utils/transform';
 import { signalAnchor } from '../src/utils/signalPorts';
 import { Engine, BELT_TOP } from '../src/sim/engine';
-import { createRustFeederStepper, createRustLogicStepper } from '../src/sim/wasm/kernel';
 import { serializeProject, parseProject } from '../src/utils/project';
 import { createProjectArchive, readProjectArchive } from '../src/utils/projectArchive';
 
@@ -22,14 +21,14 @@ const [old] = parseProject(serializeProject({ projectName: 'Old', layoutName: 'L
 assert.equal(old.rotationX, undefined, 'old yaw-only projects remain valid');
 
 // Lift a complete functioning line: spawn, supports, robot IK and pallet slots
-// all share the same world-space Y. Exercise the optional Rust feeder too.
-for (const hybrid of [false, true]) {
+// all share the same world-space Y.
+{
   const belt = makeItem('conveyor', [-2, 2, 0], 0, { points: [[0, 0], [1, 0], [2, 0]], props: { speed: 0.6, active: true, stopper: true } });
   const feeder = makeItem('feeder', [-1.7, 2, 0], 0, { props: { active: true, interval: 4, product: 'carton' } });
   const pallet = makeItem('crates', [-0.3, 2, 2.9], 0, { props: { product: 'carton', cols: 3, rows: 2, layers: 4, gap: 0.04 } });
   const robot = makeItem('robot', [0.3, 2, 1.45], 0, { props: { gripper: 'vacuum', speed: 70 }, program: { mode: 'palletize', sourceId: belt.id, targetId: pallet.id, repeat: true, delay: 0, clearance: 0.3 } });
-  const e = new Engine(), rust = hybrid ? createRustFeederStepper() : null; e.feederStepper = rust;
-  try {
+  const e = new Engine();
+  {
     e.sync([belt, feeder, pallet, robot]);
     assert.equal(e.conveyors.get(belt.id)?.top, 2 + BELT_TOP);
     assert.equal(e.feeders.get(feeder.id)?.y, 3.12);
@@ -37,7 +36,7 @@ for (const hybrid of [false, true]) {
     assert.ok(e.robots.get(robot.id)!.homeTip()[1] > 2.5);
     e.setRunning(true);
     for (let frame = 0; frame < 65 * 60; frame++) e.step(1 / 60);
-    assert.ok(e.robots.get(robot.id)!.cycles > 0, `elevated line did not place a part (${hybrid ? 'Rust' : 'TS'})`);
+    assert.ok(e.robots.get(robot.id)!.cycles > 0, 'elevated line did not place a part');
     assert.equal(e.stats.lost, 0);
     // Move a belt while a product is resting on it; it follows its support.
     const b = e.spawn('carton', -1, 2 + BELT_TOP + 0.13, 0);
@@ -46,7 +45,7 @@ for (const hybrid of [false, true]) {
     const oldY = b.y;
     e.sync([{ ...belt, position: [-2, 3, 0] }, feeder, pallet, robot]);
     assert.ok(Math.abs(b.y - oldY - 1) < 1e-9, 'resting product moves vertically with the edited conveyor');
-  } finally { rust?.dispose(); }
+  }
 }
 
 // Robot local/world kinematics remain inverses even for a tilted, scaled base.
@@ -61,12 +60,11 @@ for (const hybrid of [false, true]) {
   assert.ok(world.every((v, i) => Math.abs(v - itemLocalToWorld(robot, local)[i]) < 1e-10));
 }
 
-// An elevated sensor cannot trigger from a product on a different floor;
-// the experimental Rust logic path delegates this case to the host.
-for (const hybrid of [false, true]) {
+// An elevated sensor cannot trigger from a product on a different floor.
+{
   const sensor = makeItem('sensor', [4, 3, 0], 0, { props: { radius: 0.8 } });
-  const e = new Engine(), logic = hybrid ? createRustLogicStepper() : null; e.logicStepper = logic;
-  try {
+  const e = new Engine();
+  {
     e.sync([sensor]); const ground = e.spawn('carton', 4, 0.8, 0); e.setRunning(true); e.step(1 / 60);
     assert.equal(e.signalState.get(sensor.id), false);
     ground.state = 'dead'; const elevated = e.spawn('carton', 4, 3.8, 0); e.step(1 / 60);
@@ -75,6 +73,6 @@ for (const hybrid of [false, true]) {
     assert.equal(e.signalState.get(sensor.id), false, 'ground sensor must not sense a product on the upper floor');
     elevated.state = 'dead'; e.spawn('carton', 4, 0.8, 0); e.step(1 / 60);
     assert.equal(e.signalState.get(sensor.id), true, 'ground sensor still sees a product at its own height');
-  } finally { logic?.dispose(); }
+  }
 }
 console.log('scene transforms: XYZ, wires, archive, elevated line, robot kinematics and detector heights OK');

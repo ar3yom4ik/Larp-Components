@@ -1,6 +1,6 @@
 # Feature roadmap and implementation boundaries
 
-TypeScript and Three.js remain the supported application stack. The requested Rust rewrite has been dropped; existing experimental Rust code is historical/opt-in, not a migration commitment or production default.
+TypeScript and Three.js are the supported application stack.
 
 ## First delivered slice: project archives
 

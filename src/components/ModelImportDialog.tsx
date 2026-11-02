@@ -5,9 +5,9 @@ import { collectModelFiles, describeImportedModel, FORMAT_LABEL, isModelPath, lo
 import { t } from "../i18n";
 import { WindowResizeHandle, type WindowSize, type WindowOffset } from "./WindowResizeHandle";
 
-interface Props { open: boolean; initialFiles: File[] | null; requireRig?: boolean; onClose: () => void; onImported: (model: ImportedModelData, warnings: string[]) => boolean | void }
+interface Props { open: boolean; initialFiles: File[] | null; requireRig?: boolean; onLoadingChange?: (loading:boolean)=>void; onClose: () => void; onImported: (model: ImportedModelData, warnings: string[]) => boolean | void }
 
-export function ModelImportDialog({open, initialFiles, requireRig = false, onClose, onImported}: Props) {
+export function ModelImportDialog({open, initialFiles, requireRig = false, onLoadingChange, onClose, onImported}: Props) {
   const input = useRef<HTMLInputElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const [geometry, setGeometry] = useState<{ size: WindowSize | null; offset: WindowOffset }>({ size: null, offset: { x: 0, y: 0 } });
@@ -35,7 +35,7 @@ export function ModelImportDialog({open, initialFiles, requireRig = false, onClo
   }, [open, initialFiles]);
   async function importNow() {
     if (!entry || !resources.length) return;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); if (!requireRig) onLoadingChange?.(true);
     try {
       const asset = makeAsset(resources, entry);
       const {root, warnings, clips} = await loadModelAsset(asset);
@@ -45,7 +45,7 @@ export function ModelImportDialog({open, initialFiles, requireRig = false, onClo
       primeModelCache(asset, root, warnings, clips);
       if (onImported(model, warnings) === false) throw new Error(t("Project would exceed the 180 MB limit. Remove assets or start a new project."));
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
+    finally { setBusy(false); onLoadingChange?.(false); }
   }
   if (!open) return null;
   const candidates = resources.filter((r) => isModelPath(r.path));

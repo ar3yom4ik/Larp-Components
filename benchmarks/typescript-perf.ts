@@ -4,8 +4,9 @@ import { Engine } from '../src/sim/engine';
 import { Engine as BaselineEngine } from 'virtual:baseline-ts-engine';
 import { DEFAULT_GEN, generateFactory, parsePrompt } from '../src/sim/generator';
 import { makeItem } from '../src/data/library';
-import { snapshot, difference } from './hybrid-utils';
+import { snapshot, difference } from './comparison-utils';
 import type { SceneItem } from '../src/types';
+import {isRobotKind} from '../src/utils/kinds';
 
 const cases=[
   {name:'robot-cell',items:()=>generateFactory({...DEFAULT_GEN,stages:1,operators:false,fences:false})},
@@ -40,8 +41,9 @@ async function run(items:SceneItem[], prepare?: (engine:Engine, items:SceneItem[
     return {before:summary(bt),after:summary(at),mismatch,beforeStats:before.stats,afterStats:after.stats,beforeTime:before.time,afterTime:after.time,boxes:after.boxes.length};
   }finally{before.setRunning(false);after.setRunning(false);}
 }
-console.log(JSON.stringify({node:process.version,cpu:os.cpus()[0]?.model,mode:parity?'per-frame parity':'timing',baseline:process.env.TS_BENCH_BASELINE || '88a60d3',note:'Engine.step only; no rendering, browser, GPU, initialization or parity checks; tolerance 1e-8.'}));
-for(const scenario of cases){const items=scenario.items();for(let trial=1;trial<=(parity?1:3);trial++){
+console.log(JSON.stringify({node:process.version,cpu:os.cpus()[0]?.model,mode:parity?'per-frame parity':'timing',baseline:process.env.TS_BENCH_BASELINE || '88a60d3',note:'Engine.step only; no rendering, browser, GPU or initialization. Tolerance 1e-8; robots use explicit moving-output mode for the historical comparison.'}));
+// Compare the same explicit output mode: new projects default to an end-of-operation pulse.
+for(const scenario of cases){const items=scenario.items().map(item=>isRobotKind(item.kind)?{...item,props:{...item.props,outputMode:'moving'}}:item);for(let trial=1;trial<=(parity?1:3);trial++){
   const result=await run(items,scenario.prepare);console.log(JSON.stringify({scene:scenario.name,itemCount:items.length,trial,...result}));
   if(result.mismatch){process.exitCode=1;}
 }}

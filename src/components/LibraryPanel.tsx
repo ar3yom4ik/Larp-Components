@@ -1,9 +1,10 @@
 import { t, useLanguage } from "../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Folder, Globe2, Layers, LayoutGrid, Plus, Search, Sparkles, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Globe2, Layers, LayoutGrid, Maximize2, Minimize2, Plus, Search, Sparkles, Upload, X } from "lucide-react";
 import { CATEGORIES, COMPONENTS } from "../data/library";
 import { LAYOUTS } from "../data/layouts";
-import type { Category, ComponentKind, LayoutPreset } from "../types";
+import type { Category, ComponentKind, LayoutPreset, SceneItem } from "../types";
+import { ImportedThumbnail } from "./ImportedThumbnail";
 import { PartIcon, partAccent } from "./PartIcon";
 import { PolyHavenBrowser } from "./PolyHavenBrowser";
 import type { ImportedModelData } from "../types";
@@ -11,6 +12,10 @@ import { cn } from "../utils/cn";
 
 interface LibraryPanelProps {
   onAdd: (kind: ComponentKind) => void;
+  catalog?: readonly SceneItem[];
+  onAddCatalog?: (id:string) => void;
+  onEditCatalog?: (id:string) => void;
+  onLoadingChange?: (loading:boolean) => void;
   onImportModel: () => void;
   onLoadLayout: (layout: LayoutPreset) => void;
   activeLayoutId: string | null;
@@ -23,9 +28,10 @@ interface LibraryPanelProps {
 
 type LibraryTab = "components" | "layouts" | "web";
 
-export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutId, focusSignal, layoutsSignal = 0, onInfo, onImportedModel }: LibraryPanelProps) {
+export function LibraryPanel({ onAdd, catalog = [], onAddCatalog, onEditCatalog, onLoadingChange, onImportModel, onLoadLayout, activeLayoutId, focusSignal, layoutsSignal = 0, onInfo, onImportedModel }: LibraryPanelProps) {
   const language = useLanguage();
   const [tab, setTab] = useState<LibraryTab>("components");
+  const [fullscreen, setFullscreen] = useState(false);
   const [category, setCategory] = useState<"All" | Category>("All");
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,11 +60,20 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
     });
   }, [category, search, language]);
 
+  const imported = useMemo(() => {
+    const seen = new Set<string>();
+    return catalog.filter(item => {
+      const id=item.imported?.asset.id;
+      if(!id || seen.has(id)) return false;
+      seen.add(id);
+      return (category === "All" || category === "Storage") && (!search.trim() || item.name.toLowerCase().includes(search.trim().toLowerCase()));
+    });
+  },[catalog,category,search]);
   const robots = filtered.filter((item) => item.category === "Robots").length;
   const machines = filtered.filter((item) => item.category === "Machines").length;
 
   return (
-    <aside className="app-panel app-catalog flex min-h-0 w-full min-w-0 flex-1 flex-col border-r border-white/[0.12] bg-[#2d2d30]">
+    <aside className={cn("app-panel app-catalog flex min-h-0 min-w-0 flex-col border-r border-white/[0.12] bg-[#2d2d30]", fullscreen ? "fixed inset-2 z-[100] w-auto rounded-lg border shadow-2xl" : "w-full flex-1")}>
       <div className="flex h-[42px] shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
         <div className="flex items-center gap-2">
           <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
@@ -67,7 +82,8 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
           <span className="font-mono text-[8.5px] uppercase tracking-[0.2em] text-white/50">{t("eCatalog")}</span>
         </div>
         <div className="flex items-center gap-1">
-          <span className="rounded bg-white/[0.045] px-1.5 py-0.5 font-mono text-[8px] text-white/30">{COMPONENTS.length}</span>
+          <span className="rounded bg-white/[0.045] px-1.5 py-0.5 font-mono text-[8px] text-white/30">{COMPONENTS.length + imported.length}</span>
+          <button type="button" aria-label={t(fullscreen ? "Exit fullscreen catalog" : "Fullscreen catalog")} title={t(fullscreen ? "Exit fullscreen catalog" : "Fullscreen catalog")} onClick={() => setFullscreen(!fullscreen)} className="rounded p-1.5 text-white/60 hover:bg-white/10">{fullscreen ? <Minimize2 size={14}/> : <Maximize2 size={14}/>}</button>
         </div>
       </div>
 
@@ -111,7 +127,7 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
       </div>
 
       {tab === "web" ? (
-        <PolyHavenBrowser onImported={(model, warnings) => onImportedModel?.(model, warnings)} onInfo={onInfo} />
+        <PolyHavenBrowser onImported={(model, warnings) => onImportedModel?.(model, warnings)} onInfo={onInfo} onLoadingChange={onLoadingChange} />
       ) : tab === "components" ? (
         <>
           <div className="shrink-0 px-3 pb-2 pt-3">
@@ -163,7 +179,11 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
               <span className="h-1 w-1 rounded-full bg-[var(--teal)]" /> {t("Drag into scene")} </span>
           </div>
 
-          <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          <div className={cn("thin-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2", fullscreen && "grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 p-4")}>
+            {imported.map(item => <div key={item.id} className="group relative mb-1 flex items-center gap-2 rounded border border-white/10 bg-white/[0.03] p-2" draggable onDragStart={event => {event.dataTransfer.setData("application/x-factory-catalog",item.id);event.dataTransfer.effectAllowed="copy";}}>
+              <button type="button" onClick={()=>onAddCatalog?.(item.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={`${t("Add imported model")}: ${item.name}`}><ImportedThumbnail model={item.imported!} className={fullscreen?"h-20 w-20 shrink-0 object-contain":"h-12 w-12 shrink-0 object-contain"}/><span className="min-w-0"><span className="block truncate text-[11px] text-white/85">{item.name}</span><span className="block text-[9px] text-white/40">{item.imported!.meshCount} {t("meshes")} · {item.imported!.triangleCount.toLocaleString()} {t("triangles")}</span></span></button>
+              <button type="button" onClick={()=>onEditCatalog?.(item.id)} aria-label={`${t("Edit catalog model")}: ${item.name}`} className="rounded px-2 py-1 text-[10px] text-white/55 hover:bg-white/10">{t("Edit")}</button>
+            </div>)}
             {filtered.map((component) => {
               const accent = partAccent(component.kind);
               return (
@@ -176,10 +196,10 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
                     event.dataTransfer.effectAllowed = "copy";
                   }}
                   onClick={() => onAdd(component.kind)}
-                  className="group relative mb-1 flex w-full items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-left transition hover:border-white/[0.09] hover:bg-white/[0.045]"
+                  className={cn("group relative mb-1 flex w-full items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-left transition hover:border-white/[0.09] hover:bg-white/[0.045]", fullscreen && "min-h-[120px] border-white/10 bg-white/[0.03] p-3")}
                 >
-                  <span className="relative flex h-[42px] w-[48px] shrink-0 items-center justify-center rounded border border-white/[0.07] bg-[#3a3a3d]">
-                    <PartIcon kind={component.kind} className="h-[36px] w-[42px] transition duration-200 group-hover:scale-[1.06]" />
+                  <span className={cn("relative flex h-[42px] w-[48px] shrink-0 items-center justify-center rounded border border-white/[0.07] bg-[#3a3a3d]",fullscreen && "h-20 w-20")}>
+                    <PartIcon kind={component.kind} className={cn("h-[36px] w-[42px] transition duration-200 group-hover:scale-[1.06]",fullscreen && "h-16 w-16")} />
                     <span
                       className="absolute bottom-0 left-0 right-0 h-[2px] opacity-50"
                       style={{ background: `linear-gradient(90deg, transparent, ${accent}, transparent)` }}
@@ -210,7 +230,7 @@ export function LibraryPanel({ onAdd, onImportModel, onLoadLayout, activeLayoutI
                 </button>
               );
             })}
-            {filtered.length === 0 && (
+            {filtered.length === 0 && imported.length === 0 && (
               <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
                 <Search size={20} className="text-white/20" />
                 <p className="text-[11px] text-white/45">{t("No components found")}</p>

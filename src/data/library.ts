@@ -29,7 +29,7 @@ export const COMPONENTS: ComponentDef[] = [
       { label: "Payload", value: "12 kg" },
       { label: "Reach", value: "2.3 m" },
     ],
-    defaults: { payload: 12, speed: 70, gripper: "vacuum" },
+    defaults: { payload: 12, speed: 70, gripper: "vacuum", outputMode: "operation-end" },
   },
   {
     kind: "cobot",
@@ -41,7 +41,7 @@ export const COMPONENTS: ComponentDef[] = [
       { label: "Payload", value: "5 kg" },
       { label: "Reach", value: "1.6 m" },
     ],
-    defaults: { payload: 5, speed: 60, gripper: "parallel" },
+    defaults: { payload: 5, speed: 60, gripper: "parallel", outputMode: "operation-end" },
   },
   {
     kind: "feeder",
@@ -67,7 +67,7 @@ export const COMPONENTS: ComponentDef[] = [
       { label: "Width", value: "0.62 m" },
       { label: "Speed", value: "0.6 m/s" },
     ],
-    defaults: { speed: 0.6, active: true, stopper: false },
+    defaults: { speed: 0.6, width: 0.62, active: true, stopper: false },
   },
   {
     kind: "roller",
@@ -79,7 +79,7 @@ export const COMPONENTS: ComponentDef[] = [
       { label: "Width", value: "0.62 m" },
       { label: "Speed", value: "0.8 m/s" },
     ],
-    defaults: { speed: 0.8, active: true, stopper: false },
+    defaults: { speed: 0.8, width: 0.62, active: true, stopper: false },
   },
   {
     kind: "cnc",
@@ -176,7 +176,7 @@ export const COMPONENTS: ComponentDef[] = [
       { label: "Size", value: "1.2 x 0.8" },
       { label: "Slots", value: "24" },
     ],
-    defaults: { cols: 3, rows: 2, layers: 4, gap: 0.04, product: "carton" },
+    defaults: { cols: 3, rows: 2, layers: 4, gap: 0.04, product: "carton", retainFull: false },
   },
   {
     kind: "fence",
@@ -231,14 +231,14 @@ export const COMPONENTS: ComponentDef[] = [
     description: "Orange heavy-payload articulated robot for demanding cells.",
     badge: "KUKA", accent: "#F07B30",
     specs: [{ label: "Payload", value: "16 kg" }, { label: "Reach", value: "2.4 m" }],
-    defaults: { payload: 16, speed: 78, gripper: "parallel", brand: "KUKA" },
+    defaults: { payload: 16, speed: 78, gripper: "parallel", brand: "KUKA", outputMode: "operation-end" },
   },
   {
     kind: "fanuc", name: "FANUC Industrial Robot", category: "Robots",
     description: "Yellow high-speed robot for tending, assembly and palletizing.",
     badge: "FANUC", accent: "#F2C230",
     specs: [{ label: "Payload", value: "12 kg" }, { label: "Reach", value: "2.2 m" }],
-    defaults: { payload: 12, speed: 80, gripper: "vacuum", brand: "FANUC" },
+    defaults: { payload: 12, speed: 80, gripper: "vacuum", brand: "FANUC", outputMode: "operation-end" },
   },
   {
     kind: "mobile-robot", name: "Mobile Manipulator", category: "Robots",
@@ -259,7 +259,7 @@ export const COMPONENTS: ComponentDef[] = [
     description: "Manual, toggle or timed control that emits a signal over a wire.",
     accent: "#DE5C52",
     specs: [{ label: "Signal", value: "Boolean" }, { label: "Mode", value: "Toggle" }],
-    defaults: { mode: "toggle", signal: false, connectedTo: "", address: "DI-01" },
+    defaults: { signal: false, activeDuration: 0, connectedTo: "", address: "DI-01" },
   },
   {
     kind: "laser", name: "Laser Trigger", category: "Automation",

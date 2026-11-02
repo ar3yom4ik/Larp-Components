@@ -3,7 +3,7 @@ import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedModelData, ModelUnits } from "../types";
-import { extension, getCachedModel, materialsOf, TEXTURE_SLOTS } from "../utils/modelImport";
+import { extension, getCachedModel, materialsOf, removeModelMeshes, TEXTURE_SLOTS } from "../utils/modelImport";
 import { buildImportedCollision, importedCollision, registerImportedCollision } from "../utils/modelCollision";
 
 type Pbr = THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
@@ -63,11 +63,11 @@ function makePbr(src: THREE.Material): Pbr {
   return out;
 }
 
-function cloneModel(root: THREE.Object3D, clips: THREE.AnimationClip[]) {
+function cloneModel(root: THREE.Object3D, clips: THREE.AnimationClip[], hidden: readonly number[] = []) {
   const originalMaterials = materialsOf(root);
   const pbrMaterials = originalMaterials.map(makePbr);
   const lookup = new Map(originalMaterials.map((material, index) => [material, pbrMaterials[index]]));
-  const object = cloneSkeleton(root);
+  const object = removeModelMeshes(cloneSkeleton(root), hidden);
   object.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
     node.castShadow = true; node.receiveShadow = true;
@@ -98,11 +98,11 @@ export function useImportedModelInstance(model: ImportedModelData) {
         const collision = buildImportedCollision(root);
         if (collision) registerImportedCollision(asset, collision);
       }
-      instance = cloneModel(root, clips); setLoaded(instance); gl.shadowMap.needsUpdate = true; invalidate();
+      instance = cloneModel(root, clips, model.hiddenMeshes); setLoaded(instance); gl.shadowMap.needsUpdate = true; invalidate();
     }).catch((cause: unknown) => { if (alive) { setError(cause instanceof Error ? cause.message : String(cause)); invalidate(); } });
     const cache = overrideMaps.current;
     return () => { alive = false; if (instance) instance.pbrMaterials.forEach((m) => m.dispose()); cache.forEach((v) => v.texture.dispose()); cache.clear(); };
-  }, [asset, gl, invalidate]);
+  }, [asset, gl, invalidate, JSON.stringify(model.hiddenMeshes ?? [])]);
 
   useEffect(() => {
     if (!loaded) return;

@@ -331,6 +331,8 @@ export async function loadModelAsset(asset: ModelAsset, options: {allowAnimation
   }
 }
 
+export {modelMeshList, removeModelMeshes, modelSubset} from "./modelSubset";
+
 export function describeImportedModel(asset: ModelAsset, root: THREE.Object3D, clips: THREE.AnimationClip[] = []): ImportedModelData {
   let meshCount = 0, triangleCount = 0, rigged = false;
   root.traverse((node) => { if (node instanceof THREE.SkinnedMesh) rigged = true; if (node instanceof THREE.Mesh && node.geometry?.getAttribute("position")) { meshCount++; triangleCount += Math.floor((node.geometry.index?.count ?? node.geometry.getAttribute("position").count) / 3); } });

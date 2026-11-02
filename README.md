@@ -36,6 +36,9 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run test:startup-browser` | Playwright startup, blocked-module and error-recovery checks against the development server. |
 | `npm run test:factory-browser` | Playwright checks for graph selection, groups, tooltips, wiring, insertion and merge building. |
 | `npm run test:factory-standalone` | Checks the production preview, offline graph editing and iframe loading. |
+| `npm run test:catalog-browser` | Browser checks for catalog import, shared edits, submodels, drag and loading placeholder. |
+| `npm run test:camera-browser` | Browser checks for graphics-setting and GI-room camera restoration. |
+| `npm run test:sensor-browser` | Browser checks that mounted sensors, wires and radius follow a moving belt. |
 | `npm run test:archive-browser` | Playwright `.LCMX` import/export and save/autosave checks. |
 | `npm run test:browser` | Four core Playwright UI suites against a running development server on port 4173. |
 | `npm run test:typescript-parity` | Compare selected simulation state against a Git baseline (see `docs/TYPESCRIPT_OPTIMIZATION.md`). |
@@ -58,13 +61,15 @@ Select an object and use **Move** or **Rotate** for X/Y/Z gizmos. To make a slop
 
 Every component has **Properties → Physics → Kinematic/Dynamic** and **Weight (kg)**. Choose a mode for legacy components. Kinematic equipment stays at its edited pose (task-driven workers still walk); dynamic objects fall, collide and keep their usual simulated function. Reset returns them to the authored layout. Tilted equipment uses oriented support faces, fast bodies and products receive swept collision checks, and workers can route between connected floors. Imported geometry uses mesh-derived compound colliders; complex contacts are still approximate. See the [user guide](docs/USER_GUIDE.md#physics-and-upper-floors).
 
-To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Its saved workpiece definition and embedded asset remain available even if the source scene object is deleted.
+To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Its saved workpiece definition and embedded asset remain available even if the source scene object is deleted. The catalog shows cached thumbnails and supports fullscreen and drag-to-scene. Editing the base model's units, materials, mass or collider affects its instances; **Submodels** removes or restores meshes across them. Poly Haven imports directly; Sloyd, Poly Pizza and Thingiverse open their own sites for manual download, subject to each model's licence.
 
 ### Signal-controlled feeders and robots
 
 1. Turn on **Edit signal connections** in the viewport. Drag a sensor, button, laser, PLC or robot **OUT** to a feeder or robot **IN** (or click the ports). Drag a connected IN away to disconnect, or onto another IN to reroute. For a shared IN, select the source OUT first. Additional sources and destinations, individual wire colours, glow, undo and project persistence are supported.
 2. A connected, active feeder produces one part per rising signal, waiting for its interval, a clear output and any required supply. Unconnected feeders run automatically; a held signal does not repeatedly produce parts.
-3. A connected robot visual program queues one activation per pick. Set **Robot output** to **Moving or holding** or **Pulse on operation end** (a pulse after a successful place). JavaScript programs explicitly consume input with `await robot.waitForSignal()`.
+3. A connected conveyor follows its sources; buttons can toggle or generate a timed pulse. Attach a low laser or proximity sensor to a conveyor for pickup detection. A connected robot visual program queues one activation per pick. Set **Robot output** to **Moving or holding** or **Pulse on operation end** (a pulse after a successful place). JavaScript programs explicitly consume input with `await robot.waitForSignal()`.
+
+Conveyor properties expose type, width and signed speed. Select accurate compound or fast box collision beside Physics. Full pallets can wait for a manual clear/replacement. Right-click the viewport for context actions; the GI benchmark is available under interface settings without resetting the factory camera.
 
 Dialog and floating window sizes can be changed by dragging their resize grip (with a mouse or touch), or by focusing it and using the arrow keys. Settings remembers its size and position; use **Settings → Interface → Settings window** to reset them. On phones, drag the top edge of a sheet to resize it.
 

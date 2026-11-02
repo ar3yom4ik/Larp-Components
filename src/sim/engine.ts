@@ -5,9 +5,11 @@ import { distanceToSegment, navigate, navigateLayers, pointIsFree, projectToFree
 import { SpatialHash } from "./spatial";
 import { isLogicSource, isSignalSource, signalTargets } from "../utils/signalPorts";
 import { itemLocalToWorld, rotateVector, rotationMatrix, unrotateVector } from "../utils/transform";
-import { RigidBodyWorld } from "./rigidBodies";
+import { RigidBodyWorld, makeBeamBlocker } from "./rigidBodies";
 import type { SweepStart } from "./continuous";
 import { upperFloorDimensions } from "../utils/upperFloor";
+import { conveyorWidth } from "../utils/conveyor";
+import { resolveMountedSensors } from "../utils/sensorMount";
 import { importedCollision, importedCollisionBoxes } from "../utils/modelCollision";
 import type { ImportedCollision } from "../types";
 
@@ -18,7 +20,6 @@ import type { ImportedCollision } from "../types";
 export type V3 = [number, number, number];
 export const DT = 1 / 60;
 const G = 9.81;
-export const MAX_BOXES = 180;
 export const BELT_TOP = 0.66;
 export const BELT_HALF = 0.31;
 export const PALLET_TOP = 0.15;
@@ -157,6 +158,7 @@ export class ConveyorRT {
     this.speed = num(item.props.speed, 0.6);
     this.active = item.props.active !== false;
     this.stopper = item.props.stopper === true;
+    this.half = conveyorWidth(item) / 2;
     const local = (item.points && item.points.length >= 2 ? item.points : [[-2, 0], [2, 0]]) as P2[];
     const path = samplePath(local, 0.1, item.pointHeights);
     const matrix = rotationMatrix(item.rotationX ?? 0, item.rotation, item.rotationZ ?? 0);
@@ -177,10 +179,11 @@ export class ConveyorRT {
       const horizontal = Math.hypot(dx, dz) || 1;
       this.tx.push(dx / horizontal); this.tz.push(dz / horizontal);
     }
-    this.minX = Math.min(...this.x) - 0.6;
-    this.maxX = Math.max(...this.x) + 0.6;
-    this.minZ = Math.min(...this.z) - 0.6;
-    this.maxZ = Math.max(...this.z) + 0.6;
+    const boundsPad = this.half + 0.3;
+    this.minX = Math.min(...this.x) - boundsPad;
+    this.maxX = Math.max(...this.x) + boundsPad;
+    this.minZ = Math.min(...this.z) - boundsPad;
+    this.maxZ = Math.max(...this.z) + boundsPad;
     // A 20 m belt is sampled into two hundred segments; looking up the few segments
     // under a product instead of all of them keeps `findSupport` cheap.
     const cell = 1;
@@ -331,6 +334,7 @@ export class PalletRT {
   layers: number;
   cursor = 0;
   shipped = 0;
+  retainFull: boolean;
   productId: string;
   gap: number;
   width: number;
@@ -352,6 +356,7 @@ export class PalletRT {
     this.rows = Math.max(1, Math.round(num(item.props.rows, 2)));
     this.layers = Math.max(1, Math.round(num(item.props.layers, 4)));
     this.productId = String(item.props.product || "carton");
+    this.retainFull = item.props.retainFull === true;
     this.gap = num(item.props.gap, 0.04);
     [this.width, this.depth] = palletSize(item.props, products).map((v) => v * this.scale) as [number, number];
     if (prev) {
@@ -493,13 +498,7 @@ interface Job {
   resolve: (value: unknown) => void;
 }
 
-export interface RobotKinematics {
-  reach(local: V3, spec: RobotSpec): boolean;
-  solve(local: V3, spec: RobotSpec): { waist: number; shoulder: number; elbow: number; wrist: number };
-}
-
 export class RobotRT {
-  kinematics: RobotKinematics | null = null;
   id: number;
   itemId: string;
   name: string;
@@ -535,7 +534,7 @@ export class RobotRT {
   program?: RobotProgram;
   gripper: GripperKind = "vacuum";
   payload = 12;
-  outputMode: "moving" | "operation-end" = "moving";
+  outputMode: "moving" | "operation-end" = "operation-end";
   outputPulse = 0;
 
   constructor(id: number, item: SceneItem) {
@@ -566,7 +565,7 @@ export class RobotRT {
     this.gripper = (item.props.gripper as GripperKind) || "vacuum";
     this.payload = num(item.props.payload, 12);
     this.program = item.program;
-    const outputMode = item.props.outputMode === "operation-end" ? "operation-end" : "moving";
+    const outputMode = item.props.outputMode === "moving" ? "moving" : "operation-end";
     if (outputMode !== this.outputMode) this.outputPulse = 0;
     this.outputMode = outputMode;
     this.vmax = (0.5 + 2.2 * (num(item.props.speed, 70) / 100)) * (this.kind === "cobot" ? 0.7 : 1);
@@ -587,7 +586,6 @@ export class RobotRT {
 
   reach(p: V3): boolean {
     const [lx, ly, lz] = this.toLocal(p);
-    if (this.kinematics) return this.kinematics.reach([lx, ly, lz], this.spec);
     const r = Math.hypot(lx, lz);
     const { shoulder, L1, L2, Lw } = this.spec;
     const dy = ly + Lw - shoulder;
@@ -597,10 +595,6 @@ export class RobotRT {
 
   solve() {
     const [lx, ly, lz] = this.toLocal(this.tip);
-    if (this.kinematics) {
-      Object.assign(this.joints, this.kinematics.solve([lx, ly, lz], this.spec));
-      return;
-    }
     const { shoulder, L1, L2, Lw } = this.spec;
     const r = Math.hypot(lx, lz);
     const wy = ly + Lw - shoulder;
@@ -761,34 +755,6 @@ export function guardLoops(src: string): string {
 
 type Listener = () => void;
 
-/** Experimental injection point for side-by-side backend testing. */
-export interface FeederStepper {
-  step(feeders: Iterable<FeederRT>, boxes: readonly Box[], dt: number, spawn: (feeder: FeederRT) => void, maxBoxes: number): void;
-}
-
-/** Experimental machine clock; product transitions remain host-owned. */
-export interface MachineClock {
-  advance(machine: MachineRT, dt: number): void;
-}
-
-export interface MachineStepper {
-  step(machine: MachineRT, candidates: readonly Box[], dt: number): {action: number; first: Box | null; consumed: Box[]};
-}
-
-export interface LogicStepper {
-  step(items: readonly SceneItem[], boxes: readonly Box[], triggers: ReadonlyMap<string, SceneItem[]>, signals: Map<string, boolean>): void;
-}
-
-export interface ProductSupport {
-  top: number; kind: number; conveyor: boolean; lat: number; tx: number; tz: number;
-  along: number; speed: number; blocked: boolean; stopper: boolean; length: number;
-}
-export interface ProductIntegrator { integrate(box: Box, support: ProductSupport, dt: number): boolean }
-
-export interface Navigator {
-  navigate(start: P2, end: P2, barriers: Barrier[], obstacles: WalkObstacle[]): P2[];
-}
-
 interface MergeRoute {
   source: ConveyorRT;
   target: ConveyorRT;
@@ -805,19 +771,6 @@ interface MergeGroup {
 }
 
 export class Engine {
-  private _robotKinematics: RobotKinematics | null = null;
-  get robotKinematics() { return this._robotKinematics; }
-  set robotKinematics(value: RobotKinematics | null) {
-    this._robotKinematics = value;
-    this.robots.forEach((robot) => { robot.kinematics = value; });
-  }
-  productIntegrator: ProductIntegrator | null = null;
-  navigator: Navigator | null = null;
-  logicStepper: LogicStepper | null = null;
-  machineStepper: MachineStepper | null = null;
-  machineClock: MachineClock | null = null;
-  /** Null uses the original TypeScript feeder implementation. */
-  feederStepper: FeederStepper | null = null;
   items: SceneItem[] = [];
   /** Authored poses stay separate from transient simulation poses and reset cleanly. */
   private authoredItems: SceneItem[] = [];
@@ -848,6 +801,8 @@ export class Engine {
   humans = new Map<string, HumanRT>();
   collectors = new Map<string, { count: number; capacity: number }>();
   signalState = new Map<string, boolean>();
+  /** Timed manual buttons expire in simulation time, not browser wall time. */
+  private buttonUntil = new Map<string, number>();
   /** Per-source rising-edge counters also let the renderer see short pulses
    * that begin and end between two rendered frames. */
   signalActivations = new Map<string, number>();
@@ -887,6 +842,7 @@ export class Engine {
   lastStepMs = 0;
   private itemById = new Map<string, SceneItem>();
   private logicItems: SceneItem[] = [];
+  private beamBlockers: {id:string; test:(a:V3,b:V3)=>boolean}[] = [];
   private triggers = new Map<string, SceneItem[]>();
   private walkSources: SceneItem[] = [];
   private cratesItem: SceneItem | undefined;
@@ -944,8 +900,10 @@ export class Engine {
       const pose = this.rigidBodies.pose(item.id);
       return pose ? { ...item, ...pose } : item;
     });
+    items = resolveMountedSensors(items);
     const previousItems = this.itemById;
     const previousSignals = this.signalState;
+    const previousTriggers = this.triggers;
     this.items = items;
     // Authored edits invalidate routes immediately. Physics refreshes update
     // the spatial indices, but need not rerun every worker's A* every fourth
@@ -1031,7 +989,6 @@ export class Engine {
               rt.tip = rt.homeTip();
             }
           }
-          rt.kinematics = this._robotKinematics;
           robots.set(item.id, rt);
           break;
         }
@@ -1132,6 +1089,7 @@ export class Engine {
     }
     const currentIds = new Set(items.map((item) => item.id));
     for (const id of this.signalActivations.keys()) if (!currentIds.has(id)) this.signalActivations.delete(id);
+    for (const id of this.buttonUntil.keys()) if (!currentIds.has(id)) this.buttonUntil.delete(id);
     this.humans = humans;
     for (const id of this.collectors.keys()) if (!items.some((i) => i.id === id)) this.collectors.delete(id);
     this.barriers = barriers;
@@ -1157,6 +1115,9 @@ export class Engine {
     // of one another. Also performed after reset, which restores the origins.
     this.placeHumansSafely();
     this.rebuildIndices(conveyors, rects, barriers);
+    // Returning to an unconnected belt restores its authored manual setting.
+    for (const [id, belt] of conveyors) if (!this.triggers.has(id) && previousTriggers.has(id)) belt.active = this.itemById.get(id)?.props.active !== false;
+    this.updateConveyorSignals();
     this.syncFeederSignals();
     this.syncRobotSignals();
     if (this.running) this.startPrograms();
@@ -1179,12 +1140,13 @@ export class Engine {
       // rather than unexpectedly reverting to automatic production.
       for (const target of signalTargets(item)) {
         const targetKind = this.itemById.get(target)?.kind;
-        if (item.visible === false && targetKind !== "feeder" && !["robot", "cobot", "kuka", "fanuc"].includes(targetKind ?? "")) continue;
+        if (item.visible === false && targetKind !== "feeder" && !["robot", "cobot", "kuka", "fanuc", "conveyor", "roller"].includes(targetKind ?? "")) continue;
         const list = triggers.get(target);
         if (list) list.push(item); else triggers.set(target, [item]);
       }
     }
     this.logicItems = logic;
+    this.beamBlockers = logic.some(item => item.kind === "laser") ? this.items.filter(item => item.visible !== false && !(item.imported?.materials.length && item.imported.materials.every(material => material.opacity < .95))).map(item => ({id:item.id,test:makeBeamBlocker(item,this.items)})) : [];
     this.triggers = triggers;
     this.rebuildMergeRoutes(conveyors);
     this.rebuildSharedBeltStations(conveyors);
@@ -1318,7 +1280,7 @@ export class Engine {
 
   /** Extra virtual stop line for the unselected heads and for main-line parts
    * approaching a reserved side entry. Uses the existing conveyor stopper in
-   * both TypeScript and the optional Rust product integrator. */
+   * the simulation integrator. */
   private mergeStopLength(box: Box, conveyor: ConveyorRT, q: Query): number | null {
     const route = this.mergeRoutes.get(conveyor.id);
     if (route && route.group.reservation?.box !== box) return Math.max(0, route.handoff - 0.18);
@@ -1544,6 +1506,24 @@ export class Engine {
     this.speed = next;
   }
 
+  /** Remove a loaded pallet's contents and make its slots available again. */
+  replacePallet(id: string) {
+    const pallet = this.pallets.get(id);
+    if (!pallet) return false;
+    for (const box of this.boxes) if (box.palletId === id && box.state === "free") { box.state = "dying"; box.fade = 1; }
+    if (pallet.cursor > 0) { pallet.shipped += 1; this.stats.pallets += 1; }
+    pallet.cursor = 0;
+    this.log(`${pallet.name}: pallet replaced`, "ok");
+    return true;
+  }
+
+  private markPalletPlacement(box: Box, pallet: PalletRT) {
+    if (box.palletId === pallet.id) return;
+    box.palletId = pallet.id;
+    this.stats.placed += 1; this.stats.events.push(this.time);
+    if (this.stats.events.length > 4096) this.stats.events = this.stats.events.filter((time) => time > this.time - 90);
+  }
+
   reset() {
     this.rigidBodies.reset(this.authoredItems);
     this.rigidTick = 0;
@@ -1570,6 +1550,7 @@ export class Engine {
     });
     this.feeders.forEach((feeder) => { feeder.timer = 0.6; feeder.supply = 20; });
     this.collectors.forEach((collector) => { collector.count = 0; });
+    this.buttonUntil.clear();
     this.signalState = new Map(this.items.filter(isSignalSource).map((i) => [i.id, i.visible !== false && i.props.signal === true]));
     for (const [id, value] of this.signalState) if (value) this.noteSignalActivation(id);
     this.feederSignals.clear();
@@ -1582,6 +1563,7 @@ export class Engine {
       const item = this.items.find((i) => i.id === conv.id);
       conv.speed = num(item?.props.speed, 0.6); conv.active = item?.props.active !== false;
     });
+    this.updateConveyorSignals();
     this.humans.forEach((human) => { human.x = human.origin[0]; human.y = human.baseY; human.z = human.origin[1]; human.completed = 0; human.stage = 0; human.dwell = 0; human.route = []; human.targetKey = ""; human.stuck = 0; human.walking = false; human.held = null; });
     this.placeHumansSafely();
     this.robots.forEach((robot) => {
@@ -1742,6 +1724,7 @@ export class Engine {
           },
           nextSlot: () => {
             const pallet = get();
+            if (pallet.cursor >= pallet.capacity) throw new Error(`Pallet ${pallet.name} is full. Await swap() before requesting another slot.`);
             const index = pallet.cursor++;
             const productId = robot.held?.productId;
             return { get x() { return get().slot(index, productId).x; }, get y() { return get().slot(index, productId).y; }, get z() { return get().slot(index, productId).z; }, get yaw() { return get().yaw; } };
@@ -1753,19 +1736,15 @@ export class Engine {
               : new Promise<boolean>((resolve) => {
                   const pallet = get();
                   this.log(`${pallet.name} full - waiting for pick-up`, "info");
-                  after(1.8, () => {
-                    this.boxes.forEach((box) => {
-                      if (box.palletId === pallet.id && box.state === "free") {
-                        box.state = "dying";
-                        box.fade = 1;
-                      }
-                    });
-                    const current = get();
-                    current.cursor = 0;
-                    current.shipped += 1;
-                    this.stats.pallets += 1;
-                    this.log(`${pallet.name} shipped (${pallet.capacity} boxes)`, "ok");
-                    resolve(true);
+                  if (pallet.retainFull) {
+                    robot.error = "Pallet full: replace or clear it to continue.";
+                    this.conds.push({pred: () => !this.pallets.has(id) || get().cursor < get().capacity, fn: () => {robot.error = null; resolve(true);}, owner: robot, runId: myRun});
+                  } else after(1.8, () => {
+                    const current = this.pallets.get(id);
+                    if (current && current.cursor >= current.capacity && !current.retainFull) this.replacePallet(id);
+                    if (current?.retainFull && current.cursor >= current.capacity) {
+                      this.conds.push({pred: () => !this.pallets.has(id) || get().cursor < get().capacity, fn: () => resolve(true), owner: robot, runId: myRun});
+                    } else resolve(true);
                   });
                 }),
         };
@@ -1914,23 +1893,6 @@ export class Engine {
   }
 
   private updateMachine(machine: MachineRT, dt: number) {
-    if (this.machineStepper) {
-      const t = machine.table();
-      const candidates = machine.busy ? [] : machine.kind === "assembly" ? this.boxes : this.boxIndex.query(t.x, t.z, this.grabScratch, 0.45);
-      const {action, first, consumed} = this.machineStepper.step(machine, candidates, dt);
-      if ((action === 1 || action === 2) && first) {
-        if (action === 2) {
-          consumed.forEach((p) => { p.state = "dying"; p.fade = 1; });
-          first.y = t.y + first.hy; first.x = t.x; first.z = t.z; first.assembly = true;
-        }
-        if (machine.busy) { machine.part = first; first.state = "inside"; first.claim = 0; }
-      } else if ((action === 3 || action === 4) && machine.part) {
-        const box = machine.part;
-        box.x = t.x; box.z = t.z;
-        if (action === 4) { this.finishMachineProduct(machine, box); machine.part = null; }
-      }
-      return;
-    }
     if (!machine.busy) {
       if (machine.kind === "assembly") {
         const t = machine.table();
@@ -1946,11 +1908,8 @@ export class Engine {
       if (box && box.claim === 0 && box.lastMachine !== machine.id) this.process(machine, box);
       return;
     }
-    if (this.machineClock) this.machineClock.advance(machine, dt);
-    else {
-      machine.busyTime += dt; machine.remaining -= dt;
-      machine.progress = Math.min(1, 1 - machine.remaining / machine.cycle);
-    }
+    machine.busyTime += dt; machine.remaining -= dt;
+    machine.progress = Math.min(1, 1 - machine.remaining / machine.cycle);
     const box = machine.part;
     if (!box) { machine.busy = false; return; }
     const table = machine.table();
@@ -1992,6 +1951,10 @@ export class Engine {
     do {
       let box: Box | null = null;
       yield this.waiter(() => {
+        const targetPallet = this.pallets.get(config.targetId);
+        if (targetPallet && targetPallet.cursor >= targetPallet.capacity) {
+          robot.error = "Pallet full: replace or clear it to continue."; return false;
+        }
         const zone = source();
         if (!zone) { robot.error = "Choose a source in the visual program"; return false; }
         const found = this.findPart(robot, zone, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined);
@@ -2024,7 +1987,7 @@ export class Engine {
             yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId)) return false; extra = this.findPart(robot, z, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true); extra.claim = robot.id; } return !!extra; });
             if (!extra || !(yield* this.pickGen(robot, extra))) break;
           }
-          if (!(yield* this.placeGen(robot, live))) break;
+          if (!(yield* this.placeGen(robot, live, false))) break;
         }
         if (config.mode === "assemble") {
           yield this.waiter(() => { const current = this.machines.get(machine.id); return !!current && !current.busy && !!this.machinePart(current)?.processed; });
@@ -2048,6 +2011,10 @@ export class Engine {
         get yaw() { return destination()?.yaw ?? 0; },
       };
       yield this.waiter(() => {
+        const targetPallet = this.pallets.get(config.targetId);
+        if (targetPallet && targetPallet.cursor >= targetPallet.capacity) {
+          robot.error = "Pallet full: replace or clear it to continue."; return false;
+        }
         const pos = destination();
         const reachable = !!pos && robot.reach([pos.x, pos.y + (robot.held?.hy ?? 0.13) * 2, pos.z]);
         robot.error = reachable ? null : "Destination is outside robot reach. Move it closer to continue.";
@@ -2056,17 +2023,16 @@ export class Engine {
         const footprint = { x: dest.x, z: dest.z, hx: robot.held?.hx ?? 0.17, hz: robot.held?.hz ?? 0.17, yaw: dest.yaw };
         return !this.boxes.some((b) => b !== robot.held && b.state === "free" && Math.abs(b.y - (dest.y + halfHeight)) < b.hy + halfHeight - 0.012 && !!contactXZ(b, footprint));
       });
+      const placed = robot.held;
       const success = yield* this.placeGen(robot, dest);
       const pallet = this.pallets.get(config.targetId);
       if (success && pallet) {
+        if (placed) this.markPalletPlacement(placed, pallet);
         pallet.cursor += 1;
-        if (pallet.cursor >= pallet.capacity) {
+        if (pallet.cursor >= pallet.capacity && !pallet.retainFull) {
           yield* this.waitGen(1.8);
           const current = this.pallets.get(pallet.id);
-          this.boxes.forEach((b) => { if (b.palletId === pallet.id && b.state === "free") { b.state = "dying"; b.fade = 1; } });
-          if (current) { current.shipped += 1; current.cursor = 0; }
-          this.stats.pallets += 1;
-          this.log(`${pallet.name}: pallet shipped`, "ok");
+          if (current && current.cursor >= current.capacity && !current.retainFull) this.replacePallet(pallet.id);
         }
       }
       if (config.delay > 0) yield* this.waitGen(config.delay);
@@ -2106,7 +2072,7 @@ export class Engine {
     if (human.targetKey !== key) {
       human.targetKey = key;
       const dynamic: WalkObstacle[] = stuck ? others.map((other) => ({ x: other.x, z: other.z, radius: 0.6 })) : [];
-      human.route = (this.navigator?.navigate ?? navigate)([human.x, human.z], target, this.walkBarriers, dynamic.length ? [...this.walkObstacles, ...dynamic] : this.walkObstacles);
+      human.route = navigate([human.x, human.z], target, this.walkBarriers, dynamic.length ? [...this.walkObstacles, ...dynamic] : this.walkObstacles);
     }
     const p = human.route[0];
     if (!p) {
@@ -2492,6 +2458,7 @@ export class Engine {
     b.vx = b.vy = b.vz = 0; b.tilt = 0;
     const pallet = this.pallets.get(dest.id);
     const out = this.conveyors.get(dest.id);
+    if (pallet && pallet.cursor >= pallet.capacity) { human.walking = false; human.status = "pallet full"; return; }
     const target = pallet ? pallet.slot(pallet.cursor, b.productId) : out ? out.pointAt(0.5) : this.machines.get(dest.id)?.table();
     if (!target) return;
     if (this.walkHuman(human, target.x, target.z + 0.45, speed * 0.8, dt, out ? this.beltAccessHeight(dest,target.y) : dest.position[1])) {
@@ -2499,13 +2466,13 @@ export class Engine {
       b.state = "free"; b.claim = 0; b.support = 0;
       human.held = null; human.completed += 1;
       if (pallet) {
+        this.markPalletPlacement(b, pallet);
         pallet.cursor += 1;
-        if (pallet.cursor >= pallet.capacity) {
+        if (pallet.cursor >= pallet.capacity && !pallet.retainFull) {
           this.timers.push({ at: this.time + 1.8, owner: null, runId: 0, fn: () => {
             const current = this.pallets.get(pallet.id);
-            if (!current || current.cursor < current.capacity) return;
-            this.boxes.forEach((b) => { if (b.palletId === current.id && b.state === "free") { b.state = "dying"; b.fade = 1; } });
-            current.cursor = 0; current.shipped += 1; this.stats.pallets += 1;
+            if (!current || current.cursor < current.capacity || current.retainFull) return;
+            this.replacePallet(current.id);
           } });
         }
       }
@@ -2737,6 +2704,7 @@ export class Engine {
   private *placeGen(
     robot: RobotRT,
     slot: { x: number; y: number; z: number; yaw?: number },
+    emitOutput = true,
   ): Generator<Cmd, boolean, unknown> {
     const box = robot.held;
     if (!box) {
@@ -2761,7 +2729,7 @@ export class Engine {
     const up = this.approach(robot, robot.tip, robot.program?.clearance ?? 0.35);
     yield this.servo(robot, () => up, 0.02, 0.8);
     robot.cycles += 1;
-    if (robot.outputMode === "operation-end") robot.outputPulse = 0.1;
+    if (emitOutput && robot.outputMode === "operation-end") robot.outputPulse = 0.1;
     robot.lastCycle = this.time - robot.lastCycleAt;
     robot.lastCycleAt = this.time;
     return true;
@@ -2864,6 +2832,10 @@ export class Engine {
   private sub(dt: number) {
     this.time += dt;
     this.guard = 0;
+    for (const [id, until] of this.buttonUntil) if (this.time + 1e-9 >= until) {
+      this.buttonUntil.delete(id);
+      this.setButton(id, false);
+    }
     // One fresh copy of the moving products per substep: every consumer below
     // (pickers, workers, physics) then queries cells instead of scanning the list.
     this.boxIndex.clear();
@@ -2905,16 +2877,9 @@ export class Engine {
       this.condBuffer = current;
     }
 
-    const spawnFromFeeder = (feeder: FeederRT) => this.spawn(feeder.productId, feeder.x, feeder.y ?? 1.12, feeder.z, feeder.yaw);
-    const standardFeederHeights = this.feederStepper && this.feederSignals.size === 0 && [...this.feeders.values()].every((feeder) => Math.abs((feeder.y ?? 1.12) - 1.12) < 1e-8);
-    if (this.feederStepper && standardFeederHeights) {
-      this.feederStepper.step(this.feeders.values(), this.boxes, dt, spawnFromFeeder, MAX_BOXES);
-    } else this.feeders.forEach((feeder) => {
+    this.feeders.forEach((feeder) => {
       const signals = this.feederSignals.get(feeder.id);
       if (signals) this.updateSignalFeeder(feeder, signals, dt);
-      // The experimental Rust batch has no signal mode. Use it only for the
-      // ordinary feeders, in scene order so overlapping feeders remain safe.
-      else if (this.feederStepper && Math.abs((feeder.y ?? 1.12) - 1.12) < 1e-8) this.feederStepper.step([feeder], this.boxes, dt, spawnFromFeeder, MAX_BOXES);
       else this.updateFeeder(feeder, dt);
     });
     this.captureRobotSignals();
@@ -2984,7 +2949,7 @@ export class Engine {
     const blocked = this.boxes.some(
       (box) => box.state !== "dead" && Math.hypot(box.x - feeder.x, box.z - feeder.z) < 0.5 && box.y > sy - 0.72 && box.y < sy + 0.4,
     );
-    if (blocked || this.boxes.length >= MAX_BOXES) return;
+    if (blocked) return;
     const remaining = (state.pending.get(sourceId) ?? 1) - 1;
     if (remaining) state.pending.set(sourceId, remaining); else state.pending.delete(sourceId);
     feeder.timer = feeder.interval;
@@ -3000,7 +2965,7 @@ export class Engine {
     const blocked = this.boxes.some(
       (box) => box.state !== "dead" && Math.hypot(box.x - feeder.x, box.z - feeder.z) < 0.5 && box.y > sy - 0.72 && box.y < sy + 0.4,
     );
-    if (blocked || this.boxes.length >= MAX_BOXES) {
+    if (blocked) {
       feeder.timer = 0.25;
       return;
     }
@@ -3090,45 +3055,55 @@ export class Engine {
   }
 
   setButton(id: string, on: boolean) {
-    const item = this.items.find((i) => i.id === id);
-    if (!item) return;
+    const item = this.itemById.get(id);
+    if (!item || item.kind !== "button") return;
+    if (!on) this.buttonUntil.delete(id);
     this.writeSignal(id, on);
+    this.updateConveyorSignals();
     this.log(`${item.name}: ${on ? "pressed" : "released"}`, "info");
   }
 
+  /** With duration zero, every click toggles. A positive duration makes a
+   * retriggerable pulse; expiration is paused together with the simulation. */
+  pressButton(id: string) {
+    const item = this.itemById.get(id);
+    if (!item || item.kind !== "button") return;
+    const duration = Math.max(0, num(item.props.activeDuration, 0));
+    if (duration > 0) {
+      this.setButton(id, true);
+      this.buttonUntil.set(id, this.time + duration);
+    } else this.setButton(id, this.signalState.get(id) !== true);
+  }
+
+  private updateConveyorSignals() {
+    for (const [id, conveyor] of this.conveyors) {
+      const sources = this.triggers.get(id);
+      if (sources?.length) conveyor.active = sources.some((source) => source.visible !== false && this.signalState.get(source.id) === true);
+    }
+  }
+
   private updateLogic() {
-    // The optional Rust logic kernel models ground-level detectors. Elevated
-    // or tilted detectors use the host path so they don't sense another floor.
-    const standardSensors = !this.logicStepper || this.logicItems.every((item) => {
-      if (item.kind !== "sensor" && item.kind !== "laser") return true;
-      if (item.position[1] !== 0 || item.rotationX || item.rotationZ || item.scale !== 1) return false;
-      // The legacy Rust proximity sensor is 2D. It is equivalent on one floor,
-      // but defer to the host if a nearby product is on a different level.
-      if (item.kind === "sensor") {
-        const radius = Math.max(0.2, num(item.props.radius, 0.8));
-        return !this.boxes.some((box) => box.state !== "dead" &&
-          Math.hypot(box.x - item.position[0], box.z - item.position[2]) <= radius &&
-          Math.abs(box.y + box.hy - 1) > Math.max(0.5, radius));
-      }
-      return true;
-    });
-    if (this.logicStepper && standardSensors) {
-      const before = new Map(this.logicItems.map((item) => [item.id, this.signalState.get(item.id) === true]));
-      this.logicStepper.step(this.logicItems, this.boxes, this.triggers, this.signalState);
-      for (const item of this.logicItems) if (this.signalState.get(item.id) === true && !before.get(item.id)) this.noteSignalActivation(item.id);
-    } else for (const item of this.logicItems) {
+    for (const item of this.logicItems) {
       let signal = item.kind === "button" ? this.signalState.get(item.id) === true : false;
       if (item.kind === "laser") {
-        const range = Math.max(0.5, num(item.props.range, 3)) / 2;
+        const range = Math.max(0.1, num(item.props.range, 3)) * item.scale / 2;
         const yaw = item.rotation * DEG, c = Math.cos(yaw), sn = Math.sin(yaw);
-        const a = [item.position[0] - range * c, item.position[2] + range * sn];
-        const b = [item.position[0] + range * c, item.position[2] - range * sn];
-        signal = this.boxes.some((box) => box.state !== "dead" && box.state !== "dying" && Math.abs(box.y + box.hy - (item.position[1] + item.scale)) < 0.5 * item.scale && distanceToSegment(box.x, box.z, a as P2, b as P2).distance < box.r + 0.06);
+        const a: P2 = [item.position[0] - range * c, item.position[2] + range * sn];
+        const b: P2 = [item.position[0] + range * c, item.position[2] - range * sn];
+        const beamY = item.position[1] + (item.props.mountedTo ? .1 : .85) * item.scale;
+        signal = this.boxes.some((box) => {
+          if (box.state === "dead" || box.state === "dying" || box.state === "inside") return false;
+          const source = importedProductSource(box.productId, this.items);
+          const transparent = source?.imported?.materials.length ? source.imported.materials.every(material => material.opacity < .95) : ["glass", "empty-bottle", "vial", "jar"].includes(box.productId);
+          return !transparent && Math.abs(box.y - beamY) <= box.hy + .02 && distanceToSegment(box.x, box.z, a, b).distance < box.r + .02;
+        });
+        if (!signal) signal = this.beamBlockers.some(blocker => blocker.id !== item.id && blocker.id !== item.props.mountedTo && blocker.test([a[0],beamY,a[1]],[b[0],beamY,b[1]]));
         if (item.props.normallyClosed === true) signal = !signal;
       } else if (item.kind === "sensor") {
         const radius = Math.max(0.2, num(item.props.radius, 0.8));
-        signal = this.boxes.some((box) => box.state !== "dead" && Math.hypot(box.x - item.position[0], box.z - item.position[2]) <= radius &&
-          Math.abs(box.y + box.hy - (item.position[1] + 1.0 * item.scale)) <= Math.max(0.5, radius));
+        const sensorY = item.position[1] + (item.props.mountedTo ? .1 : .85) * item.scale;
+        signal = this.boxes.some((box) => box.state !== "dead" && box.state !== "dying" && box.state !== "inside" && Math.hypot(box.x - item.position[0], box.z - item.position[2]) <= radius + box.r &&
+          Math.abs(box.y - sensorY) <= Math.max(0.5, radius) + box.hy);
       } else if (item.kind === "plc") {
         const sources = this.triggers.get(item.id);
         signal = (sources ? sources.some((i) => this.signalState.get(i.id) === true) : false) || item.props.signal === true;
@@ -3138,6 +3113,7 @@ export class Engine {
     // Keep robot output state current even while disconnected, so connecting an
     // idle robot never replays a stale signal from an earlier connection.
     for (const robot of this.robots.values()) this.writeSignal(robot.itemId, robot.outputMode === "operation-end" ? robot.outputPulse > 0 : robot.status === "moving" || !!robot.held);
+    this.updateConveyorSignals();
   }
 
   private triggerGate(robotId: string, sourceId: string, consume = false) {
@@ -3164,7 +3140,9 @@ export class Engine {
   /** Workpiece-local compound shapes, fitted to the dimensions at spawn time. */
   private importedProductParts(part: Box): ImportedCollision["boxes"] | null {
     if (!part.productId.startsWith("imported:")) return null;
-    const model = importedProductSource(part.productId, this.items)?.imported;
+    const source = importedProductSource(part.productId, this.items);
+    if (source?.props.collisionShape === "box") return null;
+    const model = source?.imported;
     const geometry = model && importedCollision(model);
     if (!model || !geometry) return null;
     const dimensions = `${part.hx},${part.hy},${part.hz}`;
@@ -3413,7 +3391,7 @@ export class Engine {
     }
     groups.clear();
     if (grouped) for (const box of boxes) if (box.state === "free" && box.support === 2) this.addConveyorBox(box);
-    let floorBoxes = 0, escaped = false;
+    let escaped = false;
     const specialStops = this.mergeRoutes.size > 0 || this.sharedBeltStations.size > 0;
     for (const b of boxes) {
       const previousConveyor = grouped && b.state === "free" && b.support === 2 ? b.convId : null;
@@ -3428,27 +3406,7 @@ export class Engine {
       const sup = this.findSupport(b);
       if (prev === 2 && sup.kind === 2 && sup.conv?.id === b.convId && b.vy <= 0.05 && Math.abs(b.y - b.hy - sup.top) < 0.14) b.y = sup.top + b.hy;
       const bottom = b.y - b.hy;
-      if (this.productIntegrator) {
-        const grounded = bottom <= sup.top + 0.004 && b.vy <= 0.05;
-        const conv = grounded && sup.kind === 2 ? sup.conv : null;
-        const q = conv ? sup.q : null;
-        let blocked = false;
-        if (conv && q) {
-          b.convId = conv.id; b.convS = q.s; b.convLat = q.lat;
-          for (const o of (grouped ? groups.get(conv.id) ?? this.emptyConveyorBoxes : boxes)) {
-            if (o === b || o.state !== "free" || o.support !== 2 || o.convId !== conv.id) continue;
-            const ds = o.convS - q.s;
-            if (ds > 0 && ds < b.r + o.r + 0.02 && Math.abs(o.convLat - q.lat) < b.r + o.r - 0.05) { blocked = true; break; }
-          }
-        }
-        const gateLength = conv && q && (specialStops || b.pickGate) ? this.productStopLength(b, conv, q) : null;
-        const landed = this.productIntegrator.integrate(b, {
-          top: sup.top, kind: sup.kind, conveyor: !!(conv && q), lat: q?.lat ?? 0, tx: q?.tx ?? 0, tz: q?.tz ?? 0,
-          along: q?.s ?? 0, speed: conv?.active ? conv.speed * (q?.speedFactor ?? 1) : 0, blocked, stopper: (conv?.stopper ?? false) || gateLength !== null,
-          length: gateLength === null ? (conv?.length ?? 0) : Math.min(conv?.stopper ? conv.length : Infinity, gateLength),
-        }, dt);
-        if (landed && !(conv && q)) this.recordProductSupport(b, sup, dt);
-      } else if (bottom <= sup.top + 0.004 && b.vy <= 0.05) {
+      if (bottom <= sup.top + 0.004 && b.vy <= 0.05) {
         b.y = sup.top + b.hy;
         if (prev === 0 && b.vy < -1.3) b.vy = -b.vy * 0.12;
         else b.vy = 0;
@@ -3522,11 +3480,9 @@ export class Engine {
         b.vy -= G * dt;
         b.tilt = Math.min(1.25, b.tilt + b.tiltV * dt);
       }
-      if (!this.productIntegrator) {
-        b.x += b.vx * dt;
-        b.y += b.vy * dt;
-        b.z += b.vz * dt;
-      }
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.z += b.vz * dt;
       if (b.y >= 2.1) this.barrierScratch.length = 0;
       const nearby = b.y < 2.1 ? this.barrierIndex.query(b.x, b.z, this.barrierScratch, b.r + 0.5) : this.barrierScratch;
       for (let k = 0; k < nearby.length; k += 1) {
@@ -3546,7 +3502,6 @@ export class Engine {
           if (dot < 0) { b.vx -= dot * nx; b.vz -= dot * nz; }
         }
       }
-      if (b.support === 1) floorBoxes += 1;
       if (b.y < -3 || Math.abs(b.x) > 80 || Math.abs(b.z) > 80) escaped = true;
       if (grouped && b.state === "free" && b.support === 2 && b.convId !== previousConveyor) this.addConveyorBox(b);
     }
@@ -3581,17 +3536,7 @@ export class Engine {
       }
     }
 
-    // cleanup / floor cap
-    if (floorBoxes > 60) {
-      let oldest: Box | null = null;
-      for (const b of boxes) {
-        if (b.state === "free" && b.support === 1 && (!oldest || b.age > oldest.age)) oldest = b;
-      }
-      if (oldest) {
-        oldest.state = "dying";
-        oldest.fade = 1;
-      }
-    }
+    // Remove only products whose lifecycle actually ended.
     if (boxes.some((b) => b.state === "dead")) this.boxes = boxes.filter((b) => b.state !== "dead");
     return escaped;
   }

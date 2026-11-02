@@ -3,6 +3,7 @@ import { isRobotKind } from "../utils/kinds";
 import { makeItem } from "../data/library";
 import { programToCode } from "./programCode";
 import { samplePath } from "./spline";
+import { resolveMountedSensors } from "../utils/sensorMount";
 import { ConveyorRT, MachineRT, PalletRT, RobotRT } from "./engine";
 import { getProduct, MACHINE_KINDS } from "../data/products";
 import { analyzePrompt, mergeIntent } from "../gen/prompt";
@@ -59,6 +60,8 @@ export interface GenOptions {
   outputProduct: string;
   cellMachines: string[];
   processChain: ProcessStep[];
+  /** Optional for older generator clients; the interactive form defaults to laser. */
+  pickupSensor?: "laser" | "proximity" | "none";
 }
 
 export const DEFAULT_GEN: GenOptions = {
@@ -382,6 +385,17 @@ export function generateFactory(options: GenOptions): SceneItem[] {
       props: { task: o.staffTask, sourceId: source?.id ?? "", targetId: destination?.id ?? "", hat: o.recipe === "medical" || o.recipe === "bakery" ? "cap" : "hardhat", glasses: o.recipe === "metalworking", walkSpeed: 1 },
     });
     all.push(human);
+  }
+  if (o.pickupSensor && o.pickupSensor !== "none") {
+    for (const robot of all.filter(item => isRobotKind(item.kind) && item.program)) {
+      const source = all.find(item => item.id === robot.program!.sourceId && (item.kind === "conveyor" || item.kind === "roller"));
+      if (!source) continue;
+      const length=samplePath(source.points ?? [[-2,0],[2,0]],.1,source.pointHeights).length;
+      const fraction=Math.max(0,Math.min(1,(length-(robot.program?.pickupBack ?? .3))/length));
+      const kind=o.pickupSensor === "proximity" ? "sensor" : "laser";
+      all.push(makeItem(kind,[0,0,0],0,{name:`Pickup ${kind === "laser" ? "laser" : "proximity"} ${all.length+1}`,props:{mountedTo:source.id,mountPosition:fraction,connectedTo:robot.id,radius:.5}}));
+    }
+    return resolveMountedSensors(all);
   }
   return all;
 }

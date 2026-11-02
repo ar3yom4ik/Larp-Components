@@ -1,3 +1,3 @@
-Larp Factory V3.0.0-alpha.3 (prerelease)
-Release: 2026-11-01
+Larp Factory V3.0.0-alpha.4 (prerelease)
+Release: 2026-11-03
 App branding: Larp Components 5.1

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { sim, MAX_BOXES, type Box } from "../sim/engine";
+import { sim, type Box } from "../sim/engine";
 import { getProduct, importedModelSize, importedProductId, type ProductShape } from "../data/products";
 import { useAppearance } from "../theme";
 import type { SceneItem } from "../types";
@@ -76,9 +76,12 @@ export function BoxesLayer({ items = [] }: { items?: readonly SceneItem[] }) {
   const meshes = useRef<Partial<Record<ProductShape, THREE.InstancedMesh>>>({});
   const sources = useMemo(() => new Map(items.filter((item) => item.kind === "imported-model" && item.imported).map((item) => [importedProductId(item), item])), [items]);
   const [imports, setImports] = useState<Box[]>([]);
+  // Instance buffers grow with demand instead of imposing a simulation limit.
+  const [capacity, setCapacity] = useState(256);
   const importKey = useRef("");
   const kit = useMemo(() => ({ m: new THREE.Matrix4(), q: new THREE.Quaternion(), q2: new THREE.Quaternion(), p: new THREE.Vector3(), scale: new THREE.Vector3(), axis: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), color: new THREE.Color() }), []);
   useFrame(() => {
+    if (sim.boxes.length > capacity) setCapacity(2 ** Math.ceil(Math.log2(sim.boxes.length)));
     const counts = { box: 0, cookie: 0, cylinder: 0, bottle: 0, sphere: 0, gear: 0, board: 0, frame: 0 };
     const imported = sources.size ? sim.boxes.filter((b) => b.state !== "inside" && b.state !== "dead" && sources.has(b.productId)) : [];
     const key = imported.map((b) => `${b.id}:${b.productId}`).join(",");
@@ -89,6 +92,7 @@ export function BoxesLayer({ items = [] }: { items?: readonly SceneItem[] }) {
       const product = getProduct(b.productId, items), mesh = meshes.current[product.shape];
       if (!mesh) continue;
       const index = counts[product.shape]++;
+      if (index >= capacity) continue;
       const fade = b.state === "dying" ? Math.max(0, b.fade) : 1;
       kit.q.setFromAxisAngle(kit.up, b.yaw);
       if (b.tilt) { kit.axis.set(b.ax, 0, b.az).normalize(); kit.q2.setFromAxisAngle(kit.axis, b.tilt); kit.q.premultiply(kit.q2); }
@@ -99,11 +103,11 @@ export function BoxesLayer({ items = [] }: { items?: readonly SceneItem[] }) {
     }
     for (const shape of SHAPES) {
       const mesh = meshes.current[shape]; if (!mesh) continue;
-      mesh.count = counts[shape]; mesh.instanceMatrix.needsUpdate = true;
+      mesh.count = Math.min(counts[shape], capacity); mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
   });
-  return <>{SHAPES.map((shape) => <instancedMesh key={shape} ref={(m) => { if (m) { m.count = 0; meshes.current[shape] = m; } }} args={[geometry(shape), undefined, MAX_BOXES]} castShadow receiveShadow frustumCulled={false} raycast={() => null}><meshStandardMaterial color="#ffffff" roughness={0.7} metalness={shape === "gear" || shape === "frame" ? 0.5 : 0.04} vertexColors /></instancedMesh>)}
+  return <>{SHAPES.map((shape) => <instancedMesh key={`${shape}-${capacity}`} ref={(m) => { if (m) { m.count = 0; meshes.current[shape] = m; } }} args={[geometry(shape), undefined, capacity]} castShadow receiveShadow frustumCulled={false} raycast={() => null}><meshStandardMaterial color="#ffffff" roughness={0.7} metalness={shape === "gear" || shape === "frame" ? 0.5 : 0.04} vertexColors /></instancedMesh>)}
     {imports.map((box) => { const source = sources.get(box.productId); return source ? <ImportedWorkpiece key={box.id} box={box} source={source} /> : null; })}
   </>;
 }

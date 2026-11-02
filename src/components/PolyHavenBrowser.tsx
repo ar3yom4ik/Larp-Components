@@ -20,9 +20,11 @@ import type { ImportedModelData } from "../types";
 export function PolyHavenBrowser({
   onImported,
   onInfo,
+  onLoadingChange,
 }: {
   onImported: (model: ImportedModelData, warnings: string[]) => void;
   onInfo: (message: string) => void;
+  onLoadingChange?: (loading: boolean) => void;
 }) {
   useLanguage();
   const [assets, setAssets] = useState<PolyAsset[] | null>(null);
@@ -54,7 +56,7 @@ export function PolyHavenBrowser({
     if (busy) return;
     const controller = new AbortController();
     abort.current = controller;
-    setBusy(asset.id);
+    setBusy(asset.id); onLoadingChange?.(true);
     setProgress(t("Reading file list…"));
     try {
       const result = await importPolyHavenModel(asset, resolution, {
@@ -67,7 +69,7 @@ export function PolyHavenBrowser({
       if ((cause as Error)?.name === "AbortError") return;
       setError((cause as Error)?.message ?? "The model could not be imported.");
     } finally {
-      setBusy(null);
+      setBusy(null); onLoadingChange?.(false);
       setProgress("");
     }
   };
@@ -102,6 +104,11 @@ export function PolyHavenBrowser({
         </div>
       </div>
 
+      <div className="mb-3 rounded border border-white/10 bg-black/10 p-2 text-[10px] text-white/55">
+        <p>{t("More free model sources — browse and download on the provider, then use Import 3D model. Check each model's licence and attribution.")}</p>
+        <div className="mt-2 flex flex-wrap gap-1">{[["Sloyd", "https://www.sloyd.ai/free-3d-models"],["Poly Pizza", "https://poly.pizza/"],["Thingiverse", "https://www.thingiverse.com/"]].map(([name,url]) => <a key={name} href={url} target="_blank" rel="noopener noreferrer" className="rounded border border-white/15 px-2 py-1 text-[var(--app-accent-bright)] hover:bg-white/10">{name} ↗</a>)}</div>
+        <p className="mt-1 text-white/35">{t("Direct provider APIs may require an account or API key; no credentials are stored here.")}</p>
+      </div>
       <div className="group mb-2 flex items-center gap-2 rounded-md border border-white/[0.08] bg-[#1e1e1e] px-2 py-1.5 focus-within:border-[var(--app-accent)]/40">
         <Search size={12} className="shrink-0 text-white/25" />
         <input

@@ -28,6 +28,3 @@ Thumbs.db
 
 # Scratch harnesses for the node-graph generator
 .tmp/
-
-# Rust build outputs
-/rust/larp-kernel/target/

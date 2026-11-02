@@ -3,7 +3,6 @@ import { compileComponentGraph } from '../src/gen/graph/componentCompile';
 import { connect, makeNode, parseGraph, serializeGraph } from '../src/gen/graph/graph';
 import type { GraphNode, NodeGraph } from '../src/gen/graph/types';
 import { Engine } from '../src/sim/engine';
-import { createRustProductIntegrator } from '../src/sim/wasm/kernel';
 import { serializeProject, parseProject } from '../src/utils/project';
 import { createProjectArchive, readProjectArchive } from '../src/utils/projectArchive';
 import { samplePath } from '../src/sim/spline';
@@ -72,24 +71,6 @@ for (const style of ['multi-head', 'side'] as const) {
   assert.equal(e.stats.lost, 0);
 }
 
-// Both backends receive the same virtual merge gates and remain in parity.
-{
-  const {result, target} = makeMerge('side', 2);
-  const rust = createRustProductIntegrator(), a = new Engine(), b = new Engine(); b.productIntegrator = rust;
-  try {
-    for (const e of [a, b]) { e.sync(structuredClone(result.plant!.items)); e.setRunning(true); }
-    for (let frame = 0; frame < 75 * 60; frame++) {
-      for (const e of [a, b]) {
-        e.step(1 / 60);
-        for (const box of e.boxes) if (box.state === 'free' && box.convId === target.id && box.convS > 2.8) box.state = 'dead';
-      }
-      assert.equal(b.boxes.length, a.boxes.length, `Rust merge count frame ${frame}`);
-      assert.deepEqual(b.stats, a.stats, `Rust merge stats frame ${frame}`);
-      for (let i = 0; i < a.boxes.length; i++) for (const key of ['x', 'y', 'z'] as const) assert.ok(Math.abs(a.boxes[i][key] - b.boxes[i][key]) < 1e-8, `Rust merge ${key} frame ${frame}`);
-    }
-  } finally { rust.dispose(); }
-}
-
 // Side-entry and head-end models open their rails at the actual junction.
 {
   const path = samplePath([[0, 0], [4, 0]], 0.1);
@@ -98,4 +79,4 @@ for (const style of ['multi-head', 'side'] as const) {
   assert.ok(open.steel!.getAttribute('position').count < closed.steel!.getAttribute('position').count, 'side rail has a visible opening');
   for (const g of [closed, open]) { g.belt.dispose(); g.steel?.dispose(); g.dark?.dispose(); g.warn?.dispose(); }
 }
-console.log('conveyor merges: fair 2–4 heads, nested lines, geometry, persistence, stopped belts and Rust parity OK');
+console.log('conveyor merges: fair 2–4 heads, nested lines, geometry, persistence, and stopped belts OK');
