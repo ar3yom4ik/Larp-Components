@@ -9,7 +9,7 @@ const b=makeItem('sensor',[0,0,0],0,{name:'Sensor B'});
 const robot=makeItem('robot',[2,0,0],0,{name:'Robot'});
 const plc=makeItem('plc',[4,0,0],0,{name:'PLC'});
 assert.ok(canSignalOutput(a) && canSignalOutput(b) && canSignalOutput(plc));
-assert.ok(!canSignalOutput(robot));
+assert.ok(canSignalOutput(robot));
 assert.ok(!canSignalOutput({...a,locked:true}) && !canSignalOutput({...a,visible:false}));
 assert.ok(canSignalInput(robot,a.id) && canSignalInput(plc,a.id));
 assert.ok(!canSignalInput(a,a.id) && !canSignalInput({...robot,visible:false},a.id));

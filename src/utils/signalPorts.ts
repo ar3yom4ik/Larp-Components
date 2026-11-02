@@ -1,10 +1,16 @@
 import type { SceneItem, Vec3 } from '../types';
+import { isRobotKind } from './kinds';
 
 export const DEFAULT_WIRE_COLOR = '#4da9d8';
 
-/** The logic engine evaluates these kinds as signal sources. */
-export function isSignalSource(item: SceneItem): boolean {
+/** Sensors, buttons and PLCs are evaluated by the logic stepper. */
+export function isLogicSource(item: SceneItem): boolean {
   return ['button', 'sensor', 'laser', 'plc'].includes(item.kind);
+}
+
+/** Robots publish a host-managed moving/holding signal as well. */
+export function isSignalSource(item: SceneItem): boolean {
+  return isLogicSource(item) || isRobotKind(item.kind);
 }
 
 /** Output ports can only be edited on visible, unlocked sources. */

@@ -954,7 +954,7 @@ export const Viewport = memo(function Viewport({
       {hudVisible && selected && mobile && <div className="absolute left-3 top-[63px] z-10 max-w-[calc(100%-24px)]"><SelectionHud item={selected} onDuplicate={() => onDuplicateItem(selected.id)} onDelete={() => onDeleteItem(selected.id)} /></div>}
 
       {signalMode && <div className="absolute bottom-16 left-3 z-20 max-w-[280px] rounded border border-white/20 bg-[#20272c]/95 p-2 text-[11px] text-white shadow-lg" role="status">
-        <p>{sourceItem ? `${t("Choose an IN port for")}: ${sourceItem.name}` : t("Choose an OUT port on a sensor, button, laser or PLC.")}</p>
+        <p>{sourceItem ? `${t("Choose an IN port for")}: ${sourceItem.name}` : t("Choose an OUT port on a sensor, button, laser, PLC or robot.")}</p>
         {sourceItem && <label className="mt-2 flex items-center gap-2 text-white/70">{t("Wire colour")}
           <input type="color" aria-label={t("Wire colour")} value={signalWireColor(sourceItem.props.wireColor)} onChange={(event) => onUpdateItem(sourceItem.id, {props: {...sourceItem.props, wireColor: event.target.value}})} className="h-7 w-10 cursor-pointer rounded border border-white/20 bg-transparent" />
         </label>}

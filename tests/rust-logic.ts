@@ -45,6 +45,15 @@ try {
     reference(items,boxes,triggers,expected);stepper.step(items,boxes,triggers,actual);
     assert.deepEqual(actual,expected,`random ordered logic scenario ${scenario}`);
   }
+  // Host-owned robot signals are valid PLC inputs even though the robot is not
+  // a node evaluated by the Rust logic stepper.
+  const external=makeItem('robot',[0,0,0],0), externalPlc=makeItem('plc',[0,0,0],0);
+  const externalTriggers=new Map([[externalPlc.id,[external]]]);
+  for(const live of [false,true]) {
+    const expected=new Map([[external.id,live]]),actual=new Map(expected);
+    reference([externalPlc],[],externalTriggers,expected); stepper.step([externalPlc],[],externalTriggers,actual);
+    assert.deepEqual(actual,expected,`external host-managed source ${live}`);
+  }
   // Exercise the actual engine scheduling with a button -> PLC -> PLC chain,
   // a sensor and laser connected to the same PLC, and state changes while running.
   const p2=makeItem('plc',[0,0,0],0),p1=makeItem('plc',[0,0,0],0,{props:{connectedTo:p2.id}});

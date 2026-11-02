@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { makeItem } from '../src/data/library';
 import { Engine } from '../src/sim/engine';
 import { createRustFeederStepper, createRustLogicStepper } from '../src/sim/wasm/kernel';
-import { canSignalInput, signalAnchor, signalTargets, signalTargetsPatch, signalWireColor, DEFAULT_WIRE_COLOR } from '../src/utils/signalPorts';
+import { canSignalInput, canSignalOutput, signalAnchor, signalTargets, signalTargetsPatch, signalWireColor, DEFAULT_WIRE_COLOR } from '../src/utils/signalPorts';
 import { serializeProject, parseProject } from '../src/utils/project';
 import { createProjectArchive, readProjectArchive } from '../src/utils/projectArchive';
 import type { SceneItem } from '../src/types';
@@ -118,6 +118,60 @@ for (const kind of ['sensor', 'laser', 'plc'] as const) {
   e.reset(); tick(e); assert.equal(e.stats.spawned, 1, 'reset rearms an initially high signal once');
 }
 
+// Every supported robot type can publish its moving/holding state to a feeder.
+// Unlike the earlier property-only connection, the wire must actually gate it.
+for (const kind of ['robot', 'cobot', 'kuka', 'fanuc'] as const) {
+  const e = new Engine();
+  const robot = makeItem(kind, [5, 0, 0], 0, { props: { connectedTo: feeder.id } });
+  assert.ok(canSignalOutput(robot), `${kind} exposes an output port`);
+  e.sync([feeder, robot]); e.setRunning(true); tick(e, 80);
+  assert.equal(e.stats.spawned, 0, `${kind}-connected feeder must not run automatically`);
+  const held = e.spawn('carton', 5, 0.8, 0); held.state = 'held';
+  const rt = e.robots.get(robot.id)!; rt.held = held;
+  tick(e, 3); assert.equal(e.stats.spawned, 2, `${kind} holding signal feeds one part`);
+  e.boxes = e.boxes.filter((box) => box === held);
+  e.sync([feeder, { ...robot, props: { ...robot.props, wireColor: '#13579b' } }]);
+  tick(e, 90); assert.equal(e.stats.spawned, 2, `${kind} held signal does not repeat after edits`);
+  rt.held = null; held.state = 'dead'; tick(e, 2);
+  e.sync([feeder, { ...robot, visible: false }]); tick(e, 100);
+  assert.equal(e.stats.spawned, 2, `hidden ${kind} keeps the feeder signal-controlled`);
+}
+
+// Disconnecting a robot while high and reconnecting it once idle must not
+// replay a stale high state and cause an unexpected part.
+{
+  const e = new Engine(); const robot = makeItem('robot', [5, 0, 0], 0, { props: { connectedTo: feeder.id } });
+  e.sync([feeder, robot]); e.setRunning(true);
+  const held = e.spawn('carton', 5, 0.8, 0); held.state = 'held'; const rt = e.robots.get(robot.id)!; rt.held = held;
+  tick(e, 3); assert.equal(e.stats.spawned, 2);
+  e.boxes = []; e.sync([feeder, { ...robot, props: { ...robot.props, connectedTo: '' } }]);
+  rt.held = null; tick(e, 2);
+  e.sync([feeder, robot]); tick(e, 100);
+  assert.equal(e.stats.spawned, 2, 'reconnecting an idle robot does not replay its old output');
+}
+
+// Robot signals must also flow through a PLC when the experimental Rust logic
+// stepper is enabled; robot signals are owned by TypeScript, not logic nodes.
+{
+  const first = makeItem('feeder', [0, 0, 0], 0, { props: { interval: 0.5, active: true, product: 'carton' } });
+  const secondFeeder = makeItem('feeder', [4, 0, 0], 0, { props: { interval: 0.5, active: true, product: 'carton' } });
+  const plc = makeItem('plc', [7, 0, 0], 0, { props: { connectedTo: secondFeeder.id } });
+  const robot = makeItem('robot', [10, 0, 0], 0, { props: { connectedTo: first.id }, signalTargets: [plc.id] });
+  const ts = new Engine(), hybrid = new Engine(), rustLogic = createRustLogicStepper(); hybrid.logicStepper = rustLogic;
+  try {
+    for (const e of [ts, hybrid]) {
+      e.sync(structuredClone([first, secondFeeder, plc, robot])); e.setRunning(true);
+      const held = e.spawn('carton', 10, 0.8, 0); held.state = 'held'; e.robots.get(robot.id)!.held = held;
+    }
+    for (let frame = 0; frame < 20; frame++) {
+      tick(ts); tick(hybrid);
+      assert.equal(hybrid.stats.spawned, ts.stats.spawned, `robot/PLC hybrid spawn parity at frame ${frame}`);
+      assert.equal(hybrid.signalState.get(plc.id), ts.signalState.get(plc.id), `robot/PLC hybrid signal parity at frame ${frame}`);
+    }
+    assert.equal(ts.stats.spawned, 3, 'direct robot and PLC branches each feed one part');
+  } finally { rustLogic.dispose(); }
+}
+
 // Signal mode stays on the host even when experimental Rust feeders/logic are enabled.
 {
   const ts = new Engine(), hybrid = new Engine();
@@ -143,4 +197,4 @@ const project = parseProject(readProjectArchive(createProjectArchive(text)));
 assert.equal(project.items[1].props.wireColor, '#0055ff');
 assert.equal(project.items[2].props.wireColor, '#ff2200');
 assert.equal(project.items[1].props.connectedTo, feeder.id);
-console.log('signal feeders: independent edges, short pulses, blocking, supply, reset, Rust parity, anchors and wire colors OK');
+console.log('signal feeders: independent edges, robot/PLC outputs, short pulses, blocking, supply, reset, Rust parity, anchors and wire colors OK');

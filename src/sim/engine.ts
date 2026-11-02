@@ -3,7 +3,7 @@ import { samplePath, type P2 } from "./spline";
 import { getProduct, MACHINE_KINDS, palletSize } from "../data/products";
 import { distanceToSegment, navigate, pointIsFree, projectToFree, type Barrier, type WalkObstacle } from "./navigation";
 import { SpatialHash } from "./spatial";
-import { isSignalSource, signalTargets } from "../utils/signalPorts";
+import { isLogicSource, isSignalSource, signalTargets } from "../utils/signalPorts";
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                               */
@@ -1024,7 +1024,7 @@ export class Engine {
     const triggers = new Map<string, SceneItem[]>();
     for (const item of this.items) {
       if (!isSignalSource(item)) continue;
-      if (item.visible !== false) logic.push(item);
+      if (item.visible !== false && isLogicSource(item)) logic.push(item);
       // A hidden source is inactive, but its feeder remains signal-controlled
       // rather than unexpectedly reverting to automatic production.
       for (const target of signalTargets(item)) {
@@ -2348,10 +2348,9 @@ export class Engine {
       }
       this.writeSignal(item.id, signal);
     }
-    for (const robot of this.robots.values()) {
-      const item = this.itemById.get(robot.itemId);
-      if (item && (item.props.connectedTo || item.signalTargets?.length)) this.writeSignal(robot.itemId, robot.status === "moving" || !!robot.held);
-    }
+    // Keep robot output state current even while disconnected, so connecting an
+    // idle robot never replays a stale signal from an earlier connection.
+    for (const robot of this.robots.values()) this.writeSignal(robot.itemId, robot.status === "moving" || !!robot.held);
   }
 
   private triggerGate(robotId: string, sourceId: string) {

@@ -195,6 +195,9 @@ export function createRustLogicStepper() {
       if(disposed) throw new Error('Rust logic stepper has been disposed');
       if(items.length === 0) return;
       const ids=[...new Set(items.map(item=>item.id))], slots=new Map(ids.map((id,i)=>[id,i]));
+      // Host-managed sources (for example robot outputs) are not logic nodes,
+      // but their live signal values must still be readable by PLC inputs.
+      for(const item of items) for(const source of triggers.get(item.id)??[]) if(!slots.has(source.id)) { slots.set(source.id,ids.length); ids.push(source.id); }
       const sourceLists=items.map(item=>(triggers.get(item.id)??[]).map(v=>slots.get(v.id)).filter((v):v is number=>v!==undefined));
       const totalSources=sourceLists.reduce((n,v)=>n+v.length,0);
       const lengths=[items.length*13,boxes.length*6,ids.length,totalSources];
@@ -211,7 +214,7 @@ export function createRustLogicStepper() {
       }
       for(let i=0;i<boxes.length;i++) { const b=boxes[i]; bs.set([b.x,b.y,b.z,b.hy,b.r,b.state==='dead'?0:b.state==='dying'?1:2],i*6); }
       run(ptr[0],items.length,ptr[1],boxes.length,ptr[2],ids.length,ptr[3],totalSources);
-      for(let i=0;i<ids.length;i++) signals.set(ids[i],ss[i]!==0);
+      for(const item of items) signals.set(item.id,ss[slots.get(item.id)!]!==0);
     },
     dispose() { if(!disposed) { disposed=true; for(let i=0;i<4;i++) if(ptr[i]) free(ptr[i],cap[i]); } },
   };

@@ -37,9 +37,9 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 
 ### Signal-controlled feeders and wires
 
-1. Add a feeder and a button, proximity sensor, laser or PLC. Turn on **Edit signal connections** in the viewport, click the source's **OUT**, then the feeder's **IN**. Repeat to connect more sources or more destinations. A connected IN toggles that connection; the connection list also supports removing individual targets. The source's **Properties → Automation** section offers the same controls.
+1. Add a feeder and a button, proximity sensor, laser, PLC or robot. Turn on **Edit signal connections** in the viewport, click the source's **OUT**, then the feeder's **IN**. Repeat to connect more sources or more destinations. A connected IN toggles that connection; the connection list also supports removing individual targets. The source's **Properties → Automation** section offers the same controls.
 2. Set **Wire colour** on each source. The colour applies to all of its outgoing wires, which follow moved/rotated components and glow with a travelling pulse when the signal turns on. Connections and colours are saved with the project.
-3. An unconnected feeder produces automatically as before. A connected, active feeder emits one part per incoming off-to-on signal, not continuously while a signal is held on. Multiple sources trigger independently. Requests wait for the feeder interval, clear output and any required supply; turning the feeder off or disconnecting a source discards its pending requests.
+3. An unconnected feeder produces automatically as before. A connected, active feeder emits one part per incoming off-to-on signal, not continuously while a signal is held on. Multiple sources trigger independently; robot outputs are active while moving or holding a part. Requests wait for the feeder interval, clear output and any required supply; turning the feeder off or disconnecting a source discards its pending requests.
 
 Dialog and floating window sizes can be changed by dragging their resize grip (with a mouse or touch), or by focusing it and using the arrow keys. Settings remembers its size and position; use **Settings → Interface → Settings window** to reset them. On phones, drag the top edge of a sheet to resize it.
 

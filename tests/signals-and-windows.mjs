@@ -90,6 +90,37 @@ try {
   assert.ok(end.brightness < start.brightness, 'wire dims again after the pulse');
   assert.equal(await page.evaluate(() => window.__larp.stats.spawned), 1, 'held/short signal makes one part');
 
+  // A robot output is selectable in the viewport and really gates a feeder;
+  // its output is on while the robot holds a part, not just a decorative wire.
+  const robotId = await page.evaluate(async ({ feeder }) => {
+    const { makeItem } = await import('/src/data/library.ts');
+    window.__larp.setRunning(false);
+    const robot = makeItem('robot', [-3, 0, 0], 0, { name: 'Signal robot' });
+    const feederItem = window.__larp.items.find((item) => item.id === feeder);
+    window.__larpProject.setItems([feederItem, robot]);
+    return robot.id;
+  }, ids);
+  await page.waitForFunction((id) => window.__larp.robots.has(id), robotId);
+  await page.getByRole('button', { name: 'Edit signal connections' }).click();
+  await page.getByRole('button', { name: 'Signal output: Signal robot' }).click();
+  await page.getByRole('button', { name: 'Signal input: Signal feeder' }).click();
+  await page.waitForFunction(({ robot, feeder }) => window.__larp.items.find((item) => item.id === robot)?.props.connectedTo === feeder, { robot: robotId, feeder: ids.feeder });
+  await page.getByRole('button', { name: 'Edit signal connections' }).click();
+  await page.evaluate(() => { window.__larp.reset(); window.__larp.setRunning(true); });
+  await page.waitForTimeout(1100);
+  assert.equal(await page.evaluate(() => window.__larp.stats.spawned), 0, 'robot-connected feeder waits while the robot is idle');
+  await page.evaluate((id) => {
+    const held = window.__larp.spawn('carton', -3, 0.8, 0); held.state = 'held';
+    window.__larp.robots.get(id).held = held;
+  }, robotId);
+  await page.waitForFunction(() => window.__larp.stats.spawned === 2, null, { timeout: 20000 });
+  await page.waitForFunction(({ robot, feeder }) => {
+    let wire; window.__larpRenderer.scene.traverse((object) => { if (object.userData.signalWire && object.userData.sourceId === robot && object.userData.targetId === feeder) wire = object; });
+    return wire?.getObjectByName('signal-cable')?.material.emissiveIntensity > 1;
+  }, { robot: robotId, feeder: ids.feeder }, { timeout: 20000 });
+  await page.waitForTimeout(1000);
+  assert.equal(await page.evaluate(() => window.__larp.stats.spawned), 2, 'holding signal feeds once');
+
   // The settings frame, factory in both modes, model import, floor map,
   // floating panels and simulation settings are all independently resizable.
   await page.getByTitle('Settings', { exact: true }).click();
@@ -168,7 +199,7 @@ try {
   assert.ok(factoryAfter.width < factoryBefore.width - 35 && factoryAfter.height < factoryBefore.height - 50, 'factory window resizes by touch on a phone');
   await phone.close();
   assert.deepEqual(errors, []);
-  console.log('signal-to-feeder connections, per-source colours, directional pulse/glow, all window sizes and touch resizing PASS');
+  console.log('signal-to-feeder and robot outputs, per-source colours, directional pulse/glow, all window sizes and touch resizing PASS');
 } finally {
   await browser.close();
 }
