@@ -1,3 +1,5 @@
+> **Current implementation note:** Physical graph conveyor merges, junction simulation, signal-port drag gestures and robot signal queues are now implemented. Material splitters and general physical I/O remain future work. The research below is historical.
+
 # Component graph redesign research
 
 The existing factory graph is a settings/data graph: its output compiles to a fixed

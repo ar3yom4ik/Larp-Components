@@ -9,7 +9,7 @@ try {
   await context.addInitScript(() => {
     window.__fileWrites = [];
     window.showSaveFilePicker = async () => ({name:'factory.lcmx', queryPermission:async()=> 'granted', createWritable:async()=>({
-      write:async data => { if (window.__delayNextWrite) { window.__delayNextWrite = false; await new Promise(resolve => setTimeout(resolve, 3000)); } window.__fileWrites.push(Array.from(new Uint8Array(await data.arrayBuffer()))); }, close:async()=>{}
+      write:async data => { if (window.__delayNextWrite) { window.__delayNextWrite = false; window.__delayedWriteStarted = true; await new Promise(resolve => setTimeout(resolve, 3000)); } window.__fileWrites.push(Array.from(new Uint8Array(await data.arrayBuffer()))); }, close:async()=>{}
     })});
   });
   const page = await context.newPage(); const errors=[];
@@ -43,7 +43,9 @@ try {
   assert.ok(strFromU8(unzipSync(Uint8Array.from(writes.at(-1)))['project.txt']).includes('Changed after export'));
   // A slow write followed by a newer edit must end with the newest scene.
   await page.evaluate(()=>{window.__delayNextWrite=true;const items=window.__larpProject.getItems();window.__larpProject.setItems(items.map((item,index)=>index===0?{...item,name:'First delayed edit'}:item));});
-  await page.waitForTimeout(1500);
+  // Wait for the delayed write to actually start, rather than relying on a
+  // fixed sleep that races the autosave debounce on slow software renderers.
+  await page.waitForFunction(()=>window.__delayedWriteStarted === true, null, {timeout:30000});
   await page.evaluate(()=>{const items=window.__larpProject.getItems();window.__larpProject.setItems(items.map((item,index)=>index===0?{...item,name:'Latest edit'}:item));});
   await page.waitForFunction(()=>window.__fileWrites.length >= 4, null, {timeout:30000});
   const newest = await page.evaluate(()=>window.__fileWrites.at(-1));

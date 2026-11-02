@@ -4,7 +4,7 @@
 **Audience:** a developer or another AI starting without any prior conversation.<br>
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V3 is the current prerelease number.
 
-> **Current-state correction:** This document also records historical V2 work below. The default generator is now a physical component graph; linear and independent lines work, but branching/merging and full viewport material I/O are incomplete. The Form tab owns prompt-based generation. The viewport signal editor supports multiple destinations, including signal-controlled feeders; this does not change the incomplete material-flow graph. LCMX archives and their browser save limitations are described in `ROADMAP.md`. Continue in TypeScript; do not pursue a Rust rewrite. Historical descriptions below are not proof of current functionality.
+> **Current-state correction:** This document also records historical V2 work below. The default generator is now a physical component graph; linear, independent and merged conveyor lines work; splitters and full viewport material I/O remain incomplete. The Form tab owns prompt-based generation. The viewport signal editor supports drag/reroute, multiple destinations, signal-controlled feeders and queued robot inputs/outputs. XYZ gizmos and elevation are available, while tilted physics uses upright approximations. LCMX archives and their browser save limitations are described in `ROADMAP.md`. Continue in TypeScript; do not pursue a Rust rewrite. Historical descriptions below are not proof of current functionality.
 
 ## 1. Goal and acceptance criteria
 

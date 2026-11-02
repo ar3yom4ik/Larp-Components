@@ -273,13 +273,31 @@ export interface ConveyorGeos {
   warn: THREE.BufferGeometry | null;
 }
 
-export function buildConveyorGeometry(path: Path, stopper: boolean): ConveyorGeos {
+export interface RailOpening { along: number; side: number; radius: number }
+
+/** A junction removes only the affected rail sections, not the whole frame. */
+export function buildConveyorGeometry(path: Path, stopper: boolean, openings: RailOpening[] = []): ConveyorGeos {
   const belt = beltGeometry(path, BELT_WIDTH, BELT_Y);
   const hw = BELT_WIDTH / 2;
-  const steelParts: THREE.BufferGeometry[] = [
-    extrudeBox(path, hw + 0.01, hw + 0.07, BELT_Y - 0.1, BELT_Y + 0.07),
-    extrudeBox(path, -hw - 0.07, -hw - 0.01, BELT_Y - 0.1, BELT_Y + 0.07),
-  ];
+  const steelParts: THREE.BufferGeometry[] = [];
+  for (const side of [1, -1]) {
+    const l0 = side === 1 ? hw + 0.01 : -hw - 0.07;
+    const l1 = side === 1 ? hw + 0.07 : -hw - 0.01;
+    let start = 0;
+    for (let i = 0; i < path.x.length; i++) {
+      const open = i < path.x.length - 1 && openings.some((entry) =>
+        (entry.side === 0 || entry.side === side) && Math.abs((path.s[i] + path.s[i + 1]) / 2 - entry.along) < entry.radius);
+      if (open || i === path.x.length - 1) {
+        const end = i;
+        if (end > start) {
+          const cut = (values: number[]) => values.slice(start, end + 1);
+          const segment: Path = { x: cut(path.x), z: cut(path.z), s: cut(path.s), tx: cut(path.tx), tz: cut(path.tz), length: path.s[end] - path.s[start] };
+          steelParts.push(extrudeBox(segment, l0, l1, BELT_Y - 0.1, BELT_Y + 0.07));
+        }
+        if (open) start = i + 1;
+      }
+    }
+  }
   const darkParts: THREE.BufferGeometry[] = [extrudeBox(path, -0.2, 0.2, BELT_Y - 0.2, BELT_Y - 0.05)];
   const last = path.x.length - 1;
   const endCap = (i: number) => {

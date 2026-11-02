@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ## [Unreleased]
 
+- AI Factory now merges multiple conveyor inputs into a shared, simulated line, with selectable multi-head and side-entry junction geometry, backpressure and fair access. Splitters remain unsupported.
+- Graph node dragging previews locally and persists one undoable edit on release; unchanged topology does not recompile the factory. Wire hit targets and multi-input removal were improved.
+- Signal ports support mouse/touch drag, rerouting and disconnect; direct robot inputs queue edges for visual programs and `robot.waitForSignal()`, and robot outputs can pulse after a successful place.
+- Added XYZ move/rotation gizmos, snapping, editable height and persisted three-axis rotations. Elevated equipment is supported; tilted equipment's collision/operation physics remains an upright approximation.
+- Added unit and browser regressions for merges, robot signals, transformed scenes, gesture interactions and graph editing.
+
 - Added resizable dialogs, floating windows, simulation settings and touch sheets. Settings window size and position are remembered, with reset controls.
 - Feeders can receive signals from buttons, proximity sensors, lasers, PLCs and robot outputs. Each incoming rising edge requests one part, respecting the interval, output clearance and any supply requirements; unconnected feeders stay automatic.
 - Signal sources can connect to multiple destinations. Each source has an independent saved wire colour; active wires glow and show a directional pulse. Connections remain undoable and persist in project archives.

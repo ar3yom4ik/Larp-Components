@@ -9,7 +9,7 @@
  */
 import { compileComponentGraph } from './componentCompile';
 import { getNodeDef } from './registry';
-import { topoSort, validateGraph } from './graph';
+import { indexGraph, topoSort, validateGraph } from './graph';
 import type { Diagnostic, EvalContext, NodeGraph, PlantResult } from './types';
 
 export interface CompileResult {
@@ -35,6 +35,7 @@ export function compileGraph(graph: NodeGraph): CompileResult {
     return { plant: null, diagnostics, results: new Map(), ms: 0 };
   }
 
+  const { incoming } = indexGraph(graph);
   const results = new Map<string, Record<string, unknown>>();
   const nodeDiagnostics = new Map<string, Diagnostic[]>();
 
@@ -51,8 +52,8 @@ export function compileGraph(graph: NodeGraph): CompileResult {
     if (!def) continue;
     const inputs: Record<string, unknown[]> = {};
     for (const port of def.inputs) {
-      inputs[port.key] = graph.links
-        .filter((entry) => entry.to.node === node.id && entry.to.port === port.key)
+      inputs[port.key] = (incoming.get(node.id) ?? [])
+        .filter((entry) => entry.to.port === port.key)
         .map((entry) => results.get(entry.from.node)?.[entry.from.port])
         .filter((value) => value !== undefined);
     }

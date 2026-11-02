@@ -1,5 +1,6 @@
 import type { SceneItem, Vec3 } from '../types';
 import { isRobotKind } from './kinds';
+import { itemLocalToWorld } from './transform';
 
 export const DEFAULT_WIRE_COLOR = '#4da9d8';
 
@@ -53,9 +54,5 @@ export function signalAnchor(item: SceneItem, end: 'source' | 'target'): Vec3 {
   else if (item.kind === 'conveyor' || item.kind === 'roller') local = [0, 0.8, 0.31];
   else if (['robot', 'cobot', 'kuka', 'fanuc'].includes(item.kind)) local = [0.4, 0.55, 0];
   else local = [0, end === 'source' ? 0.7 : 0.8, 0];
-  const scale = item.kind === 'conveyor' || item.kind === 'roller' ? 1 : item.scale;
-  const yaw = item.rotation * Math.PI / 180;
-  const c = Math.cos(yaw), s = Math.sin(yaw);
-  const [x, y, z] = local;
-  return [item.position[0] + (x * c + z * s) * scale, item.position[1] + y * scale, item.position[2] + (-x * s + z * c) * scale];
+  return itemLocalToWorld(item, local, item.kind !== 'conveyor' && item.kind !== 'roller');
 }

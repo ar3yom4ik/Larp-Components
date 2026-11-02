@@ -37,8 +37,15 @@ export function FactoryStudio({
 
   const selected = graph.nodes.find((node) => node.id === selectedId) ?? null;
 
-  const validation = useMemo(() => validateGraph(graph), [graph]);
-  const compiled = useMemo(() => compileGraph(graph), [graph]);
+  // Editor coordinates and collapsed state have no effect on compilation. Keep
+  // preview IDs/results stable when a node is moved, and avoid rebuilding the
+  // entire factory just to persist a new canvas position.
+  const structure = JSON.stringify({
+    nodes: graph.nodes.map(({ id, type, params }) => ({ id, type, params })),
+    links: graph.links,
+  });
+  const validation = useMemo(() => validateGraph(graph), [structure]);
+  const compiled = useMemo(() => compileGraph(graph), [structure]);
   const plant: PlantResult | null = compiled.plant;
   const errors = compiled.diagnostics.filter((entry) => entry.severity === 'error');
   const warnings = compiled.diagnostics.filter((entry) => entry.severity === 'warning');

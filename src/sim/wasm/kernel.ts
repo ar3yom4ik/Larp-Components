@@ -1,6 +1,5 @@
 import { KERNEL_BASE64 } from './kernelBytes';
 import { navigate as navigateJs, type Barrier, type WalkObstacle, type Point } from '../navigation';
-import { TABLE_TOP } from '../engine';
 
 /** Small synchronous Wasm kernel, embedded so the standalone HTML stays offline.
  * Keep the JS implementation as a compatibility fallback for browsers that cannot
@@ -167,7 +166,7 @@ export function createRustMachineStepper() {
         b[n+5]=v.claim===0?1:0; b[n+6]=v.lastMachine===machine.id?1:0;
         b[n+7]=machine.inputProduct==='any'||v.productId===machine.inputProduct?1:0; b[n+8]=0;
       }
-      run(statePtr,boxesPtr,count,dt,TABLE_TOP);
+      run(statePtr,boxesPtr,count,dt,t.y - 0.002);
       [s,b]=views();
       machine.busy=s[0]!==0; machine.remaining=s[2]; machine.busyTime=s[3]; machine.progress=s[4]; machine.cycles=s[11];
       let first:import('../engine').Box|null=null;

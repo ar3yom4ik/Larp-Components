@@ -381,7 +381,8 @@ export default function App() {
     (id: string) => {
       const source = itemsRef.current.find((item) => item.id === id);
       if (!source) return;
-      const copy = makeItem(source.kind, [source.position[0] + 1, 0, source.position[2] + 1], source.rotation, {
+      const copy = makeItem(source.kind, [source.position[0] + 1, source.position[1], source.position[2] + 1], source.rotation, {
+        rotationX: source.rotationX, rotationZ: source.rotationZ,
         name: `${source.name} copy`,
         scale: source.scale,
         color: source.color,
@@ -435,7 +436,7 @@ export default function App() {
     const source = clipboard.current;
     if (!source) { notify("Nothing to paste", "info"); return; }
     const item = makeItem(source.kind, [source.position[0] + 0.8, source.position[1], source.position[2] + 0.8], source.rotation, {
-      name: `${source.name} copy`, scale: source.scale, color: source.color, props: { ...source.props },
+      name: `${source.name} copy`, rotationX: source.rotationX, rotationZ: source.rotationZ, scale: source.scale, color: source.color, props: { ...source.props },
       signalTargets: source.signalTargets ? [...source.signalTargets] : undefined,
       points: source.points?.map((p) => [...p] as [number, number]), script: source.script,
       program: source.program ? { ...source.program } : undefined, imported: source.imported, worker: source.worker,

@@ -4,6 +4,7 @@ import { getProduct, MACHINE_KINDS, palletSize } from "../data/products";
 import { distanceToSegment, navigate, pointIsFree, projectToFree, type Barrier, type WalkObstacle } from "./navigation";
 import { SpatialHash } from "./spatial";
 import { isLogicSource, isSignalSource, signalTargets } from "../utils/signalPorts";
+import { itemLocalToWorld, rotateVector, rotationMatrix, unrotateVector } from "../utils/transform";
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                               */
@@ -142,6 +143,7 @@ export class ConveyorRT {
     this.speed = num(item.props.speed, 0.6);
     this.active = item.props.active !== false;
     this.stopper = item.props.stopper === true;
+    this.top = item.position[1] + BELT_TOP;
     const local = (item.points && item.points.length >= 2 ? item.points : [[-2, 0], [2, 0]]) as P2[];
     const path = samplePath(local, 0.1);
     const rot = item.rotation * DEG;
@@ -258,7 +260,9 @@ export class PalletRT {
   id: string;
   name: string;
   x: number;
+  y: number;
   z: number;
+  scale: number;
   yaw: number;
   cols: number;
   rows: number;
@@ -274,14 +278,16 @@ export class PalletRT {
     this.id = item.id;
     this.name = item.name;
     this.x = item.position[0];
+    this.y = item.position[1];
     this.z = item.position[2];
+    this.scale = item.scale;
     this.yaw = item.rotation * DEG;
     this.cols = Math.max(1, Math.round(num(item.props.cols, 3)));
     this.rows = Math.max(1, Math.round(num(item.props.rows, 2)));
     this.layers = Math.max(1, Math.round(num(item.props.layers, 4)));
     this.productId = String(item.props.product || "carton");
     this.gap = num(item.props.gap, 0.04);
-    [this.width, this.depth] = palletSize(item.props);
+    [this.width, this.depth] = palletSize(item.props).map((v) => v * this.scale) as [number, number];
     if (prev) {
       this.cursor = prev.cursor;
       this.shipped = prev.shipped;
@@ -301,8 +307,8 @@ export class PalletRT {
     const row = Math.floor(idx / this.cols);
     const lx = (col - (this.cols - 1) / 2) * (size[0] + this.gap);
     const lz = (row - (this.rows - 1) / 2) * (size[2] + this.gap);
-    const [x, z] = toWorld(this.x, this.z, this.yaw, lx, lz);
-    return { x, y: PALLET_TOP + layer * size[1] + 0.002, z, yaw: this.yaw };
+    const [x, z] = toWorld(this.x, this.z, this.yaw, lx * this.scale, lz * this.scale);
+    return { x, y: this.y + PALLET_TOP * this.scale + layer * size[1] + 0.002, z, yaw: this.yaw };
   }
 }
 
@@ -325,6 +331,8 @@ export class MachineRT {
   requiredParts = 1;
   assemblyParts: Box[] = [];
   paintColor = "#d6534c";
+  scale: number;
+  private tablePoint: { x: number; y: number; z: number; yaw: number };
 
   constructor(item: SceneItem, prev?: MachineRT) {
     this.id = item.id;
@@ -332,6 +340,9 @@ export class MachineRT {
     this.x = item.position[0];
     this.z = item.position[2];
     this.yaw = item.rotation * DEG;
+    this.scale = item.scale;
+    const [tx, ty, tz] = itemLocalToWorld(item, [TABLE_LOCAL[0], TABLE_TOP, TABLE_LOCAL[1]]);
+    this.tablePoint = { x: tx, y: ty + 0.002, z: tz, yaw: this.yaw };
     this.cycle = num(item.props.cycleTime, 6);
     this.kind = item.kind;
     this.inputProduct = String(item.props.inputProduct || "any");
@@ -351,15 +362,14 @@ export class MachineRT {
     }
   }
 
-  table() {
-    const [x, z] = toWorld(this.x, this.z, this.yaw, TABLE_LOCAL[0], TABLE_LOCAL[1]);
-    return { x, y: TABLE_TOP + 0.002, z, yaw: this.yaw };
-  }
+  table() { return this.tablePoint; }
 }
 
 export interface FeederRT {
   id: string;
   x: number;
+  /** World-space drop height; optional for older experimental stepper callers. */
+  y?: number;
   z: number;
   yaw: number;
   interval: number;
@@ -426,9 +436,11 @@ export class RobotRT {
   kind: "robot" | "cobot";
   spec: RobotSpec;
   x = 0;
+  y = 0;
   z = 0;
   rot = 0;
   scale = 1;
+  private basis = rotationMatrix(0, 0, 0);
   tip: V3 = [0, 1, 0];
   joints = { waist: 0, shoulder: 0, elbow: 0, wrist: 0 };
   grip = 0;
@@ -453,6 +465,8 @@ export class RobotRT {
   program?: RobotProgram;
   gripper: GripperKind = "vacuum";
   payload = 12;
+  outputMode: "moving" | "operation-end" = "moving";
+  outputPulse = 0;
 
   constructor(id: number, item: SceneItem) {
     this.id = id;
@@ -469,42 +483,36 @@ export class RobotRT {
   }
 
   applyItem(item: SceneItem, initial = false) {
-    const nx = item.position[0];
-    const nz = item.position[2];
-    const nrot = item.rotation * DEG;
-    if (!initial) {
-      // keep the tool at the same pose relative to the base when the robot is moved
-      const [lx, ly, lz] = this.toLocal(this.tip);
-      this.x = nx;
-      this.z = nz;
-      this.rot = nrot;
-      this.scale = item.scale || 1;
-      const [wx, wz] = toWorld(this.x, this.z, this.rot, lx * this.scale, lz * this.scale);
-      this.tip = [wx, ly * this.scale, wz];
-    } else {
-      this.x = nx;
-      this.z = nz;
-      this.rot = nrot;
-      this.scale = item.scale || 1;
-    }
+    const localTip = initial ? null : this.toLocal(this.tip);
+    this.x = item.position[0];
+    this.y = item.position[1];
+    this.z = item.position[2];
+    this.rot = item.rotation * DEG;
+    this.scale = item.scale || 1;
+    this.basis = rotationMatrix(item.rotationX ?? 0, item.rotation, item.rotationZ ?? 0);
+    // Keep the tool at the same model-local pose during scene edits.
+    if (localTip) this.tip = this.toWorld(localTip);
     this.name = item.name;
     this.gripper = (item.props.gripper as GripperKind) || "vacuum";
     this.payload = num(item.props.payload, 12);
     this.program = item.program;
+    const outputMode = item.props.outputMode === "operation-end" ? "operation-end" : "moving";
+    if (outputMode !== this.outputMode) this.outputPulse = 0;
+    this.outputMode = outputMode;
     this.vmax = (0.5 + 2.2 * (num(item.props.speed, 70) / 100)) * (this.kind === "cobot" ? 0.7 : 1);
   }
 
   toLocal(p: V3): V3 {
-    const dx = p[0] - this.x;
-    const dz = p[2] - this.z;
-    const c = Math.cos(this.rot);
-    const s = Math.sin(this.rot);
-    return [(dx * c - dz * s) / this.scale, p[1] / this.scale, (dx * s + dz * c) / this.scale];
+    return unrotateVector(this.basis, [(p[0] - this.x) / this.scale, (p[1] - this.y) / this.scale, (p[2] - this.z) / this.scale]);
+  }
+
+  toWorld(local: V3): V3 {
+    const p = rotateVector(this.basis, local);
+    return [this.x + p[0] * this.scale, this.y + p[1] * this.scale, this.z + p[2] * this.scale];
   }
 
   homeTip(): V3 {
-    const [wx, wz] = toWorld(this.x, this.z, this.rot, (this.spec.L1 + this.spec.L2) * 0.52 * this.scale, 0);
-    return [wx, (this.spec.shoulder + 0.5) * this.scale, wz];
+    return this.toWorld([(this.spec.L1 + this.spec.L2) * 0.52, this.spec.shoulder + 0.5, 0]);
   }
 
   reach(p: V3): boolean {
@@ -711,6 +719,21 @@ export interface Navigator {
   navigate(start: P2, end: P2, barriers: Barrier[], obstacles: WalkObstacle[]): P2[];
 }
 
+interface MergeRoute {
+  source: ConveyorRT;
+  target: ConveyorRT;
+  /** First point of the connector's final overlap with the target. */
+  handoff: number;
+  entry: number;
+  group: MergeGroup;
+}
+interface MergeGroup {
+  target: ConveyorRT;
+  reservation: { route: MergeRoute; box: Box } | null;
+  candidates: Box[];
+  targetBoxes: Box[];
+}
+
 export class Engine {
   private _robotKinematics: RobotKinematics | null = null;
   get robotKinematics() { return this._robotKinematics; }
@@ -747,6 +770,7 @@ export class Engine {
    * that begin and end between two rendered frames. */
   signalActivations = new Map<string, number>();
   private feederSignals = new Map<string, FeederSignalState>();
+  private robotSignals = new Map<string, FeederSignalState>();
   barriers: Barrier[] = [];
   walkBarriers: Barrier[] = [];
   walkObstacles: WalkObstacle[] = [];
@@ -764,6 +788,10 @@ export class Engine {
   private listeners = new Set<Listener>();
   structureVersion = 0;
   private conveyorSignatures = new Map<string, string>();
+  /** Only generated merge connectors participate; ordinary belts keep the old path. */
+  private mergeRoutes = new Map<string, MergeRoute>();
+  private mergeGroups = new Map<string, MergeGroup>();
+  private mergePresent = new Set<Box>();
 
   /* ----- derived lookup tables, rebuilt by `sync` -----
      The stepping code runs up to sixty times per second, so every list scan it used to
@@ -854,7 +882,7 @@ export class Engine {
             hw: pallet.width / 2,
             hd: pallet.depth / 2,
             yaw: pallet.yaw,
-            top: PALLET_TOP,
+            top: pallet.y + PALLET_TOP * pallet.scale,
             palletId: item.id,
           });
           break;
@@ -874,15 +902,16 @@ export class Engine {
           const machine = prev ? Object.assign(prev, new MachineRT(item, prev)) : new MachineRT(item);
           machines.set(item.id, machine);
           const t = machine.table();
-          rects.push({ id: item.id, cx: t.x, cz: t.z, hw: 0.4, hd: 0.32, yaw: machine.yaw, top: TABLE_TOP, palletId: null });
+          rects.push({ id: item.id, cx: t.x, cz: t.z, hw: 0.4 * machine.scale, hd: 0.32 * machine.scale, yaw: machine.yaw, top: t.y - 0.002, palletId: null });
           break;
         }
         case "feeder": {
           const prev = this.feeders.get(item.id);
-          const [x, z] = toWorld(item.position[0], item.position[2], item.rotation * DEG, 0.0, 0);
+          const [x, y, z] = itemLocalToWorld(item, [0, 1.12, 0]);
           feeders.set(item.id, {
             id: item.id,
             x,
+            y,
             z,
             yaw: item.rotation * DEG,
             interval: Math.max(0.5, num(item.props.interval, 4)),
@@ -931,7 +960,7 @@ export class Engine {
           const width = Math.max(0.4, num(item.props.width, 1)), depth = Math.max(0.4, num(item.props.depth, 0.8));
           const prev = this.collectors.get(item.id);
           this.collectors.set(item.id, { count: prev?.count ?? 0, capacity: Math.max(1, num(item.props.capacity, 500)) });
-          rects.push({ id: item.id, cx: item.position[0], cz: item.position[2], hw: width / 2, hd: depth / 2, yaw: item.rotation * DEG, top: 0.08, palletId: null, collectorId: item.id });
+          rects.push({ id: item.id, cx: item.position[0], cz: item.position[2], hw: width / 2, hd: depth / 2, yaw: item.rotation * DEG, top: item.position[1] + 0.08 * item.scale, palletId: null, collectorId: item.id });
           break;
         }
         case "fence": {
@@ -963,6 +992,18 @@ export class Engine {
         const lx = dx * Math.cos(old.yaw) - dz * Math.sin(old.yaw);
         const lz = dx * Math.sin(old.yaw) + dz * Math.cos(old.yaw);
         [b.x, b.z] = toWorld(next.x, next.z, next.yaw, lx, lz);
+        b.y += next.y - old.y + PALLET_TOP * (next.scale - old.scale);
+      } else if (b.state === "free" && b.support === 2) {
+        const oldBelt = this.conveyors.get(b.convId), nextBelt = conveyors.get(b.convId);
+        if (oldBelt && nextBelt && oldBelt !== nextBelt) {
+          const from = oldBelt.pointAt(b.convS), to = nextBelt.pointAt(b.convS);
+          const oldYaw = from.yaw, nextYaw = to.yaw;
+          const dx = b.x - from.x, dz = b.z - from.z;
+          const lx = dx * Math.cos(oldYaw) - dz * Math.sin(oldYaw);
+          const lz = dx * Math.sin(oldYaw) + dz * Math.cos(oldYaw);
+          [b.x, b.z] = toWorld(to.x, to.z, nextYaw, lx, lz);
+          b.y += nextBelt.top - oldBelt.top;
+        }
       }
     }
     this.conveyors = conveyors;
@@ -1009,6 +1050,7 @@ export class Engine {
     this.rects = rects;
     this.rebuildIndices(conveyors, rects, barriers);
     this.syncFeederSignals();
+    this.syncRobotSignals();
     if (this.running) this.startPrograms();
   }
 
@@ -1028,13 +1070,15 @@ export class Engine {
       // A hidden source is inactive, but its feeder remains signal-controlled
       // rather than unexpectedly reverting to automatic production.
       for (const target of signalTargets(item)) {
-        if (item.visible === false && this.itemById.get(target)?.kind !== "feeder") continue;
+        const targetKind = this.itemById.get(target)?.kind;
+        if (item.visible === false && targetKind !== "feeder" && !["robot", "cobot", "kuka", "fanuc"].includes(targetKind ?? "")) continue;
         const list = triggers.get(target);
         if (list) list.push(item); else triggers.set(target, [item]);
       }
     }
     this.logicItems = logic;
     this.triggers = triggers;
+    this.rebuildMergeRoutes(conveyors);
     this.walkSources = this.items.filter((i) => i.visible !== false && ["feeder", "conveyor", "roller", "cnc", "press", "weld", "packaging"].includes(i.kind));
     this.cratesItem = this.items.find((i) => i.visible !== false && i.kind === "crates");
     this.humanStations.clear();
@@ -1065,6 +1109,85 @@ export class Engine {
         Math.max(barrier.a[1], barrier.b[1]) + pad,
       );
     }
+  }
+
+  /** Resolve merge metadata to the actual, currently touching conveyor paths.
+   * Moving/removing a belt cannot teleport parts to a disconnected target. */
+  private rebuildMergeRoutes(conveyors: Map<string, ConveyorRT>) {
+    this.mergeRoutes.clear();
+    this.mergeGroups.clear();
+    for (const item of this.items) {
+      const targetId = typeof item.props.mergeTargetId === "string" ? item.props.mergeTargetId : "";
+      const source = conveyors.get(item.id), target = conveyors.get(targetId);
+      if (!source || !target || source === target || Math.abs(source.top - target.top) > 0.05) continue;
+      const last = source.x.length - 1;
+      const end = target.query(source.x[last], source.z[last]);
+      if (!end?.inside) continue;
+      let first = last;
+      while (first > 0 && target.query(source.x[first-1], source.z[first-1])?.inside) first--;
+      let group = this.mergeGroups.get(target.id);
+      if (!group) { group = { target, reservation: null, candidates: [], targetBoxes: [] }; this.mergeGroups.set(target.id, group); }
+      this.mergeRoutes.set(source.id, { source, target, handoff: source.s[first], entry: end.s, group });
+    }
+  }
+
+  /** Select one oldest waiting product at a time per merge target. Products on
+   * the main conveyor get clearance first; queues stop before the junction. */
+  private prepareMergeReservations() {
+    if (!this.mergeGroups.size) return;
+    this.mergePresent.clear();
+    for (const box of this.boxes) if (box.state === "free") this.mergePresent.add(box);
+    for (const group of this.mergeGroups.values()) {
+      group.candidates.length = 0;
+      group.targetBoxes.length = 0;
+      const reservation = group.reservation;
+      if (!reservation) continue;
+      const { box, route } = reservation;
+      const onTarget = box.support === 2 && box.convId === group.target.id;
+      const current = onTarget ? group.target.query(box.x, box.z) : null;
+      if (!this.mergePresent.has(box) || !route.source.active || !group.target.active ||
+          (box.support !== 2 || (box.convId !== route.source.id && box.convId !== group.target.id)) ||
+          (current && current.s > route.entry + box.r + 0.35)) group.reservation = null;
+    }
+    for (const box of this.boxes) {
+      if (box.state !== "free" || box.support !== 2) continue;
+      this.mergeGroups.get(box.convId)?.targetBoxes.push(box);
+      const route = this.mergeRoutes.get(box.convId);
+      if (!route || route.group.reservation || !route.source.active || !route.target.active) continue;
+      const q = route.source.query(box.x, box.z);
+      if (q?.inside && q.s >= route.handoff - box.r - 0.45) route.group.candidates.push(box);
+    }
+    for (const group of this.mergeGroups.values()) {
+      if (group.reservation || !group.candidates.length) continue;
+      // Pick the oldest waiting product *before* testing clearance. Otherwise
+      // a stream of smaller products can repeatedly fit a gap that is just too
+      // small for the older product, starving an entire input indefinitely.
+      let chosen = group.candidates[0];
+      for (const box of group.candidates) if (box.id < chosen.id) chosen = box;
+      const route = this.mergeRoutes.get(chosen.convId)!;
+      // A small upstream look-ahead leaves time for a side-entry product to
+      // reach the junction before a main-line product arrives there.
+      const occupied = group.targetBoxes.some((other) => {
+        if (other === chosen) return false;
+        const q = group.target.query(other.x, other.z);
+        if (!q?.inside) return false;
+        const distance = q.s-route.entry;
+        const clearance = chosen.r+other.r+0.18;
+        return distance > -clearance-Math.max(0.5,group.target.speed*0.5) && distance < clearance;
+      });
+      if (!occupied) group.reservation = {box:chosen,route};
+    }
+  }
+
+  /** Extra virtual stop line for the unselected heads and for main-line parts
+   * approaching a reserved side entry. Uses the existing conveyor stopper in
+   * both TypeScript and the optional Rust product integrator. */
+  private mergeStopLength(box: Box, conveyor: ConveyorRT, q: Query): number | null {
+    const route = this.mergeRoutes.get(conveyor.id);
+    if (route && route.group.reservation?.box !== box) return Math.max(0, route.handoff - 0.18);
+    const reservation = this.mergeGroups.get(conveyor.id)?.reservation;
+    if (reservation && reservation.box !== box && q.s < reservation.route.entry) return Math.max(0, reservation.route.entry - reservation.box.r - 0.06);
+    return null;
   }
 
   private noteSignalActivation(id: string) {
@@ -1106,6 +1229,56 @@ export class Engine {
   pendingFeederSignals(id: string) {
     const state = this.feederSignals.get(id);
     return state ? [...state.pending.values()].reduce((sum, count) => sum + count, 0) : 0;
+  }
+
+
+  /** Each direct robot input queues rising edges, just like a signal feeder.
+   * Hidden/disconnected sources never turn a wired robot into automatic mode. */
+  private syncRobotSignals() {
+    const next = new Map<string, FeederSignalState>();
+    for (const robot of this.robots.values()) {
+      const sources = this.triggers.get(robot.itemId);
+      if (!sources?.length) continue;
+      const previous = this.robotSignals.get(robot.itemId);
+      const state: FeederSignalState = { observed: new Map(), pending: new Map() };
+      for (const source of sources) {
+        const revision = this.signalActivations.get(source.id) ?? 0;
+        if (previous?.observed.has(source.id)) {
+          state.observed.set(source.id, previous.observed.get(source.id)!);
+          const pending = previous.pending.get(source.id) ?? 0;
+          if (pending && source.visible !== false) state.pending.set(source.id, pending);
+        } else {
+          state.observed.set(source.id, revision);
+          if (source.visible !== false && this.signalState.get(source.id) === true) state.pending.set(source.id, 1);
+        }
+      }
+      next.set(robot.itemId, state);
+    }
+    this.robotSignals = next;
+  }
+
+  private captureRobotSignals() {
+    for (const [id, state] of this.robotSignals) for (const source of this.triggers.get(id) ?? []) {
+      const revision = this.signalActivations.get(source.id) ?? 0;
+      const previous = state.observed.get(source.id) ?? revision;
+      if (source.visible !== false && revision > previous) state.pending.set(source.id, (state.pending.get(source.id) ?? 0) + revision - previous);
+      state.observed.set(source.id, revision);
+    }
+  }
+
+  pendingRobotSignals(id: string) {
+    const state = this.robotSignals.get(id);
+    return state ? [...state.pending.values()].reduce((sum, count) => sum + count, 0) : 0;
+  }
+
+  private consumeRobotSignal(id: string): boolean {
+    const state = this.robotSignals.get(id);
+    if (!state) return false;
+    for (const source of this.triggers.get(id) ?? []) {
+      const count = state.pending.get(source.id) ?? 0;
+      if (count > 0) { if (count === 1) state.pending.delete(source.id); else state.pending.set(source.id, count - 1); return true; }
+    }
+    return false;
   }
 
   /** Keep initial and reset positions out of equipment and other people. */
@@ -1164,7 +1337,11 @@ export class Engine {
     this.signalState = new Map(this.items.filter(isSignalSource).map((i) => [i.id, i.visible !== false && i.props.signal === true]));
     for (const [id, value] of this.signalState) if (value) this.noteSignalActivation(id);
     this.feederSignals.clear();
+    this.robotSignals.clear();
+    this.robots.forEach((robot) => { robot.outputPulse = 0; });
+    for (const group of this.mergeGroups.values()) group.reservation = null;
     this.syncFeederSignals();
+    this.syncRobotSignals();
     this.conveyors.forEach((conv) => {
       const item = this.items.find((i) => i.id === conv.id);
       conv.speed = num(item?.props.speed, 0.6); conv.active = item?.props.active !== false;
@@ -1365,7 +1542,7 @@ export class Engine {
           const t = machine.table();
           return (
             this.boxes.find(
-              (box) => box.state === "free" && Math.hypot(box.x - t.x, box.z - t.z) < 0.45 && Math.abs(box.y - box.hy - TABLE_TOP) < 0.08,
+              (box) => box.state === "free" && Math.hypot(box.x - t.x, box.z - t.z) < 0.45 && Math.abs(box.y - box.hy - (t.y - 0.002)) < 0.08,
             ) ?? null
           );
         };
@@ -1485,7 +1662,7 @@ export class Engine {
     const nearby = this.boxIndex.query(t.x, t.z, this.grabScratch, 0.45);
     for (let i = 0; i < nearby.length; i += 1) {
       const b = nearby[i];
-      if (b.state === "free" && Math.hypot(b.x - t.x, b.z - t.z) < 0.45 && Math.abs(b.y - b.hy - TABLE_TOP) < 0.09) return b;
+      if (b.state === "free" && Math.hypot(b.x - t.x, b.z - t.z) < 0.45 && Math.abs(b.y - b.hy - (t.y - 0.002)) < 0.09) return b;
     }
     return null;
   }
@@ -1507,7 +1684,7 @@ export class Engine {
       if ((action === 1 || action === 2) && first) {
         if (action === 2) {
           consumed.forEach((p) => { p.state = "dying"; p.fade = 1; });
-          first.y = TABLE_TOP + first.hy + 0.002; first.x = t.x; first.z = t.z; first.assembly = true;
+          first.y = t.y + first.hy; first.x = t.x; first.z = t.z; first.assembly = true;
         }
         if (machine.busy) { machine.part = first; first.state = "inside"; first.claim = 0; }
       } else if ((action === 3 || action === 4) && machine.part) {
@@ -1520,10 +1697,10 @@ export class Engine {
     if (!machine.busy) {
       if (machine.kind === "assembly") {
         const t = machine.table();
-        const parts = this.boxes.filter((b) => b.state === "free" && b.claim === 0 && b.lastMachine !== machine.id && Math.hypot(b.x - t.x, b.z - t.z) < 0.48 && Math.abs(b.y - b.hy - TABLE_TOP) < 0.12);
+        const parts = this.boxes.filter((b) => b.state === "free" && b.claim === 0 && b.lastMachine !== machine.id && Math.hypot(b.x - t.x, b.z - t.z) < 0.48 && Math.abs(b.y - b.hy - (t.y - 0.002)) < 0.12);
         if (parts.length >= machine.requiredParts) {
           const first = parts[0]; parts.slice(1).forEach((p) => { p.state = "dying"; p.fade = 1; });
-          first.y = TABLE_TOP + first.hy + 0.002; first.x = t.x; first.z = t.z; first.assembly = true;
+          first.y = t.y + first.hy; first.x = t.x; first.z = t.z; first.assembly = true;
           this.process(machine, first);
         }
         return;
@@ -1552,7 +1729,7 @@ export class Engine {
     box.productId = product.id; box.color = machine.kind === "paint" ? parseInt(machine.paintColor.replace("#", ""), 16) : product.color;
     [box.hx, box.hy, box.hz] = product.size.map((v) => v / 2) as V3;
     box.r = Math.max(product.size[0], product.size[2]) * 0.55;
-    box.y = TABLE_TOP + box.hy + 0.002; box.vx = box.vy = box.vz = 0;
+    box.y = machine.table().y + box.hy; box.vx = box.vy = box.vz = 0;
     box.state = "free"; box.processed = true; box.lastMachine = machine.id;
     if (machine.kind === "inspection") box.inspected = true;
   }
@@ -1588,6 +1765,7 @@ export class Engine {
           robot.error = "Destination is outside robot reach. Move it closer to continue.";
           return false;
         }
+        this.triggerGate(robot.itemId, config.sourceId, true);
         robot.error = null; box = found; found.claim = robot.id;
         return true;
       });
@@ -1601,7 +1779,7 @@ export class Engine {
         for (let n = 0; n < rounds; n += 1) {
           if (n > 0) {
             let extra: Box | null = null;
-            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId)) return false; extra = this.findPart(robot, z); if (extra) extra.claim = robot.id; return !!extra; });
+            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId)) return false; extra = this.findPart(robot, z); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true); extra.claim = robot.id; } return !!extra; });
             if (!extra || !(yield* this.pickGen(robot, extra))) break;
           }
           if (!(yield* this.placeGen(robot, live))) break;
@@ -1658,7 +1836,7 @@ export class Engine {
     const engine = this;
     return {
       get x() { return engine.machines.get(id)?.table().x ?? 0; },
-      get y() { return TABLE_TOP + 0.002; },
+      get y() { return engine.machines.get(id)?.table().y ?? TABLE_TOP + 0.002; },
       get z() { return engine.machines.get(id)?.table().z ?? 0; },
       get yaw() { return engine.machines.get(id)?.yaw ?? 0; },
     };
@@ -1778,9 +1956,9 @@ export class Engine {
         human.held = part; part.state = "held"; part.claim = human.claim; human.stage = 1; human.status = "carrying";
       } else if (human.stage === 1) {
         const part = human.held; if (!part) { human.stage = 0; return; }
-        part.x = human.x; part.z = human.z; part.y = 1.0;
+        part.x = human.x; part.z = human.z; part.y = item.position[1] + 1.0;
         if (!this.walkHuman(human, table.x, table.z + 0.45, speed * 0.85, dt)) return;
-        part.x = table.x; part.z = table.z; part.y = TABLE_TOP + part.hy + 0.002;
+        part.x = table.x; part.z = table.z; part.y = table.y + part.hy;
         part.state = "free"; part.claim = 0; human.held = null; human.stage = 2; human.dwell = 0;
         this.process(machine, part);
       } else if (human.stage === 2) {
@@ -1791,10 +1969,10 @@ export class Engine {
         }
       } else {
         const part = human.held; if (!part) { human.stage = 0; return; }
-        part.x = human.x; part.z = human.z; part.y = 1.0;
+        part.x = human.x; part.z = human.z; part.y = item.position[1] + 1.0;
         const out = output.pointAt(0.5);
         if (!this.walkHuman(human, out.x, out.z + 0.4, speed * 0.85, dt)) return;
-        part.x = out.x; part.z = out.z; part.y = BELT_TOP + part.hy + 0.002; part.state = "free"; part.claim = 0;
+        part.x = out.x; part.z = out.z; part.y = out.y + part.hy + 0.002; part.state = "free"; part.claim = 0;
         human.held = null; human.stage = 0; human.completed += 1; human.status = "walking";
       }
       return;
@@ -2030,7 +2208,8 @@ export class Engine {
 
   private *waitSignalGen(robot: RobotRT, targetId: string): Generator<Cmd, boolean, unknown> {
     const engine = this;
-    yield this.waiter(() => engine.signalFor(targetId));
+    yield this.waiter(() => targetId === robot.itemId && engine.robotSignals.has(targetId)
+      ? engine.consumeRobotSignal(targetId) : engine.signalFor(targetId));
     return !!robot;
   }
 
@@ -2101,6 +2280,7 @@ export class Engine {
     const up = this.approach(robot, robot.tip, robot.program?.clearance ?? 0.35);
     yield this.servo(robot, () => up, 0.02, 0.8);
     robot.cycles += 1;
+    if (robot.outputMode === "operation-end") robot.outputPulse = 0.1;
     robot.lastCycle = this.time - robot.lastCycleAt;
     robot.lastCycleAt = this.time;
     return true;
@@ -2174,21 +2354,25 @@ export class Engine {
       this.condBuffer = current;
     }
 
-    const spawnFromFeeder = (feeder: FeederRT) => this.spawn(feeder.productId, feeder.x, 1.12, feeder.z, feeder.yaw);
-    if (this.feederStepper && this.feederSignals.size === 0) {
+    const spawnFromFeeder = (feeder: FeederRT) => this.spawn(feeder.productId, feeder.x, feeder.y ?? 1.12, feeder.z, feeder.yaw);
+    const standardFeederHeights = this.feederStepper && this.feederSignals.size === 0 && [...this.feeders.values()].every((feeder) => Math.abs((feeder.y ?? 1.12) - 1.12) < 1e-8);
+    if (this.feederStepper && standardFeederHeights) {
       this.feederStepper.step(this.feeders.values(), this.boxes, dt, spawnFromFeeder, MAX_BOXES);
     } else this.feeders.forEach((feeder) => {
       const signals = this.feederSignals.get(feeder.id);
       if (signals) this.updateSignalFeeder(feeder, signals, dt);
       // The experimental Rust batch has no signal mode. Use it only for the
       // ordinary feeders, in scene order so overlapping feeders remain safe.
-      else if (this.feederStepper) this.feederStepper.step([feeder], this.boxes, dt, spawnFromFeeder, MAX_BOXES);
+      else if (this.feederStepper && Math.abs((feeder.y ?? 1.12) - 1.12) < 1e-8) this.feederStepper.step([feeder], this.boxes, dt, spawnFromFeeder, MAX_BOXES);
       else this.updateFeeder(feeder, dt);
     });
+    this.captureRobotSignals();
     this.robots.forEach((robot) => this.updateRobot(robot, dt));
     this.machines.forEach((machine) => this.updateMachine(machine, dt));
     this.humans.forEach((human) => this.updateHuman(human, dt));
     this.updateLogic();
+    this.robots.forEach((robot) => { robot.outputPulse = Math.max(0, robot.outputPulse - dt); });
+    this.prepareMergeReservations();
     this.physics(dt);
   }
 
@@ -2209,9 +2393,9 @@ export class Engine {
     if (feeder.timer > 0 || (feeder.requireSupply && feeder.supply <= 0)) return;
     const sourceId = sources.find((source) => (state.pending.get(source.id) ?? 0) > 0)?.id;
     if (!sourceId) return;
-    const sy = 1.12;
+    const sy = feeder.y ?? 1.12;
     const blocked = this.boxes.some(
-      (box) => box.state !== "dead" && Math.hypot(box.x - feeder.x, box.z - feeder.z) < 0.5 && box.y > 0.4 && box.y < sy + 0.4,
+      (box) => box.state !== "dead" && Math.hypot(box.x - feeder.x, box.z - feeder.z) < 0.5 && box.y > sy - 0.72 && box.y < sy + 0.4,
     );
     if (blocked || this.boxes.length >= MAX_BOXES) return;
     const remaining = (state.pending.get(sourceId) ?? 1) - 1;
@@ -2225,9 +2409,9 @@ export class Engine {
     if (!feeder.active || (feeder.requireSupply && feeder.supply <= 0)) return;
     feeder.timer -= dt;
     if (feeder.timer > 0) return;
-    const sy = 1.12;
+    const sy = feeder.y ?? 1.12;
     const blocked = this.boxes.some(
-      (box) => box.state !== "dead" && Math.hypot(box.x - feeder.x, box.z - feeder.z) < 0.5 && box.y > 0.4 && box.y < sy + 0.4,
+      (box) => box.state !== "dead" && Math.hypot(box.x - feeder.x, box.z - feeder.z) < 0.5 && box.y > sy - 0.72 && box.y < sy + 0.4,
     );
     if (blocked || this.boxes.length >= MAX_BOXES) {
       feeder.timer = 0.25;
@@ -2326,7 +2510,22 @@ export class Engine {
   }
 
   private updateLogic() {
-    if (this.logicStepper) {
+    // The optional Rust logic kernel models ground-level detectors. Elevated
+    // or tilted detectors use the host path so they don't sense another floor.
+    const standardSensors = !this.logicStepper || this.logicItems.every((item) => {
+      if (item.kind !== "sensor" && item.kind !== "laser") return true;
+      if (item.position[1] !== 0 || item.rotationX || item.rotationZ || item.scale !== 1) return false;
+      // The legacy Rust proximity sensor is 2D. It is equivalent on one floor,
+      // but defer to the host if a nearby product is on a different level.
+      if (item.kind === "sensor") {
+        const radius = Math.max(0.2, num(item.props.radius, 0.8));
+        return !this.boxes.some((box) => box.state !== "dead" &&
+          Math.hypot(box.x - item.position[0], box.z - item.position[2]) <= radius &&
+          Math.abs(box.y + box.hy - 1) > Math.max(0.5, radius));
+      }
+      return true;
+    });
+    if (this.logicStepper && standardSensors) {
       const before = new Map(this.logicItems.map((item) => [item.id, this.signalState.get(item.id) === true]));
       this.logicStepper.step(this.logicItems, this.boxes, this.triggers, this.signalState);
       for (const item of this.logicItems) if (this.signalState.get(item.id) === true && !before.get(item.id)) this.noteSignalActivation(item.id);
@@ -2337,11 +2536,12 @@ export class Engine {
         const yaw = item.rotation * DEG, c = Math.cos(yaw), sn = Math.sin(yaw);
         const a = [item.position[0] - range * c, item.position[2] + range * sn];
         const b = [item.position[0] + range * c, item.position[2] - range * sn];
-        signal = this.boxes.some((box) => box.state !== "dead" && box.state !== "dying" && Math.abs(box.y + box.hy - 1.0) < 0.5 && distanceToSegment(box.x, box.z, a as P2, b as P2).distance < box.r + 0.06);
+        signal = this.boxes.some((box) => box.state !== "dead" && box.state !== "dying" && Math.abs(box.y + box.hy - (item.position[1] + item.scale)) < 0.5 * item.scale && distanceToSegment(box.x, box.z, a as P2, b as P2).distance < box.r + 0.06);
         if (item.props.normallyClosed === true) signal = !signal;
       } else if (item.kind === "sensor") {
         const radius = Math.max(0.2, num(item.props.radius, 0.8));
-        signal = this.boxes.some((box) => box.state !== "dead" && Math.hypot(box.x - item.position[0], box.z - item.position[2]) <= radius);
+        signal = this.boxes.some((box) => box.state !== "dead" && Math.hypot(box.x - item.position[0], box.z - item.position[2]) <= radius &&
+          Math.abs(box.y + box.hy - (item.position[1] + 1.0 * item.scale)) <= Math.max(0.5, radius));
       } else if (item.kind === "plc") {
         const sources = this.triggers.get(item.id);
         signal = (sources ? sources.some((i) => this.signalState.get(i.id) === true) : false) || item.props.signal === true;
@@ -2350,21 +2550,17 @@ export class Engine {
     }
     // Keep robot output state current even while disconnected, so connecting an
     // idle robot never replays a stale signal from an earlier connection.
-    for (const robot of this.robots.values()) this.writeSignal(robot.itemId, robot.status === "moving" || !!robot.held);
+    for (const robot of this.robots.values()) this.writeSignal(robot.itemId, robot.outputMode === "operation-end" ? robot.outputPulse > 0 : robot.status === "moving" || !!robot.held);
   }
 
-  private triggerGate(robotId: string, sourceId: string) {
-    const lists = [this.triggers.get(robotId), this.triggers.get(sourceId)];
-    let count = 0;
-    for (const list of lists) {
-      if (!list) continue;
-      for (const item of list) {
-        if (item.kind !== "button" && item.kind !== "laser" && item.kind !== "sensor") continue;
-        count += 1;
-        if (this.signalState.get(item.id)) return true;
-      }
-    }
-    return count === 0;
+  private triggerGate(robotId: string, sourceId: string, consume = false) {
+    const direct = this.robotSignals.get(robotId);
+    const hasPending = !!direct && [...direct.pending.values()].some((count) => count > 0);
+    const legacy = this.triggers.get(sourceId) ?? [];
+    const legacyHigh = legacy.some((item) => item.visible !== false && this.signalState.get(item.id) === true);
+    if (hasPending) { if (consume) this.consumeRobotSignal(robotId); return true; }
+    if (legacyHigh) return true;
+    return !direct && legacy.length === 0;
   }
 
   /* ----- physics ----- */
@@ -2419,6 +2615,20 @@ export class Engine {
         out.q = null;
         out.palletId = rect.palletId;
         out.collectorId = rect.collectorId ?? null;
+      }
+    }
+    // Stay on the incoming head until its reservation reaches the actual
+    // overlap; other coincident conveyor surfaces must not steal the product.
+    const route = this.mergeRoutes.size && b.support === 2 ? this.mergeRoutes.get(b.convId) : undefined;
+    if (route && bottom >= route.source.top - 0.14 && bottom <= route.source.top + 0.1 && out.top <= route.source.top) {
+      const sourceQuery = route.source.query(b.x, b.z);
+      if (sourceQuery?.inside) {
+        const targetQuery = route.target.query(b.x, b.z);
+        const canTransfer = route.group.reservation?.box === b && sourceQuery.s >= route.handoff - 0.11 && targetQuery?.inside;
+        out.top = route.source.top; out.kind = 2;
+        out.conv = canTransfer ? route.target : route.source;
+        out.q = canTransfer ? targetQuery : sourceQuery;
+        out.palletId = null; out.collectorId = null;
       }
     }
     const stacked = this.boxIndex.empty ? this.boxScratch : this.boxIndex.query(b.x, b.z, this.boxScratch, b.r);
@@ -2521,9 +2731,11 @@ export class Engine {
             if (ds > 0 && ds < b.r + o.r + 0.02 && Math.abs(o.convLat - q.lat) < b.r + o.r - 0.05) { blocked = true; break; }
           }
         }
+        const gateLength = this.mergeRoutes.size && conv && q ? this.mergeStopLength(b, conv, q) : null;
         const landed = this.productIntegrator.integrate(b, {
           top: sup.top, kind: sup.kind, conveyor: !!(conv && q), lat: q?.lat ?? 0, tx: q?.tx ?? 0, tz: q?.tz ?? 0,
-          along: q?.s ?? 0, speed: conv?.active ? conv.speed : 0, blocked, stopper: conv?.stopper ?? false, length: conv?.length ?? 0,
+          along: q?.s ?? 0, speed: conv?.active ? conv.speed : 0, blocked, stopper: (conv?.stopper ?? false) || gateLength !== null,
+          length: gateLength === null ? (conv?.length ?? 0) : Math.min(conv?.stopper ? conv.length : Infinity, gateLength),
         }, dt);
         if (landed && !(conv && q)) this.recordProductSupport(b, sup, dt);
       } else if (bottom <= sup.top + 0.004 && b.vy <= 0.05) {
@@ -2556,8 +2768,10 @@ export class Engine {
           b.vz += (dvz - b.vz) * k;
           const target = Math.atan2(-q.tz, q.tx);
           b.yaw += wrapQuarter(target - b.yaw) * Math.min(1, 5 * dt);
-          if (conv.stopper) {
-            const limit = conv.length - 0.06 - b.r;
+          const gateLength = this.mergeRoutes.size ? this.mergeStopLength(b, conv, q) : null;
+          if (conv.stopper || gateLength !== null) {
+            const length = gateLength === null ? conv.length : Math.min(conv.stopper ? conv.length : Infinity, gateLength);
+            const limit = length - 0.06 - b.r;
             if (q.s > limit) {
               const back = q.s - limit;
               b.x -= q.tx * back;

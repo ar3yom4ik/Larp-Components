@@ -43,6 +43,8 @@ interface DragState {
   originY: number;
   from?: { node: string; port: string };
   detachLinkId?: string;
+  x?: number;
+  y?: number;
 }
 
 /**
@@ -61,8 +63,21 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
   const [zoom, setZoom] = useState(0.85);
   const [wire, setWire] = useState<{ from: { node: string; port: string }; x: number; y: number } | null>(null);
   const [hoverPort, setHoverPort] = useState<string | null>(null);
-
-  const byId = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph.nodes]);
+  // A drag is an ephemeral canvas preview, not hundreds of persisted edits.
+  // Only its final position is committed to graph history/storage.
+  const [nodePreview, setNodePreview] = useState<{ id: string; x: number; y: number } | null>(null);
+  const frame = useRef<number | null>(null);
+  const displayGraph = useMemo(() => nodePreview ? updateNode(graph, nodePreview.id, nodePreview) : graph, [graph, nodePreview]);
+  const byId = useMemo(() => new Map(displayGraph.nodes.map((node) => [node.id, node])), [displayGraph.nodes]);
+  const incomingCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const link of graph.links) {
+      const key = `${link.to.node}:${link.to.port}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [graph.links]);
+  useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
   const nodeDiagnostics = useMemo(() => {
     const map = new Map<string, Diagnostic[]>();
     for (const entry of diagnostics) {
@@ -91,7 +106,15 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
     if (state?.kind === 'node' && state.pointerId === event.pointerId) {
       const dx = (event.clientX - state.startX) / zoom;
       const dy = (event.clientY - state.startY) / zoom;
-      onChange(updateNode(graph, state.id!, { x: Math.round(state.originX + dx), y: Math.round(state.originY + dy) }));
+      state.x = Math.round(state.originX + dx);
+      state.y = Math.round(state.originY + dy);
+      if (frame.current === null) frame.current = requestAnimationFrame(() => {
+        frame.current = null;
+        const current = drag.current;
+        if (current?.kind === 'node' && current.id && current.x !== undefined && current.y !== undefined) {
+          setNodePreview({ id: current.id, x: current.x, y: current.y });
+        }
+      });
       return;
     }
     if (state?.kind === 'pan' && state.pointerId === event.pointerId) {
@@ -106,11 +129,21 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
 
   const endDrag = (event: React.PointerEvent) => {
     const state = drag.current;
-    if (state?.kind === 'node' && state.id) {
+    if (state?.kind === 'node' && state.id && state.pointerId === event.pointerId) {
+      if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
+      const x = Math.round(state.originX + (event.clientX - state.startX) / zoom);
+      const y = Math.round(state.originY + (event.clientY - state.startY) / zoom);
+      let next = updateNode(graph, state.id, { x, y });
       // Insert only loose nodes, and only when their box actually covers a wire.
       const element = host.current?.querySelector(`[data-node="${CSS.escape(state.id)}"]`);
       const rect = element?.getBoundingClientRect();
-      if (rect && Math.hypot(event.clientX-state.startX, event.clientY-state.startY) > 5) {
+      const loose = !graph.links.some((link) => link.from.node === state.id || link.to.node === state.id);
+      if (rect && loose && Math.hypot(event.clientX-state.startX, event.clientY-state.startY) > 5) {
+        // The last RAF may not have painted yet when a fast drag ends. Shift
+        // the last rendered rectangle to the actual final pointer position.
+        const previewX = nodePreview?.id === state.id ? nodePreview.x : state.originX;
+        const previewY = nodePreview?.id === state.id ? nodePreview.y : state.originY;
+        const dx = (x - previewX) * zoom, dy = (y - previewY) * zoom;
         for (const path of host.current?.querySelectorAll<SVGPathElement>('path[data-link-id]') ?? []) {
           const matrix = path.getScreenCTM();
           if (!matrix) continue;
@@ -118,14 +151,16 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
           let intersects = false;
           for (let d = 0; d <= length; d += Math.max(4, length / 100)) {
             const point = path.getPointAtLength(d).matrixTransform(matrix);
-            if (point.x > rect.left && point.x < rect.right && point.y > rect.top && point.y < rect.bottom) { intersects = true; break; }
+            if (point.x > rect.left + dx && point.x < rect.right + dx && point.y > rect.top + dy && point.y < rect.bottom + dy) { intersects = true; break; }
           }
           if (intersects && path.dataset.linkId) {
-            const result = insertNodeInLink(graph, state.id, path.dataset.linkId);
-            if (result.ok) { onChange(result.graph); break; }
+            const result = insertNodeInLink(next, state.id, path.dataset.linkId);
+            if (result.ok) { next = result.graph; break; }
           }
         }
       }
+      setNodePreview(null);
+      if (x !== state.originX || y !== state.originY || next.links !== graph.links) onChange(next);
     }
     if (state?.kind === 'wire' && state.from) {
       const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-input-node]') as HTMLElement | null;
@@ -137,9 +172,6 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
         } else onChange(without);
       } else if (!state.detachLinkId && target?.dataset.inputNode && target.dataset.inputPort && target.dataset.inputNode !== state.from.node) {
         onConnect(state.from, { node: target.dataset.inputNode, port: target.dataset.inputPort });
-      } else if (!state.detachLinkId && !target && Math.hypot(event.clientX-state.startX, event.clientY-state.startY)>6) {
-        // Pulling an output into empty space disconnects its outgoing wires.
-        onChange({...graph,links:graph.links.filter(link=>link.from.node!==state.from!.node || link.from.port!==state.from!.port)});
       }
     }
     drag.current = null;
@@ -182,8 +214,11 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
 
   const beginInputDrag = (event: React.PointerEvent, node: GraphNode, port: string) => {
     event.stopPropagation();
-    const link = graph.links.find(entry => entry.to.node === node.id && entry.to.port === port);
-    if (!link) return;
+    const links = graph.links.filter(entry => entry.to.node === node.id && entry.to.port === port);
+    // A multi-input port has no unique branch to pull. Its individual wires
+    // remain independently removable by clicking the corresponding path.
+    if (links.length !== 1) return;
+    const link = links[0];
     event.preventDefault();
     host.current?.setPointerCapture?.(event.pointerId);
     drag.current = {kind:'wire', pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,originX:0,originY:0,from:link.from,detachLinkId:link.id};
@@ -229,13 +264,13 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
   }, [graph, onChange, onSelect, selectedId]);
 
   const bounds = useMemo(() => {
-    const xs = graph.nodes.map(node => node.x); const ys = graph.nodes.map(node => node.y);
+    const xs = displayGraph.nodes.map(node => node.x); const ys = displayGraph.nodes.map(node => node.y);
     if (wire) { xs.push(wire.x); ys.push(wire.y); }
     const left = Math.min(0, ...xs) - 400, top = Math.min(0, ...ys) - 400;
     const right = Math.max(1400, ...xs.map(x=>x+NODE_WIDTH)) + 400;
     const bottom = Math.max(800, ...ys.map(y=>y+400)) + 400;
     return { left, top, width:right-left, height:bottom-top };
-  }, [graph.nodes, wire]);
+  }, [displayGraph.nodes, wire]);
 
   return (
     <div
@@ -243,7 +278,7 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
       ref={host}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
-      onPointerCancel={() => { drag.current = null; setWire(null); }}
+      onPointerCancel={() => { drag.current = null; setWire(null); setNodePreview(null); if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; } }}
       onWheel={onWheel}
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -262,22 +297,22 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
             if (!fromNode || !toNode) return null;
             const type = getNodeDef(fromNode.type)?.outputs.find((port) => port.key === link.from.port)?.type ?? 'config';
             return (
-              <path
-                key={link.id}
-                data-link-id={link.id}
-                d={wirePath(fromNode, link.from.port, toNode, link.to.port)}
-                fill="none"
-                stroke={PORT_COLORS[type] ?? '#94a3b8'}
-                strokeWidth={2}
-                strokeOpacity={0.75}
-                className="pointer-events-auto cursor-pointer"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  onChange({ ...graph, links: graph.links.filter((entry) => entry.id !== link.id) });
-                }}
-              >
-                <title>{t('Click to remove this wire')}</title>
-              </path>
+              <g key={link.id}>
+                <path
+                  data-link-id={link.id}
+                  d={wirePath(fromNode, link.from.port, toNode, link.to.port)}
+                  fill="none" stroke="transparent" strokeWidth={14}
+                  className="pointer-events-auto cursor-pointer"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    onChange({ ...graph, links: graph.links.filter((entry) => entry.id !== link.id) });
+                  }}
+                >
+                  <title>{t('Click to remove this wire')}</title>
+                </path>
+                <path d={wirePath(fromNode, link.from.port, toNode, link.to.port)} fill="none"
+                  stroke={PORT_COLORS[type] ?? '#94a3b8'} strokeWidth={2} strokeOpacity={0.75} />
+              </g>
             );
           })}
           {wire && (() => {
@@ -290,7 +325,7 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
           })()}
         </svg>
 
-        {graph.nodes.map((node) => {
+        {displayGraph.nodes.map((node) => {
           const def = getNodeDef(node.type);
           if (!def) return null;
           const issues = nodeDiagnostics.get(node.id) ?? [];
@@ -350,7 +385,7 @@ export function GraphCanvas({ graph, selectedId, diagnostics, onSelect, onChange
                           }}
                           title={port.help ? t(port.help) : `${port.label} (${port.type})`}
                         />
-                        <span className="truncate text-[9.5px] leading-none text-white/45">{t(port.label)}</span>
+                        <span className="truncate text-[9.5px] leading-none text-white/45">{t(port.label)}{port.many && ` (${incomingCounts.get(`${node.id}:${port.key}`) ?? 0})`}</span>
                         {index === 0 && <span className="ml-1 font-mono text-[7px] uppercase text-white/20">{port.type}</span>}
                       </div>
                     ))}

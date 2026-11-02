@@ -119,7 +119,11 @@ export interface SceneItem {
   kind: ComponentKind;
   name: string;
   position: Vec3;
+  /** Yaw in degrees (the legacy rotation field). */
   rotation: number;
+  /** Optional X/Z Euler angles in degrees; omitted in legacy projects. */
+  rotationX?: number;
+  rotationZ?: number;
   scale: number;
   color?: string;
   locked?: boolean;

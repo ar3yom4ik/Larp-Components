@@ -17,7 +17,7 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
     const mid = a.clone().lerp(b, 0.5);
     mid.y = Math.max(a.y, b.y) + Math.max(0.45, a.distanceTo(b) * 0.12);
     return new THREE.CatmullRomCurve3([a, new THREE.Vector3(a.x, a.y + 0.22, a.z), mid, new THREE.Vector3(b.x, b.y + 0.22, b.z), b]);
-  }, [source.kind, source.position, source.rotation, source.scale, source.props.range, target.kind, target.position, target.rotation, target.scale, target.props.range]);
+  }, [source.kind, source.position, source.rotation, source.rotationX, source.rotationZ, source.scale, source.props.range, target.kind, target.position, target.rotation, target.rotationX, target.rotationZ, target.scale, target.props.range]);
   const geometry = useMemo(() => new THREE.TubeGeometry(curve, 48, 0.024, 8, false), [curve]);
   const glowGeometry = useMemo(() => new THREE.TubeGeometry(curve, 48, 0.065, 8, false), [curve]);
   useEffect(() => () => { geometry.dispose(); glowGeometry.dispose(); }, [geometry, glowGeometry]);

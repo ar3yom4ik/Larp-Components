@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { ContactShadows, OrbitControls, PerformanceMonitor } from "@react-three/drei";
+import { ContactShadows, OrbitControls, PerformanceMonitor, TransformControls } from "@react-three/drei";
 import * as THREE from "three";
 import {
   Box as BoxIcon,
@@ -17,7 +17,7 @@ import {
   RotateCw,
   Settings2,
 } from "lucide-react";
-import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import type { OrbitControls as OrbitControlsImpl, TransformControls as TransformControlsImpl } from "three-stdlib";
 import type { CameraPreset, ComponentKind, SceneItem, ToolMode, Vec3 } from "../types";
 import type { BuildingSettings, GraphicsQuality, SkinId } from "../theme";
 import { activeScheme, useAppearance } from "../theme";
@@ -314,7 +314,7 @@ function ConveyorHandles({
       {pts.map((p, index) => {
         const active = selectedPoint === index;
         return (
-          <group key={index} position={[p[0], item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2, p[1]]} onPointerDown={(event) => onGrab(event, index)}>
+          <group key={index} userData={{ splineHandleFor: item.id, pointIndex: index }} position={[p[0], item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2, p[1]]} onPointerDown={(event) => onGrab(event, index)}>
             <mesh renderOrder={20}>
               <sphereGeometry args={[active ? 0.2 : 0.15, 16, 12]} />
               <meshBasicMaterial color={active ? TEAL_3D : "#ffffff"} depthTest={false} transparent opacity={0.96} toneMapped={false} />
@@ -328,6 +328,43 @@ function ConveyorHandles({
       })}
     </group>
   );
+}
+
+/** Three-axis transform controls use a world-space anchor separate from the
+ * model, so the original drag-to-move/rotate and spline spheres keep working. */
+function ObjectGizmo({ item, tool, snap, onBeginEdit, onUpdateItem, onActive }: {
+  item: SceneItem; tool: ToolMode; snap: boolean; onBeginEdit: () => void;
+  onUpdateItem: ViewportProps["onUpdateItem"]; onActive: (active: boolean) => void;
+}) {
+  const anchor = useMemo(() => { const node = new THREE.Object3D(); node.name = `transform-anchor-${item.id}`; return node; }, [item.id]);
+  const active = useRef(false);
+  const control = useRef<TransformControlsImpl>(null);
+  useEffect(() => {
+    if (active.current) return;
+    anchor.position.set(...item.position);
+    anchor.rotation.set((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+    anchor.updateMatrixWorld(true);
+  }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ]);
+  useEffect(() => () => { if (active.current) onActive(false); }, [onActive]);
+  const degrees = (radians: number) => Math.round(radians * 1800 / Math.PI) / 10;
+  return <>
+    <primitive object={anchor} />
+    <TransformControls ref={control} object={anchor} mode={tool === 'rotate' ? 'rotate' : 'translate'} space="world" size={0.85}
+      onChange={() => { if (!active.current) onActive(!!(control.current as unknown as {axis: string | null} | null)?.axis); }}
+      translationSnap={snap ? 0.25 : null} rotationSnap={snap ? Math.PI / 12 : null}
+      onMouseDown={() => { active.current = true; onActive(true); onBeginEdit(); }}
+      onMouseUp={() => { active.current = false; onActive(false); }}
+      onObjectChange={() => {
+        if (!active.current) return;
+        if (tool === 'move') {
+          const clamp = (v: number) => Math.max(-200, Math.min(200, Math.round(v * 1000) / 1000));
+          onUpdateItem(item.id, { position: [clamp(anchor.position.x), clamp(anchor.position.y), clamp(anchor.position.z)] }, false);
+        } else {
+          onUpdateItem(item.id, { rotationX: degrees(anchor.rotation.x), rotation: degrees(anchor.rotation.y), rotationZ: degrees(anchor.rotation.z) }, false);
+        }
+      }}
+    />
+  </>;
 }
 
 interface SceneContentProps {
@@ -362,6 +399,13 @@ function SceneContent({
 }: SceneContentProps & { onDuplicateItem: (id: string) => void }) {
   const { camera, gl } = useThree();
   const drag = useRef<DragState | null>(null);
+  const gizmoActive = useRef(false);
+  const setGizmoActive = useCallback((active: boolean) => {
+    gizmoActive.current = active;
+    // Native TransformControls and the scene's legacy pointer handler see the
+    // same press. Whichever fires first, never run both drags at once.
+    if (active && drag.current) drag.current = null;
+  }, []);
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -372,6 +416,7 @@ function SceneContent({
   const startDrag = useCallback(
     (event: ThreeEvent<PointerEvent>, item: SceneItem) => {
       event.stopPropagation();
+      if (gizmoActive.current) return;
       onSelect(item.id);
       onSelectPoint(null);
       if (item.kind === "button" && tool === "select") {
@@ -381,7 +426,8 @@ function SceneContent({
       }
       if (tool === "select" || item.locked) return;
       const hit = new THREE.Vector3();
-      if (!event.ray.intersectPlane(GROUND, hit)) return;
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -item.position[1]);
+      if (!event.ray.intersectPlane(plane, hit)) return;
       onBeginEdit();
       drag.current = {
         type: "item",
@@ -424,7 +470,13 @@ function SceneContent({
       raycaster.setFromCamera(pointer, camera);
       const current = drag.current;
       const item = current?.type === "point" ? itemsRef.current.find((i) => i.id === current.id) : null;
-      plane.constant = item ? -(item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2) : 0;
+      if (item) {
+        const height = item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2;
+        const rotation = new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+        const q = new THREE.Quaternion().setFromEuler(rotation);
+        const origin = new THREE.Vector3(0, height, 0).applyQuaternion(q).add(new THREE.Vector3(...item.position));
+        plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0).applyQuaternion(q), origin);
+      } else plane.set(new THREE.Vector3(0, 1, 0), current?.type === 'item' ? -current.startPosition[1] : 0);
       return raycaster.ray.intersectPlane(plane, hit) ? hit : null;
     };
 
@@ -436,11 +488,10 @@ function SceneContent({
       if (state.type === "point") {
         const item = itemsRef.current.find((candidate) => candidate.id === state.id);
         if (!item || !item.points) return;
-        const rot = (item.rotation * Math.PI) / 180;
-        const dx = point.x - item.position[0];
-        const dz = point.z - item.position[2];
-        let lx = dx * Math.cos(rot) - dz * Math.sin(rot);
-        let lz = dx * Math.sin(rot) + dz * Math.cos(rot);
+        const rotation = new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+        const local = point.clone().sub(new THREE.Vector3(...item.position)).applyQuaternion(new THREE.Quaternion().setFromEuler(rotation).invert());
+        let lx = local.x;
+        let lz = local.z;
         if (snap) {
           lx = Math.round(lx * 4) / 4;
           lz = Math.round(lz * 4) / 4;
@@ -491,7 +542,7 @@ function SceneContent({
           <group
             key={item.id}
             position={item.position}
-            rotation={[0, (item.rotation * Math.PI) / 180, 0]}
+            rotation={[(item.rotationX ?? 0) * Math.PI / 180, (item.rotation * Math.PI) / 180, (item.rotationZ ?? 0) * Math.PI / 180]}
             scale={isConveyor ? 1 : item.scale}
             onPointerDown={(event) => startDrag(event, item)}
             // Visual Components: Ctrl + double-click duplicates the object in place.
@@ -509,6 +560,10 @@ function SceneContent({
           </group>
         );
       })}
+      {(() => {
+        const selected = items.find((item) => item.id === selectedId && item.visible !== false && !item.locked);
+        return selected && tool !== 'select' ? <ObjectGizmo item={selected} tool={tool} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} /> : null;
+      })()}
       <BoxesLayer />
       <WireLayer items={items} />
     </>
@@ -737,7 +792,23 @@ export const Viewport = memo(function Viewport({
     const target = items.find(item => item.id === id);
     if (!sourceItem || !target || !canSignalInput(target, sourceItem.id)) return;
     const targets = signalTargets(sourceItem);
-    onUpdateItem(sourceItem.id, signalTargetsPatch(sourceItem, targets.includes(target.id) ? targets.filter((id) => id !== target.id) : [...targets, target.id]));
+    onUpdateItem(sourceItem.id, signalTargetsPatch(sourceItem, targets.includes(target.id) ? targets.filter((entry) => entry !== target.id) : [...targets, target.id]));
+    setSignalSource(null);
+  };
+  const connectSignal = (sourceId: string, targetId: string) => {
+    const source = items.find(item => item.id === sourceId), target = items.find(item => item.id === targetId);
+    if (!source || !target || !canSignalOutput(source) || !canSignalInput(target, sourceId)) return;
+    const targets = signalTargets(source);
+    if (!targets.includes(targetId)) onUpdateItem(sourceId, signalTargetsPatch(source, [...targets, targetId]));
+    setSignalSource(null);
+  };
+  const rerouteSignal = (sourceId: string, oldTarget: string, newTarget: string | null) => {
+    const source = items.find(item => item.id === sourceId);
+    if (!source || !canSignalOutput(source)) return;
+    const target = items.find(item => item.id === newTarget);
+    const targets = signalTargets(source).filter(id => id !== oldTarget);
+    if (target && canSignalInput(target, sourceId)) targets.push(target.id);
+    onUpdateItem(sourceId, signalTargetsPatch(source, targets));
     setSignalSource(null);
   };
   const [gridVisible, setGridVisible] = useState(true);
@@ -907,7 +978,7 @@ export const Viewport = memo(function Viewport({
             building={building}
             onDuplicateItem={onDuplicateItem}
           />
-          {signalMode && <SignalPortLayer items={items} sourceId={sourceItem?.id ?? null} targets={sourceItem ? signalTargets(sourceItem) : []} onSource={setSignalSource} onTarget={selectSignalTarget} />}
+          {signalMode && <SignalPortLayer items={items} sourceId={sourceItem?.id ?? null} targets={sourceItem ? signalTargets(sourceItem) : []} onSource={setSignalSource} onTarget={selectSignalTarget} onConnect={connectSignal} onReroute={rerouteSignal} />}
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[Math.max(80, Math.ceil(Math.max(building.width, building.depth) * 1.4)), 40, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
         {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows
@@ -965,7 +1036,7 @@ export const Viewport = memo(function Viewport({
           <button type="button" onClick={() => setSignalSource(null)} className="rounded border border-white/20 px-2 py-1">{t("Cancel")}</button>
           {signalTargets(sourceItem).length > 0 && <button type="button" onClick={() => { onUpdateItem(sourceItem.id, signalTargetsPatch(sourceItem, [])); setSignalSource(null); }} className="rounded border border-white/20 px-2 py-1">{t("Disconnect signal")}</button>}
         </div>}
-        <p className="mt-1 text-white/50">{t("Choose multiple targets; click a connected IN port to disconnect it. Signal links only; material flow is separate.")}</p>
+        <p className="mt-1 text-white/50">{t("Drag OUT to IN. Drag a connected IN away to disconnect or reroute; for a shared IN, select its source first. You can also click ports. Material flow is separate.")}</p>
       </div>}
 
       {/* View controls */}

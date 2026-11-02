@@ -268,11 +268,12 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
                 <input
                   type="number"
                   step={0.1}
-                  disabled={selected.locked || index === 1}
+                  disabled={selected.locked}
+                  onFocus={onBeginEdit}
                   value={Number(selected.position[index].toFixed(2))}
                   onChange={(event) => {
                     const position = [...selected.position] as [number, number, number];
-                    position[index] = Number(event.target.value);
+                    position[index] = Math.max(-200, Math.min(200, Number(event.target.value)));
                     onUpdate(selected.id, { position }, false);
                   }}
                   className={inputCls}
@@ -280,11 +281,15 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
               </label>
             ))}
           </div>
+          <div className="mt-2 text-[9.5px] text-[#9a9a9e]">{t("Rotation °")}</div>
+          <div className="mt-1 grid grid-cols-3 gap-1.5">
+            {([['X', 'rotationX'], ['Y', 'rotation'], ['Z', 'rotationZ']] as const).map(([axis, key]) => <label key={axis} className="block">
+              <span className="mb-1 block text-[9.5px] text-white/50">{axis}</span>
+              <input aria-label={`${t("Rotation")} ${axis}`} type="number" step={5} disabled={selected.locked} onFocus={onBeginEdit} value={Number((selected[key] ?? 0).toFixed(1))} onChange={(event) => onUpdate(selected.id, { [key]: Number(event.target.value) }, false)} className={inputCls} />
+            </label>)}
+          </div>
+          {(selected.rotationX || selected.rotationZ) && selected.kind !== 'imported-model' && <p className="mt-1.5 text-[9.5px] text-amber-300/80">{t("Tilted equipment is displayed in 3D; simulation collisions and operations use an upright approximation.")}</p>}
           <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-            <label className="block">
-              <span className="mb-1 block text-[9.5px] text-[#9a9a9e]">{t("Rotation °")}</span>
-              <input type="number" step={5} value={Math.round(selected.rotation)} onChange={(e) => onUpdate(selected.id, { rotation: Number(e.target.value) }, false)} className={inputCls} />
-            </label>
             {!isConveyor && (
               <label className="block">
                 <span className="mb-1 block text-[9.5px] text-[#9a9a9e]">{t("Scale")}</span>
@@ -412,6 +417,16 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
 
         {selected.kind === "collector" && <Section title={t("Receive box")}><div className="rounded border border-white/10 bg-[#202023] p-3 text-center"><div className="font-mono text-[28px] font-light text-[#e6f2ef]">{sim.collectors.get(selected.id)?.count ?? 0}</div><div className="mt-1 text-[9px] uppercase tracking-widest text-white/35">{t("Products received")}</div></div><p className="mt-2 text-[10px] leading-relaxed text-white/35">{t("Open the conveyor end stopper to drop products into this box. Every product that settles is counted once.")}</p></Section>}
         {isLogic && <Section title={t("Automation")}><div className="space-y-3">
+          {isRobot && <>
+            <label className="block text-[10px] text-white/45">{t("Robot output")}
+              <select aria-label={t("Robot output")} disabled={selected.locked} className={cn(inputCls, "mt-1")} value={selected.props.outputMode === "operation-end" ? "operation-end" : "moving"} onChange={(event) => onUpdate(selected.id, {props: {...selected.props, outputMode: event.target.value}})}>
+                <option value="moving">{t("Moving or holding")}</option>
+                <option value="operation-end">{t("Pulse on operation end")}</option>
+              </select>
+            </label>
+            <p className="text-[10px] leading-relaxed text-white/45">{t("A connected IN queues one activation per visual-program pick. Operation-end OUT pulses after each successful place.")}</p>
+            {items.some((item) => isSignalSource(item) && signalTargets(item).includes(selected.id)) && <p className="text-[10px] text-white/55">{t("Pending robot signals")}: {sim.pendingRobotSignals(selected.id)}</p>}
+          </>}
           <label className="block text-[10px] text-white/45">{t("Signal target")}
             <select aria-label={t("Signal target")} disabled={selected.locked} className={cn(inputCls, "mt-1")} value={connectedTargets[0] ?? ""} onChange={(e) => onUpdate(selected.id, signalTargetsPatch(selected, e.target.value ? [e.target.value, ...connectedTargets.slice(1).filter((id) => id !== e.target.value)] : []))}>
               <option value="">{t("Not connected")}</option>{connectedTargets[0] && !targetCandidates.some((item) => item.id === connectedTargets[0]) && <option value={connectedTargets[0]}>{connectedTargets[0]}</option>}{targetCandidates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -455,7 +470,7 @@ function PropertiesTab({ selected, items, onUpdate, onDelete, onDuplicate, onSel
 
         {selected.kind !== "imported-model" && <Section title={t("Behaviour")}>
           <div className="space-y-3">
-            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", ...(selected.kind === "crates" ? ["cols", "rows", "layers"] : [])].includes(key)).map(([key, value]) => (
+            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", ...(selected.kind === "crates" ? ["cols", "rows", "layers"] : [])].includes(key)).map(([key, value]) => (
               <PropControl key={key} kind={selected.kind} propKey={key} value={value} onChange={(next) => onUpdate(selected.id, { props: { ...selected.props, [key]: next } }, false)} />
             ))}
             {Object.keys(selected.props).length === 0 && <p className="text-[10px] text-white/35">{t("No parameters.")}</p>}

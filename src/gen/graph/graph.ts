@@ -127,30 +127,42 @@ export function setParam(graph: NodeGraph, nodeId: string, key: string, value: u
   };
 }
 
+/** Reusable adjacency index. Insertion order is preserved for stable evaluation. */
+export function indexGraph(graph: NodeGraph) {
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const incoming = new Map<string, GraphLink[]>();
+  const outgoing = new Map<string, GraphLink[]>();
+  for (const link of graph.links) {
+    const ins = incoming.get(link.to.node);
+    if (ins) ins.push(link); else incoming.set(link.to.node, [link]);
+    const outs = outgoing.get(link.from.node);
+    if (outs) outs.push(link); else outgoing.set(link.from.node, [link]);
+  }
+  return { byId, incoming, outgoing };
+}
+
 /** Kahn's algorithm. Returns a stable topological order and any nodes stuck in cycles. */
 export function topoSort(graph: NodeGraph): { order: GraphNode[]; cycle: string[] } {
-  const indegree = new Map<string, number>();
-  const edges = new Map<string, string[]>();
-  for (const node of graph.nodes) { indegree.set(node.id, 0); edges.set(node.id, []); }
+  const { byId, outgoing } = indexGraph(graph);
+  const indegree = new Map(graph.nodes.map((node) => [node.id, 0]));
   for (const entry of graph.links) {
-    if (!indegree.has(entry.to.node) || !indegree.has(entry.from.node)) continue;
-    edges.get(entry.from.node)!.push(entry.to.node);
-    indegree.set(entry.to.node, (indegree.get(entry.to.node) ?? 0) + 1);
+    if (byId.has(entry.from.node) && byId.has(entry.to.node)) indegree.set(entry.to.node, (indegree.get(entry.to.node) ?? 0) + 1);
   }
-  // Nodes with no incoming wire, in creation order, so the result is deterministic.
-  const queue = graph.nodes.filter((node) => (indegree.get(node.id) ?? 0) === 0).map((node) => node.id);
+  // Index-based queue avoids repeated array shifts and node scans on large graphs.
+  const queue = graph.nodes.filter((node) => (indegree.get(node.id) ?? 0) === 0);
   const order: GraphNode[] = [];
-  while (queue.length) {
-    const id = queue.shift()!;
-    const node = graph.nodes.find((entry) => entry.id === id);
-    if (node) order.push(node);
-    for (const next of edges.get(id) ?? []) {
-      const remaining = (indegree.get(next) ?? 1) - 1;
-      indegree.set(next, remaining);
-      if (remaining === 0) queue.push(next);
+  for (let head = 0; head < queue.length; head++) {
+    const node = queue[head];
+    order.push(node);
+    for (const link of outgoing.get(node.id) ?? []) {
+      if (!byId.has(link.to.node)) continue;
+      const remaining = (indegree.get(link.to.node) ?? 1) - 1;
+      indegree.set(link.to.node, remaining);
+      if (remaining === 0) queue.push(byId.get(link.to.node)!);
     }
   }
-  const cycle = graph.nodes.filter((node) => !order.some((entry) => entry.id === node.id)).map((node) => node.id);
+  const included = new Set(order.map((node) => node.id));
+  const cycle = graph.nodes.filter((node) => !included.has(node.id)).map((node) => node.id);
   return { order, cycle };
 }
 
@@ -161,16 +173,16 @@ export function findCycles(graph: NodeGraph): string[] {
 /** Every diagnostic the editor can show before a build. */
 export function validateGraph(graph: NodeGraph): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
-  const ids = new Set<string>();
+  const { byId, incoming, outgoing } = indexGraph(graph);
   for (const node of graph.nodes) {
     const def = getNodeDef(node.type);
     if (!def) {
       diagnostics.push({ id: `unknown:${node.id}`, severity: 'error', nodeId: node.id, message: `Unknown node type "${node.type}".` });
       continue;
     }
-    ids.add(node.id);
+    const ins = incoming.get(node.id) ?? [];
     for (const input of def.inputs) {
-      const wired = graph.links.filter((entry) => entry.to.node === node.id && entry.to.port === input.key);
+      const wired = ins.filter((entry) => entry.to.port === input.key);
       if (input.required && wired.length === 0) {
         diagnostics.push({ id: `missing:${node.id}:${input.key}`, severity: 'error', nodeId: node.id, port: input.key, message: `${def.title}: "${input.label}" is required.` });
       }
@@ -178,14 +190,15 @@ export function validateGraph(graph: NodeGraph): Diagnostic[] {
         diagnostics.push({ id: `multi:${node.id}:${input.key}`, severity: 'error', nodeId: node.id, port: input.key, message: `${def.title}: "${input.label}" accepts one wire.` });
       }
       for (const entry of wired) {
-        const type = portType(graph, entry.from, 'out');
+        const source = byId.get(entry.from.node);
+        const type = source ? getNodeDef(source.type)?.outputs.find((port) => port.key === entry.from.port)?.type : undefined;
         if (type !== input.type) {
           diagnostics.push({ id: `type:${entry.id}`, severity: 'error', nodeId: node.id, port: input.key, message: `${def.title}: "${input.label}" expects ${input.type} but receives ${type ?? 'nothing'}.` });
         }
       }
     }
-    for (const entry of graph.links.filter((link) => link.from.node === node.id)) {
-      if (!graph.nodes.some((other) => other.id === entry.to.node)) {
+    for (const entry of outgoing.get(node.id) ?? []) {
+      if (!byId.has(entry.to.node)) {
         diagnostics.push({ id: `dangling:${entry.id}`, severity: 'warning', nodeId: node.id, message: `${def.title}: a wire points at a node that no longer exists.` });
       }
     }
@@ -198,9 +211,8 @@ export function validateGraph(graph: NodeGraph): Diagnostic[] {
     diagnostics.push({ id: 'no-output', severity: 'error', message: 'The graph needs a Factory output node to build anything.' });
   }
   // Orphan nodes are allowed but worth pointing out, since users expect them to matter.
-  const connected = new Set(graph.links.flatMap((entry) => [entry.from.node, entry.to.node]));
   for (const node of graph.nodes) {
-    if (!connected.has(node.id) && graph.nodes.length > 1) {
+    if (!incoming.has(node.id) && !outgoing.has(node.id) && graph.nodes.length > 1) {
       diagnostics.push({ id: `orphan:${node.id}`, severity: 'info', nodeId: node.id, message: `${getNodeDef(node.type)?.title ?? node.type} is not connected to anything.` });
     }
   }
@@ -257,7 +269,13 @@ export function parseGraph(input: unknown): NodeGraph {
   }
   const graph: NodeGraph = { version: 1, nodes, links, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined };
   // Drop wires that no longer type-check after a registry change.
-  return { ...graph, links: links.filter((entry) => portType(graph, entry.from, 'out') === portType(graph, entry.to, 'in')) };
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  return { ...graph, links: links.filter((entry) => {
+    const from = byId.get(entry.from.node), to = byId.get(entry.to.node);
+    const outType = from && getNodeDef(from.type)?.outputs.find((port) => port.key === entry.from.port)?.type;
+    const inType = to && getNodeDef(to.type)?.inputs.find((port) => port.key === entry.to.port)?.type;
+    return !!outType && outType === inType;
+  }) };
 }
 
 /** Insert a compatible node in a wire atomically; leave the graph untouched on failure. */

@@ -162,9 +162,22 @@ function ConveyorModel({ item, roller }: { item: SceneItem; roller: boolean }) {
   const pointsKey = JSON.stringify(item.points);
   const geos = useMemo(() => {
     const pts = item.points && item.points.length >= 2 ? item.points : ([[-2, 0], [2, 0]] as [number, number][]);
-    return buildConveyorGeometry(samplePath(pts, 0.1), stopper);
+    const path = samplePath(pts, 0.1);
+    let entries: { along: number; side: number; radius: number }[] = [];
+    if (typeof item.props.mergeEntries === "string") {
+      try {
+        const raw: unknown = JSON.parse(item.props.mergeEntries);
+        if (Array.isArray(raw)) entries = raw.flatMap((entry) =>
+          typeof entry?.along === "number" && (entry.side === 1 || entry.side === -1)
+            ? [{ along: entry.along, side: entry.side, radius: 0.58 }] : []);
+      } catch { /* old/invalid metadata leaves the ordinary rails intact */ }
+    }
+    if (typeof item.props.mergeTargetId === "string" && item.props.mergeSide !== 0) {
+      entries.push({ along: path.length, side: 0, radius: 0.65 });
+    }
+    return buildConveyorGeometry(path, stopper, entries);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointsKey, stopper]);
+  }, [pointsKey, stopper, item.props.mergeEntries, item.props.mergeTargetId, item.props.mergeSide]);
   const texture = useMemo(() => {
     const tex = beltTexture(roller ? "roller" : "belt").clone();
     tex.needsUpdate = true;

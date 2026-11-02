@@ -24,8 +24,10 @@
     "preview": "vite preview",
     "test:browser": "node tests/browser.mjs && node tests/code-and-tablet.mjs && node tests/features.mjs && node tests/v1-graphics.mjs",
     "test:archive-browser": "node tests/project-archive.mjs",
-    "test:signals-browser": "node tests/signal-ports.mjs",
-    "test:interaction-browser": "node tests/signals-and-windows.mjs"
+    "test:signals-browser": "node tests/signal-ports.mjs && node tests/signal-drag.mjs",
+    "test:interaction-browser": "node tests/signals-and-windows.mjs",
+    "test:gizmos-browser": "node tests/scene-gizmos.mjs",
+    "test:factory-browser": "node tests/factory-graph-browser.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
