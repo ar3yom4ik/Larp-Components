@@ -1,6 +1,6 @@
 {
   "name": "larp-components",
-  "version": "3.0.0-alpha.2",
+  "version": "3.0.0-alpha.3",
   "description": "Browser-based React/Three.js factory layout editor and discrete-time simulator (Larp Components 5.1, V3 prerelease).",
   "private": true,
   "type": "module",
@@ -31,7 +31,10 @@
     "test:factory-standalone": "node tests/factory-graph-standalone.mjs",
     "bench:physics": "node scripts/bench-physics.mjs",
     "test:physics-browser": "node tests/physics-browser.mjs",
-    "test:physics-standalone": "node tests/physics-standalone.mjs"
+    "test:physics-standalone": "node tests/physics-standalone.mjs",
+    "test:speed-browser": "node tests/simulation-speed-browser.mjs",
+    "test:startup-browser": "node tests/startup-fallback-browser.mjs",
+    "test:speed-standalone": "node tests/simulation-speed-standalone.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

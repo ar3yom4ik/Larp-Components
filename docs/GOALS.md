@@ -53,8 +53,9 @@ This issue is the hand-off list. Each item says what was done, how it was checke
   (all nine recipes compared frame-by-frame). `tests/performance.ts` locks in the parity between
   the indexed and the brute-force support scan.
 - [x] **Frame budget instead of a fixed 12 ms simulation slice.** `Engine.stepBudgetMs` follows
-  the measured frame time (8 → 5 → 2.5 → 1.2 ms), shadows refresh every second/third frame and
-  contact shadows run at 4 Hz while the plant moves.
+  the measured frame time; the original 8 → 5 → 2.5 → 1.2 ms policy was replaced in V3 alpha.3
+  by a bounded share of render time so slow GPUs do not starve simulation. Shadows refresh every
+  second/third frame and contact shadows run at 4 Hz while the plant moves.
 - [x] **Simulation settings menu direction.** The gear menu opens downward on desktop and stays
   upward on the phone layout, where the player bar is at the bottom.
 

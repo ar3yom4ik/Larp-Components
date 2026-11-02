@@ -44,6 +44,7 @@ import { useCornellRoom } from "../cornellRoom";
 import { createGpuRenderer, probeWebGPU, type GLFactoryProps } from "../utils/gpu";
 import { BELT_Y } from "./ModelKit";
 import { sim } from "../sim/engine";
+import { simulationFrameBudget, simulationRateSampleMs } from "../sim/frameBudget";
 import { formatClock, useSimSnapshot } from "../sim/hooks";
 import { cn } from "../utils/cn";
 import { t, useLanguage } from "../i18n";
@@ -237,14 +238,7 @@ function DropTarget({ onAddAt }: { onAddAt: (kind: ComponentKind, position: Vec3
   return null;
 }
 
-/**
- * Steps the physics/robot simulation and keeps static shadows cheap.
- *
- * The simulation budget follows the frame time: while frames are comfortable the
- * simulation may use up to 6 ms per frame, and as soon as frames slip it is cut back
- * so the 3D view keeps its share of the frame. That is what keeps large factories
- * responsive instead of letting the (still correct) simulation eat the render budget.
- */
+/** Steps the simulation in a bounded slice while keeping static shadows cheap. */
 function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; low: boolean }) {
   const { gl, invalidate } = useThree();
   const frame = useRef(0);
@@ -264,8 +258,11 @@ function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; 
     const ms = Math.min(200, delta * 1000);
     frameMs.current = frameMs.current * 0.85 + ms * 0.15;
     if (frame.current % 20 === 0) setGraphicsStatus({ frameMs: Math.round(frameMs.current * 10) / 10 });
-    sim.stepBudgetMs = frameMs.current < 15 ? 8 : frameMs.current < 19 ? 5 : frameMs.current < 26 ? 2.5 : 1.2;
-    sim.step(delta);
+    sim.stepBudgetMs = simulationFrameBudget(frameMs.current, sim.lastStepMs);
+    // Run after the current render so yielding between substeps does not include
+    // GPU/render work in the simulation budget. All visual callbacks in a frame
+    // then read one consistent, completed simulation state.
+    queueMicrotask(() => { void sim.stepAsync(delta); });
     frame.current += 1;
     // Shadows of a moving plant only need refreshing every other frame at most.
     if (!low ? frame.current % 2 === 0 : frame.current % 3 === 0) gl.shadowMap.needsUpdate = true;
@@ -754,6 +751,19 @@ function SimPlayer({ running, onToggleRun, onReset, speed, onSpeed, onToggleFull
   const [clockMode, setClockMode] = useState("hms");
   const [mode, setMode] = useState("real");
   const [runTime, setRunTime] = useState("Infinite");
+  const [actualSpeed, setActualSpeed] = useState<number | null>(null);
+  useEffect(() => {
+    setActualSpeed(null);
+    if (!running) return undefined;
+    let time = sim.time, wall = performance.now(), revision = sim.clockRevision;
+    const id = window.setInterval(() => {
+      const now = performance.now(), elapsed = (now - wall) / 1000;
+      const next = sim.clockRevision === revision && elapsed > 0 ? (sim.time - time) / elapsed : null;
+      setActualSpeed(next);
+      time = sim.time; wall = now; revision = sim.clockRevision;
+    }, simulationRateSampleMs(speed));
+    return () => window.clearInterval(id);
+  }, [speed, running]);
   return (
     <div className="sim-player pointer-events-auto relative">
       <div className="flex items-center gap-2 rounded-sm border border-[#ffffff18] bg-[#272729]/95 px-2 py-1.5 shadow-[0_5px_16px_rgba(0,0,0,.4)] backdrop-blur">
@@ -763,6 +773,7 @@ function SimPlayer({ running, onToggleRun, onReset, speed, onSpeed, onToggleFull
         <span className="ml-1 w-[72px] font-mono text-[17px] font-light tracking-wide text-[#e9eef0]">{clockMode === "seconds" ? snap.time.toFixed(1) : formatClock(snap.time)}</span>
         <span className="font-mono text-[10px] text-[var(--app-accent-bright)]">x</span>
         <input aria-label={t("Simulation speed multiplier")} type="number" min={0.01} step={0.25} inputMode="decimal" value={speed} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value) && value > 0) onSpeed(value); }} className="w-[58px] rounded-sm border border-[#ffffff18] bg-[#1d1d1f] px-1.5 py-1 font-mono text-[11px] text-right text-white outline-none focus:border-[var(--app-accent)]" />
+        {running && actualSpeed !== null && actualSpeed < speed * 0.8 && <span role="status" title={t("Simulation is limited by device performance; the displayed rate is the actual speed.")} className="whitespace-nowrap font-mono text-[10px] text-amber-300">~{actualSpeed.toFixed(1)}x</span>}
         <button type="button" aria-label={t("Slower")} title={t("Slower")} className="player-step rounded px-1 font-mono text-[12px] text-white/60 hover:bg-white/10 hover:text-white" onClick={() => onSpeed(Math.max(0.25, Math.round((speed - 0.25) * 100) / 100))}>−</button>
         <input aria-label={t("Simulation speed")} title={t("Double-click to reset to 1.0")} type="range" min={0.25} max={Math.max(8, Math.ceil(speed * 2))} step={0.25} value={Math.min(Math.max(8, Math.ceil(speed * 2)), speed)} onChange={(e) => onSpeed(Number(e.target.value))} onDoubleClick={() => onSpeed(1)} className="player-slider accent-range w-[88px]" />
         <button type="button" aria-label={t("Faster")} title={t("Faster")} onClick={() => onSpeed(Math.round((speed + 0.25) * 100) / 100)} className="player-step rounded px-1 font-mono text-[12px] text-white/60 hover:bg-white/10 hover:text-white">+</button>

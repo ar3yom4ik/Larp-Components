@@ -1,6 +1,6 @@
 # Larp Factory V3 prerelease — independent AI/developer handoff
 
-**Current release:** V3.0.0-alpha.2, 2026-11-01
+**Current release:** V3.0.0-alpha.3, 2026-11-02
 **Audience:** a developer or another AI starting without any prior conversation.<br>
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V3 is the current prerelease number.
 
@@ -105,11 +105,15 @@ machine/collector rectangles), walk barriers plus walking obstacles, and the mov
 The product index is rebuilt at the start of every substep; `ConveyorRT` additionally indexes its
 own sampled segments per metre so `query()` only inspects the belt under the product.
 
-`Engine.stepBudgetMs` is the wall-clock budget for one `step()` call. `SimDriver` in
-`Viewport.tsx` derives it from an exponential average of the real frame time (8 / 5 / 2.5 / 1.2
-ms) so the simulation yields to rendering instead of eating a fixed 12 ms slice; the accumulator
-is unchanged, so a slow device simulates fewer seconds per frame but never drops or reorders
-events. The same driver refreshes the shadow map every second frame (third on low quality), and
+`Engine.stepBudgetMs` is the wall-clock budget for one frame of simulation. `SimDriver` in
+`Viewport.tsx` estimates rendering time and reserves a bounded 5–40 ms slice, without starving
+simulation when the GPU is slow. It schedules `stepAsync()` after rendering; its microtask yields
+let JavaScript robot commands and simulation timers resume between fixed substeps. Headless callers
+may still use synchronous `step()`. Under sustained overload, unprocessed wall-time demand is
+bounded and discarded on speed changes/pause; completed simulation steps and their events are not
+skipped. Worker mixers, belt textures and equipment animations use the completed simulation clock,
+and the player reports an achieved rate when it falls substantially below the requested multiplier.
+The same driver refreshes the shadow map every second frame (third on low quality), and
 the drei `ContactShadows` are remounted a few times per second (`frames={1}`, key includes a
 tick) rather than re-rendering the whole scene into an extra target on every frame.
 

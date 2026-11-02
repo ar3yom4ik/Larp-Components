@@ -831,7 +831,10 @@ export class Engine {
   running = false;
   speed = 1;
   time = 0;
+  /** Increments when the timeline is reset, so animation clocks can rebase. */
+  clockRevision = 0;
   private acc = 0;
+  private steppingAsync = false;
   private nextBox = 1;
   private nextRobot = 1;
   private guard = 0;
@@ -878,7 +881,7 @@ export class Engine {
      The stepping code runs up to sixty times per second, so every list scan it used to
      do per robot or per worker is replaced by a map or a spatial hash here. */
 
-  /** Wall-clock budget for one `step` call; the renderer lowers it when frames slip. */
+  /** Wall-clock budget for one frame of simulation. The viewport adapts it to rendering cost. */
   stepBudgetMs = 6;
   /** CPU time of the last `step`, for diagnostics. */
   lastStepMs = 0;
@@ -1526,11 +1529,19 @@ export class Engine {
     if (on === this.running) return;
     this.running = on;
     if (on) this.startPrograms();
-    else if (this.rigidBodies.dynamicCount) this.sync(this.authoredItems, true);
+    else {
+      // Do not replay a saturated high-speed backlog after a pause.
+      this.acc %= DT;
+      if (this.rigidBodies.dynamicCount) this.sync(this.authoredItems, true);
+    }
   }
 
   setSpeed(speed: number) {
-    this.speed = Number.isFinite(speed) ? Math.max(0.01, speed) : 1;
+    const next = Number.isFinite(speed) ? Math.max(0.01, speed) : 1;
+    // Pending demand belongs to the old rate. Keeping it could make a switch
+    // from 100x to 0.5x keep running flat out for minutes on a loaded plant.
+    if (next !== this.speed) this.acc %= DT;
+    this.speed = next;
   }
 
   reset() {
@@ -1540,6 +1551,7 @@ export class Engine {
     this.sync(this.authoredItems, true);
     this.boxes = [];
     this.time = 0;
+    this.clockRevision += 1;
     this.acc = 0;
     this.timers = [];
     this.conds = [];
@@ -2757,26 +2769,69 @@ export class Engine {
 
   /* ----- stepping ----- */
 
+  /** Add wall-clock demand; every completed substep advances all systems together. */
+  private requestStep(frameDt: number) {
+    if (!this.running || !Number.isFinite(frameDt) || frameDt <= 0) return false;
+    // Keep even an extreme, finite multiplier recoverable instead of letting
+    // an overflowing product poison the accumulator with Infinity/NaN.
+    this.acc = Math.min(Number.MAX_VALUE, this.acc + frameDt * this.speed);
+    return true;
+  }
+
+  private stepBudget() { return Number.isFinite(this.stepBudgetMs) ? Math.max(1, Math.min(40, this.stepBudgetMs)) : 6; }
+
+  private finishStep(started: number) {
+    this.lastStepMs = performance.now() - started;
+    // A device that cannot keep up must slow the simulation, not accumulate
+    // minutes of obsolete demand. Discard only unprocessed wall-time demand:
+    // no simulation time or scheduled simulation events are skipped.
+    this.acc = Math.min(this.acc, Math.max(DT, this.speed * 0.25));
+  }
+
+  /** Synchronous fixed stepping, used by headless callers and deterministic tests. */
   step(frameDt: number) {
-    if (!this.running) return;
-    // Account for the actual elapsed frame time, including slow frames.
-    if (!Number.isFinite(frameDt) || frameDt <= 0) return;
-    this.acc += frameDt * this.speed;
-    const started = performance.now();
-    const budget = Math.max(1, Math.min(40, this.stepBudgetMs));
+    if (!this.requestStep(frameDt)) return;
+    const started = performance.now(), budget = this.stepBudget();
     let n = 0;
-    // There is no artificial multiplier cap. High multipliers simulate as much as the
-    // current device can afford in the frame budget, which the renderer shrinks when
-    // frames start slipping so the simulation never starves the 3D view.
-    while (this.acc >= DT && n < 200_000) {
+    while (this.running && this.acc >= DT && n < 200_000) {
       this.sub(DT);
       this.acc -= DT;
       n += 1;
       if (performance.now() - started >= budget) break;
     }
-    // Preserve unprocessed simulation time rather than silently losing it under load.
-    // The frame budget can make the actual rate lower than requested until caught up.
-    this.lastStepMs = performance.now() - started;
+    this.finishStep(started);
+  }
+
+  /**
+   * Browser stepping yields between fixed substeps so JavaScript robot programs
+   * can resume their `await` commands, timers and conditions within the same
+   * rendered frame. Otherwise one frame at 16x can finish at most one scripted
+   * command, even though sixteen simulation steps were executed.
+   *
+   * The yields are microtasks, not timers: the entire bounded slice finishes
+   * before the browser starts another frame. A concurrent call only adds demand
+   * to the slice already in progress.
+   */
+  async stepAsync(frameDt: number): Promise<void> {
+    if (!this.requestStep(frameDt) || this.steppingAsync) return;
+    this.steppingAsync = true;
+    const started = performance.now(), budget = this.stepBudget();
+    try {
+      let n = 0;
+      while (this.running && this.acc >= DT && n < 200_000) {
+        this.sub(DT);
+        this.acc -= DT;
+        n += 1;
+        // The second turn also lets promise wrappers around robot/world commands
+        // enqueue the next command before the next simulation substep.
+        await Promise.resolve();
+        await Promise.resolve();
+        if (performance.now() - started >= budget) break;
+      }
+    } finally {
+      this.finishStep(started);
+      this.steppingAsync = false;
+    }
   }
 
   /** Refresh fast-moving belt supports sooner than the usual four-step index

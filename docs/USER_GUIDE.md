@@ -1,13 +1,19 @@
-# Larp Factory Simulator — V3 prerelease 1
+# Larp Factory Simulator — V3 prerelease 3
 
-An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.2** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
+An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.3** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
 
 ## Start in under a minute
 
-1. Extract the ZIP and open **`Larp_Factory_V3.html`** in a current desktop browser with WebGL enabled. No installation, account, server or internet connection is needed to run the standalone file.
+1. Download **`Larp_Factory_V3.html`** from the GitHub prerelease and open it in a current desktop browser with JavaScript and WebGL enabled. No installation, account, server or internet connection is needed to run the standalone file.
 2. The sample layout loads automatically. Try orbit/zoom, select a component and inspect its properties. On a phone or touch tablet use the bottom navigation and sheets.
 3. For the requested steel factory, choose **FILE → Import project** and open `examples/Metalworking_demo_V2.txt`. On touch devices choose **Project → Import project**. The sample has two U-shaped lines, cutting, milling and inspection, parallel-jaw grippers, seven workers, feeders set to 12 parts/min and a 3 × 2 × 4 pallet pattern. Guarding is illustrative.
 4. Open **AI Factory**. In **Node graph**, the starter graph connects actual feeder, conveyor, robot, machine and pallet parts. Select a node to edit its settings, or use **Add node** to find more physical parts. Connect compatible material ports to change the built line; disconnected nodes are inactive. Independent lines, direct multi-source merges and multiple worker stations on one conveyor are supported; general conveyor-to-conveyor splitters are not. The separate **Form** tab accepts a description such as `examples/Russian_factory_prompt.txt`; interpretation uses local rules, not an online AI service. The feed setting is not a guarantee of finished output.
+
+## Simulation speed and performance
+
+Use the multiplier field, slider or +/− buttons next to the simulation clock. Robots (including JavaScript programs), workpieces, feeders, machine cycles, workers and dynamic physics all follow the same fixed simulation clock. Pause freezes simulation motion; changing the multiplier takes effect without replaying an old high-speed backlog. Signal-wire packets remain a real-time visual aid so brief button presses are visible even while paused.
+
+The requested rate is a target, not a guarantee: a large factory or a high multiplier can exceed the device's capacity. When the achieved rate is substantially lower, an amber `~…x` indicator shows the measured rate. Animations follow completed simulation time in that case, rather than appearing to outrun the products. Unprocessed wall-time demand is bounded; simulation steps and their events are never skipped to advance the clock. Reduce the multiplier or scene complexity if the device cannot keep up.
 
 ## Build a merged conveyor line
 

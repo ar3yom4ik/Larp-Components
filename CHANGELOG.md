@@ -4,6 +4,13 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ## [Unreleased]
 
+## [3.0.0-alpha.3] - 2026-11-02 (prerelease)
+
+- Fixed simulation-speed scaling for scripted and visual robots, conveyor workpieces, workers, feeders, machine cycles and rigid-body physics. JavaScript robot commands can resume between fixed substeps even when several substeps share one rendered frame.
+- Belt textures, worker mixers and equipment animations now follow completed simulation time; slow GPUs receive a larger bounded simulation slice. A measured-rate warning identifies device-limited speeds, and stale overloaded demand is cleared on pause or a speed change.
+- Added a startup/recovery screen for disabled or blocked JavaScript and a workspace error boundary. This helps diagnose startup failures but does not guarantee an external preview proxy can be reached.
+- Added fixed-step, real-time browser, overload, pause/resume, visual synchronization and startup-failure regressions. The release includes a downloadable standalone HTML file.
+
 - Added delayed button-name tooltips, deeper graph zoom and fit-to-view; collapsed nodes retain connected ports and physical node types have distinct colours.
 - Added box/shift selection, multi-node move/copy with internal wires, rearrangement and persistent named, custom-coloured group frames that become overview nodes at distant zoom. Inserting a node into a wire makes room automatically.
 - Feeders, robots and operators can feed a shared conveyor directly with automatically generated physical inlets. Multiple robots/operators can share a conveyor output with automatically placed stations, product reservations and queueing. General conveyor-to-conveyor splitters remain unsupported.

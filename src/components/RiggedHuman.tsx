@@ -3,6 +3,7 @@ import { createPortal, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { ImportedModelData, SceneItem, WorkerMotionRole, WorkerSettings } from "../types";
 import { sim } from "../sim/engine";
+import { useSimulationDelta } from "../sim/animationClock";
 import { useImportedModelInstance } from "./ImportedModel";
 import { getCachedAnimation, getCachedModel } from "../utils/modelImport";
 import { boneMap, defaultWorker, findRoleClip, retargetWorkerClip } from "../utils/workerAnimation";
@@ -76,6 +77,7 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
   // Cosmetics are parented to this holder, which sits under the head bone so they follow the head.
   const gearHolder = useMemo(() => new THREE.Group(), []);
   const shirtColor = workerShirtColor(item);
+  const simulationDelta = useSimulationDelta();
 
   const transform = useMemo(() => {
     const fallbackTransform = { scale: 1, offset: [0, 0, 0] as [number, number, number], footRest: null as number | null };
@@ -160,7 +162,8 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
     return () => { alive = false; if (local) { local.stopAllAction(); local.uncacheRoot(loaded.object); } animation.current = null; };
   }, [loaded, model.asset, settings.motions, gl, invalidate]);
 
-  useFrame((_, delta) => {
+  useFrame(() => {
+    const delta = simulationDelta();
     const rt = sim.humans.get(item.id), node = outer.current;
     if (!rt || !node) return;
     const itemScale = Number.isFinite(item.scale) && Math.abs(item.scale) > 1e-4 ? item.scale : 1;
@@ -168,7 +171,7 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
     const rot = pose.rotation * Math.PI / 180, dx = rt.x - pose.position[0], dz = rt.z - pose.position[2];
     node.position.set((dx * Math.cos(rot) - dz * Math.sin(rot)) / itemScale, (rt.y - pose.position[1]) / itemScale, (dx * Math.sin(rot) + dz * Math.cos(rot)) / itemScale);
     const target = rt.yaw - rot, diff = Math.atan2(Math.sin(target - node.rotation.y), Math.cos(target - node.rotation.y));
-    if (sim.running) node.rotation.y += diff * (1 - Math.exp(-Math.min(delta, .1) * 10));
+    if (sim.running) node.rotation.y += diff * (1 - Math.exp(-delta * 10));
     const state = animation.current;
     if (state && sim.running) {
       let role: WorkerMotionRole = rt.walking ? "walk" : ["inspect", "replenish", "operate", "processing", "tend"].includes(rt.status) ? "work" : "idle";
@@ -180,7 +183,7 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
         if (previous && previous !== next) previous.crossFadeTo(next, .25, false);
         state.current = role; node.userData.activeRole = role; node.userData.clipName = next.getClip().name;
       }
-      state.mixer.update(Math.min(delta, .1) * Math.max(.01, sim.speed));
+      state.mixer.update(delta);
     }
     // Approximate foot contact in-place: keep the lowest foot/toe joint near its
     // bind-pose height. This avoids obvious floating when retargeted rigs differ.
@@ -190,7 +193,7 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
     // Freeze the entire animated pose when paused. A grounding toggle is an
     // explicit edit, so apply that one adjustment immediately even while paused.
     if (visual.current && (sim.running || groundChanged)) {
-      const blend = !sim.running && groundChanged ? 1 : 1 - Math.exp(-Math.min(delta, .1) * 14);
+      const blend = !sim.running && groundChanged ? 1 : 1 - Math.exp(-delta * 14);
       let desired = transform.offset[1];
       if (groundEnabled && feet.length && transform.footRest !== null) {
         let lowest = Infinity;
@@ -211,6 +214,7 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
     }
     if (state && import.meta.env.DEV) {
       node.userData.mixerTime = state.mixer.time;
+      node.userData.renderedSimulationTime = sim.time;
       node.userData.weights = Object.fromEntries(Object.entries(state.actions).map(([name, action]) => [name, action?.isRunning() ? action.getEffectiveWeight() : 0]));
     }
   });

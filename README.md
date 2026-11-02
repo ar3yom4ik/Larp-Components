@@ -31,6 +31,9 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run test:physics-browser` | Playwright checks for point-height gizmos, imported workpieces, dynamic poses and moving wires. |
 | `npm run test:physics-standalone` | Offline packaged-file checks for custom products, physics, multi-level components and export (run after `npm run build`). |
 | `npm run bench:physics` | Headless fixed-step benchmark for falling and sleeping rigid bodies. |
+| `npm run test:speed-browser` | Playwright real-time robot, workpiece, worker and overloaded speed checks against the development server. |
+| `npm run test:speed-standalone` | Offline packaged-file speed and startup fallback checks (run after `npm run build`). |
+| `npm run test:startup-browser` | Playwright startup, blocked-module and error-recovery checks against the development server. |
 | `npm run test:factory-browser` | Playwright checks for graph selection, groups, tooltips, wiring, insertion and merge building. |
 | `npm run test:factory-standalone` | Checks the production preview, offline graph editing and iframe loading. |
 | `npm run test:archive-browser` | Playwright `.LCMX` import/export and save/autosave checks. |
@@ -40,6 +43,10 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run preview` | Serve the production build locally. |
 
 > Use `npm run build`, not plain `vite build`: the embedder appends the packed CAD and worker assets required by the standalone HTML.
+
+### Simulation speed
+
+The player multiplier applies to robots and scripts, conveyor workpieces, workers, machines, feeders and physics. If the device cannot keep up, an amber `~…x` shows the measured rate; visual animations stay synchronized with the simulation. Pause and speed changes do not replay stale overloaded work. See the [user guide](docs/USER_GUIDE.md#simulation-speed-and-performance).
 
 ### Merged conveyors and 3D transforms
 

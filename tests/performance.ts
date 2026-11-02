@@ -148,27 +148,28 @@ assert(insidePoint !== null && Math.abs(insidePoint.s - 17.4) < 0.6, 'belt arc l
 
 const budgetEngine = new Engine();
 budgetEngine.sync(generateFactory({ ...DEFAULT_GEN, stages: 2, lanes: 2, staff: 4 }));
-budgetEngine.setRunning(true);
-// One frame at speed 60 asks for sixty substeps; the budget decides how many run.
-budgetEngine.setSpeed(60);
-budgetEngine.stepBudgetMs = 1000;
-for (let i = 0; i < 5; i += 1) budgetEngine.step(1 / 60); // warm up / JIT
-budgetEngine.stepBudgetMs = 1;
-const before = budgetEngine.time;
-budgetEngine.step(1 / 60);
-const tinyAdvance = budgetEngine.time - before;
-assert(tinyAdvance >= 1 / 60 - 1e-9, 'a tiny budget skipped the frame entirely');
-assert(tinyAdvance < 0.95, `a 1 ms budget still simulated ${tinyAdvance.toFixed(2)} s in one frame`);
-
+budgetEngine.setRunning(true); budgetEngine.setSpeed(60); budgetEngine.stepBudgetMs = 1;
 const generous = new Engine();
 generous.sync(generateFactory({ ...DEFAULT_GEN, stages: 2, lanes: 2, staff: 4 }));
-generous.setRunning(true);
-generous.setSpeed(60);
-generous.stepBudgetMs = 1000;
-const wideStart = generous.time;
-generous.step(1 / 60);
-const wideAdvance = generous.time - wideStart;
-assert(wideAdvance > 0.5 && wideAdvance >= tinyAdvance, `a large budget simulated only ${wideAdvance.toFixed(2)} s vs ${tinyAdvance.toFixed(2)} s`);
+generous.setRunning(true); generous.setSpeed(60); generous.stepBudgetMs = 1000;
+
+// Use a deterministic wall clock for the budget contract: shared CI hosts can
+// deschedule the process for tens of milliseconds mid-substep, so a real-time
+// comparison can fail regardless of the budgeting logic or device performance.
+const realPerformance = globalThis.performance;
+let fakeMs = 0;
+Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => { fakeMs += .2; return fakeMs; } } });
+try {
+  budgetEngine.step(1 / 60);
+  const tinyAdvance = budgetEngine.time;
+  assert(tinyAdvance >= 1 / 60 - 1e-9, 'a tiny budget skipped the frame entirely');
+  assert(tinyAdvance < .2, `a 1 ms budget still simulated ${tinyAdvance.toFixed(2)} s in one frame`);
+  generous.step(1 / 60);
+  const wideAdvance = generous.time;
+  assert(wideAdvance > .95 && wideAdvance > tinyAdvance * 5, `a large budget simulated only ${wideAdvance.toFixed(2)} s vs ${tinyAdvance.toFixed(2)} s`);
+} finally {
+  Object.defineProperty(globalThis, 'performance', { configurable: true, value: realPerformance });
+}
 
 console.log('spatial index, conveyor cells, support parity and adaptive step budget OK');
 process.exit(0);

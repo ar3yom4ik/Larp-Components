@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { ComponentKind, GripperKind, SceneItem } from "../types";
 import { sim, ROBOT_SPECS } from "../sim/engine";
+import { useSimulationDelta } from "../sim/animationClock";
 import { samplePath } from "../sim/spline";
 import { palletSize } from "../data/products";
 import { FenceModel } from "./FenceModel";
@@ -138,9 +139,9 @@ function RobotModel({ item, cobot }: { item: SceneItem; cobot: boolean }) {
   return (
     <group>
       <Static id={`robot-base-${cobot}`} accent={accent} make={base} />
-      <group ref={waist}>
+      <group ref={waist} userData={{ robotJoint: "waist", itemId: item.id }}>
         <Static id={`robot-waist-${cobot}`} accent={accent} make={waistParts} />
-        <group ref={shoulder} position={[0, spec.shoulder, 0]} rotation={[0, 0, home.th1]}>
+        <group ref={shoulder} userData={{ robotJoint: "shoulder", itemId: item.id }} position={[0, spec.shoulder, 0]} rotation={[0, 0, home.th1]}>
           <Static id={`robot-upper-${cobot}`} accent={accent} make={upperParts} />
           <group ref={elbow} position={[spec.L1, 0, 0]} rotation={[0, 0, home.elbow]}>
             <Static id={`robot-fore-${cobot}`} accent={accent} make={foreParts} />
@@ -186,6 +187,7 @@ function ConveyorModel({ item, roller }: { item: SceneItem; roller: boolean }) {
     return tex;
   }, [roller]);
   const accent = item.color || "#4DA3E8";
+  const simulationDelta = useSimulationDelta();
 
   useEffect(
     () => () => {
@@ -198,17 +200,17 @@ function ConveyorModel({ item, roller }: { item: SceneItem; roller: boolean }) {
   );
   useEffect(() => () => texture.dispose(), [texture]);
 
-  useFrame((_, delta) => {
-    if (!sim.running) return;
+  useFrame(() => {
+    const delta = simulationDelta();
     const rt = sim.conveyors.get(item.id);
     if (!rt || !rt.active) return;
-    texture.offset.x -= (rt.speed * delta * sim.speed) / 0.5;
+    texture.offset.x -= (rt.speed * delta) / 0.5;
     if (texture.offset.x < -1000) texture.offset.x = 0;
   });
 
   return (
     <group>
-      <mesh geometry={geos.belt} receiveShadow castShadow>
+      <mesh geometry={geos.belt} userData={{ conveyorBelt: true, itemId: item.id }} receiveShadow castShadow>
         <meshStandardMaterial map={texture} roughness={0.85} metalness={0.05} />
       </mesh>
       {geos.steel && <mesh geometry={geos.steel} material={getMaterial("steel")} castShadow receiveShadow />}
@@ -248,7 +250,9 @@ const cncParts = (): Part[] => [
 function CncModel({ item }: { item: SceneItem }) {
   const door = useRef<THREE.Mesh>(null);
   const accent = item.color || "#E8A245";
-  useFrame((_, delta) => {
+  const simulationDelta = useSimulationDelta();
+  useFrame(() => {
+    const delta = simulationDelta();
     const rt = sim.machines.get(item.id);
     if (!door.current) return;
     const target = rt?.busy ? -0.32 : 0.62;
@@ -314,10 +318,10 @@ function WeldModel({ item }: { item: SceneItem }) {
     () => () => [C(0.25, 0.3, 0.3, 0, 0.15, 0, "dark"), B(0.22, 1.1, 0.22, 0, 0.8, 0, "acc"), B(0.9, 0.18, 0.18, 0.35, 1.35, 0, "light"), B(0.1, 0.4, 0.1, 0.8, 1.2, 0, "dark")],
     [],
   );
-  useFrame(({ clock }) => {
+  useFrame(() => {
     if (!sim.running || !sim.machines.get(item.id)?.busy) { if (spark.current) spark.current.visible = false; return; }
     if (spark.current) spark.current.visible = true;
-    const t = clock.elapsedTime;
+    const t = sim.time;
     if (arm.current) arm.current.rotation.y = Math.sin(t * 0.9) * 0.5;
     if (spark.current) spark.current.scale.setScalar(0.5 + Math.max(0, Math.sin(t * 38)) * 0.9);
   });
@@ -352,13 +356,13 @@ function PackerModel({ item }: { item: SceneItem }) {
   const flap = useRef<THREE.Group>(null);
   const accent = item.color || "#C98BD0";
   const flapParts = useMemo(() => () => [B(1.1, 0.06, 1.1, 0.55, 0, 0, "steel")], []);
-  useFrame(({ clock }) => {
-    if (sim.running && flap.current) flap.current.rotation.z = -0.1 + Math.max(0, Math.sin(clock.elapsedTime * 1.7)) * 0.7;
+  useFrame(() => {
+    if (sim.running && flap.current) flap.current.rotation.z = -0.1 + Math.max(0, Math.sin(sim.time * 1.7)) * 0.7;
   });
   return (
     <group>
       <Static id="packer" accent={accent} make={packerParts} /><LoadingTray />
-      <group ref={flap} position={[-1.3, 2.15, -0.2]}>
+      <group ref={flap} userData={{ animatedMechanism: "packer-flap", itemId: item.id }} position={[-1.3, 2.15, -0.2]}>
         <Static id="packer-flap" accent={accent} make={flapParts} />
       </group>
     </group>
@@ -385,11 +389,11 @@ const amrParts = (): Part[] => [
 function AmrModel({ item }: { item: SceneItem }) {
   const ref = useRef<THREE.Group>(null);
   const accent = item.color || "#35B5C4";
-  useFrame(({ clock }) => {
-    if (sim.running && ref.current) ref.current.position.x = Math.sin(clock.elapsedTime * 0.5) * 2.4;
+  useFrame(() => {
+    if (sim.running && ref.current) ref.current.position.x = Math.sin(sim.time * 0.5) * 2.4;
   });
   return (
-    <group ref={ref}>
+    <group ref={ref} userData={{ animatedMechanism: "amr", itemId: item.id }}>
       <Static id="amr" accent={accent} make={amrParts} />
     </group>
   );
@@ -480,14 +484,16 @@ function FeederModel({ item }: { item: SceneItem }) {
   );
   const body = useRef<THREE.Group>(null);
   const spin = useRef<THREE.Mesh>(null);
-  useFrame((_, delta) => {
-    if (body.current) body.current.rotation.y += (sim.running ? delta : 0) * 0.25;
-    if (spin.current) spin.current.rotation.z += (sim.running ? delta : 0) * 1.2;
+  const simulationDelta = useSimulationDelta();
+  useFrame(() => {
+    const delta = simulationDelta();
+    if (body.current) body.current.rotation.y += delta * 0.25;
+    if (spin.current) spin.current.rotation.z += delta * 1.2;
   });
   return (
     <group>
       <Static id="feeder-base" accent={accent} make={parts} />
-      <group ref={body} position={[0, 1.62, 0.62]}>
+      <group ref={body} userData={{ animatedMechanism: "feeder", itemId: item.id }} position={[0, 1.62, 0.62]}>
         <CylinderSpin ref={spin} />
       </group>
     </group>
