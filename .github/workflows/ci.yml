@@ -58,15 +58,6 @@ jobs:
           for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
           cat /tmp/larp-vite.log
           exit 1
-      - name: Build standalone for catalog checks
-        run: npm run build
-      - name: Standalone catalog regression (mocked providers)
-        run: MOCK_WEB_CATALOG=1 npm run test:web-catalog-live
-      # A provider outage must not make an otherwise offline editor fail CI.
-      # This separate, non-blocking check verifies real browser CORS, downloads and the packaged file.
-      - name: Live web catalog diagnostic (external services)
-        continue-on-error: true
-        run: npm run test:web-catalog-live
       - name: Catalog, camera and sensor regressions
         run: npm run test:catalog-browser && npm run test:camera-browser && npm run test:sensor-browser
       - name: Factory graph and signal node regressions
@@ -74,10 +65,38 @@ jobs:
       - name: Selection, physics and web catalog regressions
         run: npm run test:selection-browser && npm run test:web-catalog-browser && npm run test:gizmos-browser
 
+  catalog-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build standalone for catalog checks
+        run: npm run build
+      - name: Standalone catalog regression (mocked providers)
+        run: MOCK_WEB_CATALOG=1 npm run test:web-catalog-live
+      - name: Start development preview
+        run: |
+          npm run dev -- --host 0.0.0.0 --port 4173 > /tmp/larp-vite.log 2>&1 &
+          for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/larp-vite.log
+          exit 1
+      # Provider outages must not fail an otherwise offline editor. Check
+      # the annotations for each HTTP/file result, not just the green step.
+      - name: Live web catalog diagnostic (external services)
+        continue-on-error: true
+        run: npm run test:web-catalog-live
+
   # Only an already-published prerelease at this exact internal PR head is
   # eligible. Forks and unrelated PRs never receive a write-capable token.
   attach-prerelease:
-    needs: [build, browser]
+    needs: [build, browser, catalog-diagnostic]
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
