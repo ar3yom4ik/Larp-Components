@@ -58,8 +58,12 @@ jobs:
           for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
           cat /tmp/larp-vite.log
           exit 1
+      - name: Build standalone for catalog checks
+        run: npm run build
+      - name: Standalone catalog regression (mocked providers)
+        run: MOCK_WEB_CATALOG=1 npm run test:web-catalog-live
       # A provider outage must not make an otherwise offline editor fail CI.
-      # This separate, non-blocking check verifies real browser CORS and GLBs.
+      # This separate, non-blocking check verifies real browser CORS, downloads and the packaged file.
       - name: Live web catalog diagnostic (external services)
         continue-on-error: true
         run: npm run test:web-catalog-live

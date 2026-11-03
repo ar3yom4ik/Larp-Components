@@ -31,3 +31,7 @@ The alpha.4 work adds unit regressions for signal-controlled conveyors/feeders, 
 ## Alpha.5 follow-up
 
 Explicit graph sensor nodes and numbered I/O are covered by `tests/graph-signals.ts` and `tests/factory-signal-nodes-browser.mjs`, including migration, pickup placement, per-port functions/colours, feedback, simulation and archive round-trips. The browser checks run in CI. Current physical graphs support conveyor merges and shared pickup stations; viewport signal sources can have multiple destinations. Signal feedback is stepped, not an industrial PLC or safety controller; laser opacity and beam behavior remain approximate.
+
+## Alpha.6 follow-up
+
+Selection tests cover marquee/modifier selection, group translation/rotation and undo, clipboard link remapping, middle-button orbit, dynamic poses, mounted sensors and Select-mode spline protection. Catalog tests cover actual thumbnail and preview pixels, shared scale/dimensions, X-up, resize, texture chooser cancellation, project reload and submodels. Mocked web tests cover source search, retry, incremental display, cancellation, embedded downloads and CC0 provenance. `test:web-catalog-live` reports real browser results for HTTP and `file://` origins separately in CI annotations; it is intentionally non-blocking because third-party outages should not fail offline-editor CI. Check those annotations before claiming a provider is reachable.

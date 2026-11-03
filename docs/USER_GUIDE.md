@@ -1,13 +1,19 @@
-# Larp Factory Simulator — V3 prerelease 5
+# Larp Factory Simulator — V3 prerelease 6
 
-An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.5** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
+An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.6** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
 
 ## Start in under a minute
 
-1. Download **`Larp_Factory_V3.html`** from the GitHub prerelease and open it in a current desktop browser with JavaScript and WebGL enabled. No installation, account, server or internet connection is needed to run the standalone file.
+1. Download **`Larp_Factory_V3.html`** from the GitHub prerelease and open it in a current desktop browser with JavaScript and WebGL enabled. No installation, account, server or internet connection is needed to run the standalone file. Searching and downloading from the optional Web catalog does require internet access.
 2. The sample layout loads automatically. Try orbit/zoom, select a component and inspect its properties. On a phone or touch tablet use the bottom navigation and sheets.
 3. For the requested steel factory, choose **FILE → Import project** and open `examples/Metalworking_demo_V2.txt`. On touch devices choose **Project → Import project**. The sample has two U-shaped lines, cutting, milling and inspection, parallel-jaw grippers, seven workers, feeders set to 12 parts/min and a 3 × 2 × 4 pallet pattern. Guarding is illustrative.
 4. Open **AI Factory**. In **Node graph**, the starter graph connects actual feeder, conveyor, robot, machine and pallet parts. Select a node to edit its settings, or use **Add node** to find more physical parts. Connect compatible material ports to change the built line; disconnected nodes are inactive. Independent lines, direct multi-source merges and multiple worker stations on one conveyor are supported; general conveyor-to-conveyor splitters are not. The separate **Form** tab accepts a description such as `examples/Russian_factory_prompt.txt`; interpretation uses local rules, not an online AI service. The feed setting is not a guarantee of finished output.
+
+## Viewport selection, camera and clipboard
+
+Choose **Select** and drag with the left mouse button to select components whose visible bounds intersect the rectangle. Shift/Ctrl-click toggles individual objects; Shift/Ctrl-drag adds a rectangle to the existing selection. Properties still show the primary (last selected) object. Choose **Move** or **Rotate** to transform the selected group together, with snapping and undo. To move conveyor spline handles, choose **Move** first.
+
+Hold and drag the middle mouse button to orbit; scroll to zoom and right-drag to pan. Right-click without dragging opens the context menu, including **Copy**, **Cut** and **Paste**; Ctrl+C/X/V also work. The clipboard is local to this editor session. Copies preserve relative placement and remap connections within the copied group; references to unselected objects still refer to the originals. The first paste after a cut restores the same IDs, so existing incoming links can reconnect. Shift-right-click still sets the centre of interest. On touch screens, one finger orbits and pinch zooms.
 
 ## Simulation speed and performance
 
@@ -63,10 +69,10 @@ For reliable saving, open the downloaded HTML in a regular browser rather than t
 
 ## Import a model and edit materials
 
-- Choose **Import 3D model** in the catalog, ribbon, FILE menu or touch Tools, or drop files on the viewport. Select the model and its referenced `.bin`, `.mtl` and image files together; a ZIP preserves folder structure. External model URLs are blocked; files stay local.
+- Choose **Import 3D model** in the catalog, ribbon, FILE menu or touch Tools, or drop files on the viewport. Select the model and its referenced `.bin`, `.mtl` and image files together; a ZIP preserves folder structure. For local imports, external companion URLs are blocked and selected files stay local. The separate Web catalog fetches the selected provider’s files over the network.
 - Supported through browser loaders: GLB/glTF, FBX, OBJ/MTL, STL, PLY, DAE, 3MF, 3DS, USD/USDZ, VRML, VTK, AMF, STEP, IGES and BREP. Complex proprietary features may not be supported; GLB is usually the most portable textured format.
-- Imported models appear as thumbnail cards in the catalog. Drag a card into the viewport or click it to add an instance; use the fullscreen button for larger icons and details. The model stays in the catalog after its scene instances are deleted. Edit its shared base in the catalog (or edit imported-model settings on an instance) to change units, up-axis, materials and textures across every instance. The shared editor also offers mass, physics and collider settings. Expand **Submodels** to remove unwanted meshes from all instances or restore them; bounds and compound collisions are recalculated.
-- Select the imported object → **Properties** to adjust units, up-axis, base color, roughness, metalness, opacity and texture maps. Per-map strength controls include base color, normal, roughness, metalness, AO, emission, alpha, bump and displacement. Textures need suitable UVs; roughness/metalness/AO follow standard packed channels. If a map is missing, select a local replacement image.
+- Imported models appear as thumbnail cards in the catalog. Drag a card into the viewport or click it to add an instance; use the fullscreen button for larger icons and details. The model stays in the catalog after its scene instances are deleted. Edit its shared base in the catalog (or edit imported-model settings on an instance) to change units, X/Y/Z-up axis, materials and textures across every instance. The resizable shared editor has a 3D preview on the right, proportional scale and size fields, mass, physics and collider settings. Drag in the preview to orbit and scroll to zoom. Expand **Submodels** to remove unwanted meshes from all instances or restore them; bounds and compound collisions are recalculated.
+- Select the imported object → **Properties** to adjust units, up-axis, base color, roughness, metalness, opacity and texture maps. Per-map strength controls include base color, normal, roughness, metalness, AO, emission, alpha, bump and displacement. Textures need suitable UVs; roughness/metalness/AO follow standard packed channels. If a map is missing, select a local replacement image; cancelling the file chooser returns to the editor without applying a change.
 - To use an import as a workpiece, set its units, up-axis, scale and **Physics → Weight**, then choose it from **Spawn product** on a feeder. Machine input/output and pallet product pickers also list imported models. The model's measured bounds define its approximate workpiece size; robots use its configured weight for payload checks. The workpiece definition and asset are saved separately, so you can delete the source scene object and continue using it, including after export or reload. To free project space later, delete all scene instances of that asset, select the saved workpiece in a feeder, machine or pallet's product picker and choose **Remove saved workpiece**. Confirming changes components using it to cartons; the action can be undone. Reset the simulation if existing products need to be cleared. Older imports without saved bounds or collider metadata are measured in the background, even when their source is hidden or deleted.
 - Imports do **not** automatically become functional machines or robot tools. Their surface-derived compound colliders approximate the mesh rather than reproducing every triangle; worker route planning does not treat arbitrary imported meshes as detailed navigation obstacles. Adjust source units/up-axis if the model is too large, small or sideways.
 - Limit per import: 80 MiB including expanded ZIP data and 1,000 files. A replacement texture is limited to 10 MiB and 8192 × 8192 pixels. There is no fixed component or live-product count cap. Projects remain limited to about 180 MB of exported UTF-8 data; browser storage quotas and available CPU/GPU/memory may be lower.
@@ -120,14 +126,13 @@ Imported projects embed the original model/animation files and any replacement m
   of **MSAA** in **Settings → Video**; both keep the plant identical and only change how it is
   drawn.
 
-## Web catalogue (Poly Haven)
+## Web catalogue
 
-The catalog's third tab, **Web**, lists the Poly Haven model library (thousands of CC0 models).
-Type to search, choose the texture size (1k / 2k / 4k — 1k is the sensible default) and click a
-model. It downloads the glTF and all of its textures, and the model is added to the scene like a
-file you imported yourself: the data lives inside the project file, so the factory opens offline
-afterwards. Big models at 4k can be tens of megabytes; the 80 MB import limit still applies.
-Credit belongs to Poly Haven (`polyhaven.com`, CC0) — the panel links it. Sloyd, Poly Pizza and Thingiverse are links to their own sites: download there and use local import; they are not direct in-app search/download integrations. Check each model’s individual licence and attribution requirements.
+The catalog’s **Web** tab searches **Poly Haven**, **Gobkit** and **Kenney** together by default; use the source buttons to narrow the results and **Show more** to reveal additional matches. Kenney's CC0 models and thumbnails are served by the independently maintained [Tiny Game Engine mirror](https://github.com/Hidencod/tge-assets); Gobkit includes free curated and community models. Some curated Gobkit models have no provider thumbnail and show a placeholder. Provider availability, browser CORS rules and network access can change; errors include a retry button.
+
+Choose a model to download and embed it, along with its source, title and CC0 licence, in the project. Poly Haven offers 1k/2k/4k texture choices and downloads glTF companions; Gobkit and the Kenney mirror provide self-contained GLBs. The 80 MiB per-import and approximately 180 MB project limits still apply. Imported assets work offline after saving. The optional online catalog contacts the selected providers; local-file import does not.
+
+**More sources (manual download)** links to Sloyd, Poly Pizza, Thingiverse and 3DAssets.dev. They are not direct in-app search/download integrations; download a file from the provider and use **Import 3D model**. Their terms may require accounts, attribution or have other restrictions. Check each model’s licence before use or redistribution.
 
 ## Keyboard shortcuts
 

@@ -38,6 +38,9 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run test:factory-signal-browser` | Playwright checks for sensor nodes, numbered signal ports, colors, wiring and pickup placement. |
 | `npm run test:factory-standalone` | Checks the production preview, offline graph editing and iframe loading. |
 | `npm run test:catalog-browser` | Browser checks for catalog import, shared edits, submodels, drag and loading placeholder. |
+| `npm run test:selection-browser` | Marquee, group transforms, clipboard, camera gestures, dynamic bodies and spline-selection safety. |
+| `npm run test:web-catalog-browser` | Deterministic mocked-provider search, retry, downloads and provenance checks. |
+| `npm run test:web-catalog-live` | Optional real-provider diagnostic; needs internet, a running dev server and `npm run build`. |
 | `npm run test:camera-browser` | Browser checks for graphics-setting and GI-room camera restoration. |
 | `npm run test:sensor-browser` | Browser checks that mounted sensors, wires and radius follow a moving belt. |
 | `npm run test:archive-browser` | Playwright `.LCMX` import/export and save/autosave checks. |
@@ -58,11 +61,13 @@ In **AI Factory → Node graph**, connect multiple feeders, conveyors, robots or
 
 Drag on empty graph space to box-select, Shift-click to add/remove nodes, and drag a selected node to move the selection. Use middle mouse or Space-drag to pan, the wheel to zoom, and **Fit all nodes** (or Home) to frame the graph. Right-click a selection to rearrange or group it; choose a group name and colour in its inspector. Drag the group frame to move its contents, and use Ctrl+C/V or Shift+D to copy nodes, internal wires and complete groups. Groups become named overview frames at distant zoom. Double-click a node to collapse it while keeping its ports visible. Hover over any button briefly to see its name beside the pointer. Changes remain undoable and survive graph export/import and reload.
 
+In the 3D viewport, use **Select** and left-drag to box-select, or Shift/Ctrl-click to toggle individual objects. Shift/Ctrl-drag adds a box to the selection. Middle-drag orbits, the wheel zooms and right-drag pans. Right-click for **Copy**, **Cut** and **Paste** (also Ctrl+C/X/V); copied selections retain relative positions and internal connections. In **Move** or **Rotate**, the gizmo transforms the group.
+
 Select an object and use **Move** or **Rotate** for X/Y/Z gizmos. To make a sloped or multi-level conveyor, select a spline sphere or point row and drag its green Y arrow, or enter its local Y height. Existing sphere dragging, snapping, undo and project archives still work. Add **Elevated Platform** and **Industrial Stairs** from the Building catalog and align their heights to arrange upper floors.
 
 Every component has **Properties → Physics → Kinematic/Dynamic** and **Weight (kg)**. Choose a mode for legacy components. Kinematic equipment stays at its edited pose (task-driven workers still walk); dynamic objects fall, collide and keep their usual simulated function. Reset returns them to the authored layout. Tilted equipment uses oriented support faces, fast bodies and products receive swept collision checks, and workers can route between connected floors. Imported geometry uses mesh-derived compound colliders; complex contacts are still approximate. See the [user guide](docs/USER_GUIDE.md#physics-and-upper-floors).
 
-To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Its saved workpiece definition and embedded asset remain available even if the source scene object is deleted. The catalog shows cached thumbnails and supports fullscreen and drag-to-scene. Editing the base model's units, materials, mass or collider affects its instances; **Submodels** removes or restores meshes across them. Poly Haven imports directly; Sloyd, Poly Pizza and Thingiverse open their own sites for manual download, subject to each model's licence.
+To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Its saved workpiece definition and embedded asset remain available even if the source scene object is deleted. The catalog shows cached thumbnails and supports fullscreen and drag-to-scene. **Edit catalog model** offers a resizable right-hand 3D preview, X/Y/Z-up orientation, proportional scale and size fields, plus shared materials, mass and colliders. **Submodels** removes or restores meshes across instances. The **Web** tab searches Poly Haven, Gobkit and a Kenney CC0 mirror together; imported files are embedded in the project. Sloyd, Poly Pizza, Thingiverse and 3DAssets.dev are manual-download links, subject to their licences and browser access.
 
 ### Sensor nodes and numbered signals
 

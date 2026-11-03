@@ -1462,7 +1462,7 @@ export const Viewport = memo(function Viewport({
       <div className={cn("viewport-hint pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#2a2a2c]/85 px-3 py-1 shadow-lg backdrop-blur lg:flex", mobile && "!hidden")}>
         <span className="whitespace-nowrap font-mono text-[8.5px] uppercase tracking-[0.1em] text-white/55">
           {t(tool === "select" ? "Left drag: box select · middle drag: orbit · wheel: zoom" : tool === "move" ? "Drag a component to move it" : "Drag around a component to rotate it")}
-          {t(selected && (selected.kind === "conveyor" || selected.kind === "roller") ? " · drag the white handles to bend the spline" : "")}
+          {t(selected && (selected.kind === "conveyor" || selected.kind === "roller") ? (tool === "select" ? " · choose Move to bend the spline" : " · drag the white handles to bend the spline") : "")}
         </span>
       </div>
 

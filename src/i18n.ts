@@ -412,6 +412,7 @@ export const RU: Record<string, string> = {
   "Drag a component to move it": "Перетаскивайте компонент для перемещения",
   "Drag around a component to rotate it": "Перетаскивайте вокруг компонента для поворота",
   " · drag the white handles to bend the spline": " · перетаскивайте белые точки для изменения траектории",
+  " · choose Move to bend the spline": " · выберите Перемещение для изменения траектории",
   "Search workspace": "Поиск в проекте",
   "Supply depleted": "Запасы закончились",
   "Loop ran too long without `await` - add `await robot.wait(0.1)` inside the loop": "Цикл слишком долго работает без await. Добавьте await robot.wait(0.1) внутрь цикла.",

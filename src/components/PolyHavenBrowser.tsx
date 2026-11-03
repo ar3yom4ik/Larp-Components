@@ -14,6 +14,13 @@ type Card = {provider: 'poly'; asset: PolyAsset} | {provider:'kenney' | 'gobkit'
 const sourceNames = {poly:'Poly Haven', kenney:'Kenney (mirror)', gobkit:'Gobkit', all:'All sources'} as const;
 const initialLimits = () => ({poly:24, kenney:24, gobkit:24});
 
+/** Broken or absent provider thumbnails should not leave a broken image glyph. */
+function WebThumbnail({src}: {src:string}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  return src && !failed ? <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} className="h-full w-full object-cover" /> : <Box size={18} className="text-white/35" />;
+}
+
 /** One searchable web catalog. Imported source bytes and licence information
  * stay in the project, so previously imported models work offline. */
 export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
@@ -91,7 +98,7 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
       const card:Card = provider === 'poly' ? {provider:'poly', asset:asset as PolyAsset} : {provider, asset:asset as WebAsset};
       return <button key={key} type="button" disabled={!!busy} onClick={() => void importAsset(card)} title={`${asset.name} · ${asset.categories.join(', ')}`} className="group flex items-center gap-2 rounded border border-white/[0.07] bg-[#262629] p-1.5 text-left transition hover:border-[var(--app-accent)]/40 hover:bg-white/[0.05] disabled:opacity-50">
         <span className="relative flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-[#1b1b1d]">
-          {asset.thumbnail ? <img src={asset.thumbnail} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Box size={18} className="text-white/35" />}
+          <WebThumbnail src={asset.thumbnail} />
           <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100">{busy === key ? <Loader2 size={12} className="animate-spin text-white" /> : <Download size={12} className="text-white" />}</span>
         </span>
         <span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-medium text-[#e6e6e6]">{asset.name}</span><span className="block truncate font-mono text-[7.5px] uppercase tracking-wide text-white/30">{asset.categories[0] ?? 'model'} · {provider === 'poly' ? (asset as PolyAsset).maxResolution : 'GLB'}</span></span>

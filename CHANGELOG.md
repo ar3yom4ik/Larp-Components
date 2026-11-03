@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.6] - 2026-11-03 (prerelease)
+
+- Added viewport box and modifier multi-selection, group move/rotate, middle-button camera orbit, and right-click/keyboard copy, cut and paste with internal signal-link remapping.
+- Fixed texture-file chooser cancellation and imported-model thumbnail rendering. The resizable shared catalog editor now offers proportional scale/dimension fields, X-up orientation and an interactive 3D preview.
+- Unified search and embedded imports for CC0 Poly Haven, Gobkit and the Kenney mirror, with source and licence information saved in projects. Other linked providers require manual downloads; availability depends on external services and browser CORS.
+- Added browser regressions for selection, dynamic bodies, spline handles, thumbnail/preview pixels, chooser cancellation, shared edits, provenance and catalog failures. Provider live checks are separate and non-blocking.
+
 ## [3.0.0-alpha.5] - 2026-11-03 (prerelease)
 
 - Made laser, proximity, push-button and PLC triggers editable physical graph nodes. Pickup sensors and their two signal links are created for new conveyor-to-robot connections and placed at the robot's source station; old graphs migrate their existing pickup choices.
