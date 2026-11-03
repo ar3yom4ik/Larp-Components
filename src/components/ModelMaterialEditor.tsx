@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, RotateCcw, Trash2 } from "lucide-react";
-import type { ImportedMaterial, ImportedModelData, ModelUnits, SceneItem, TextureSlot } from "../types";
+import type { ImportedMaterial, ImportedModelData, ModelUpAxis, ModelUnits, SceneItem, TextureSlot } from "../types";
 import { getCachedModel, inspectMaterials, modelMeshList, modelSubset, readBlobAsDataUrl } from "../utils/modelImport";
 import { t } from "../i18n";
 
@@ -20,6 +20,24 @@ const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"
 
 function Slider({label, value, min=0, max=1, step=.01, disabled, onBegin, onChange}: {label:string;value:number;min?:number;max?:number;step?:number;disabled?:boolean;onBegin:()=>void;onChange:(value:number)=>void}) {
   return <label className="block"><span className="mb-1 flex justify-between text-[10px] text-white/60"><span>{t(label)}</span><span className="font-mono text-white/80">{value.toFixed(2)}</span></span><input aria-label={t(label)} type="range" min={min} max={max} step={step} value={value} disabled={disabled} onFocus={onBegin} onChange={(e) => onChange(Number(e.target.value))} className="h-1 w-full accent-[var(--app-accent)] disabled:opacity-30" /></label>;
+}
+
+/** Explicitly open one picker. A cancelled native chooser is a normal outcome,
+ * not a pending operation; clear it and return keyboard focus to its button. */
+function TexturePicker({ title, disabled, onFile }: { title: string; disabled: boolean; onFile: (file?: File) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const element = input.current;
+    if (!element) return;
+    const cancel = () => { element.value = ""; requestAnimationFrame(() => button.current?.focus()); };
+    element.addEventListener("cancel", cancel);
+    return () => element.removeEventListener("cancel", cancel);
+  }, []);
+  return <>
+    <button ref={button} type="button" title={t("Choose texture")} aria-label={`${t("Choose texture")}: ${t(title)}`} disabled={disabled} onPointerDown={event => event.stopPropagation()} onClick={() => input.current?.click()} className="rounded p-1 text-[var(--app-accent-bright)] hover:bg-white/10 disabled:opacity-25"><ImagePlus size={13} /></button>
+    <input ref={input} data-texture-input={title} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif" disabled={disabled} tabIndex={-1} aria-hidden="true" className="sr-only" onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) onFile(file); }} />
+  </>;
 }
 
 export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneItem; onUpdate:(id:string, change:Partial<SceneItem>, record?:boolean)=>boolean | void; onBeginEdit:()=>void}) {
@@ -85,6 +103,7 @@ export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneI
     <section className="border-b border-white/[0.08] px-3 py-3" aria-label={t("Imported model settings")}>
       <h4 className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.12em] text-[#a8a8ad]">{t("Imported model")}</h4>
       <div className="mb-2 break-all text-[10px] text-white/60">{model.asset.entry}</div>
+      {model.asset.source && <p className="mb-2 text-[10px] text-white/50">{t("Source")}: <a href={model.asset.source.url} target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent-bright)] underline">{model.asset.source.provider} · {model.asset.source.title}</a> · {model.asset.source.license}</p>}
       <div className="mb-3 text-[10px] text-white/40">{model.meshCount} {t("meshes")} · {model.triangleCount.toLocaleString()} {t("triangles")} · {model.asset.files.length} {t("embedded files")}</div>
       {meshes.length > 1 && <details className="mb-3 rounded border border-white/10 bg-black/10 p-2"><summary className="cursor-pointer text-[11px] text-white/75">{t("Submodels")} · {meshes.length - (model.hiddenMeshes?.length ?? 0)} / {meshes.length}</summary><p className="my-1 text-[10px] text-white/40">{t("Remove unwanted meshes from all instances. Restore them at any time.")}</p><div className="thin-scroll max-h-40 overflow-y-auto">{meshes.map(mesh=><div key={mesh.index} className="flex items-center justify-between gap-2 border-t border-white/5 py-1 text-[10px]"><span className="truncate text-white/65">{mesh.name}</span><button type="button" disabled={filtering || item.locked} aria-label={`${t((model.hiddenMeshes ?? []).includes(mesh.index) ? "Restore submodel" : "Remove submodel")}: ${mesh.name}`} onClick={()=>void toggleMesh(mesh.index)} className="rounded px-2 py-1 text-[var(--app-accent-bright)] hover:bg-white/10 disabled:opacity-40">{t((model.hiddenMeshes ?? []).includes(mesh.index)?"Restore":"Remove")}</button></div>)}</div></details>}
       {error && <div role="alert" className="mb-2 text-[10px] text-red-200">{error}</div>}
@@ -94,7 +113,7 @@ export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneI
         </select>
       </label>
       <label className="block text-[10px] text-white/55">{t("Up axis")}
-        <select aria-label={t("Up axis")} value={model.axis} disabled={item.locked} onChange={(e) => updateModel({axis:e.target.value as "y"|"z"})} className={`${field} mt-1`}><option value="y">Y-up</option><option value="z">Z-up</option></select>
+        <select aria-label={t("Up axis")} value={model.axis} disabled={item.locked} onChange={(e) => updateModel({axis:e.target.value as ModelUpAxis})} className={`${field} mt-1`}><option value="y">Y-up</option><option value="z">Z-up</option><option value="x">X-up</option></select>
       </label>
       <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("Imported models can be workpieces with mesh-derived compound colliders; they do not automatically become machines or detailed navigation obstacles.")}</p>
     </section>
@@ -121,7 +140,7 @@ export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneI
         const status = override === null ? t("Removed") : override ? override.name : material.present.includes(slot) ? t("Source") : t("None");
         return <div key={slot} className="rounded border border-white/10 bg-black/15 p-2">
           <div className="flex items-start justify-between gap-1"><div className="min-w-0"><div className="text-[10px] font-medium text-white/80">{t(title)}</div><div className="truncate text-[9px] text-white/40" title={status}>{status}</div></div>
-            <div className="flex shrink-0 gap-1"><label title={t("Choose texture")} className="cursor-pointer rounded p-1 text-[var(--app-accent-bright)] hover:bg-white/10"><ImagePlus size={13}/><input aria-label={`${t("Choose texture")}: ${t(title)}`} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif" disabled={item.locked} className="sr-only" onChange={(e) => {void setTexture(slot,e.target.files?.[0]); e.target.value="";}} /></label>
+            <div className="flex shrink-0 gap-1"><TexturePicker title={title} disabled={!!item.locked} onFile={file => { void setTexture(slot, file); }} />
               <button type="button" title={t("Restore source map")} aria-label={`${t("Restore source map")}: ${t(title)}`} disabled={item.locked || override === undefined} onClick={() => restoreTexture(slot)} className="rounded p-1 text-white/55 hover:bg-white/10 disabled:opacity-25"><RotateCcw size={12}/></button>
               <button type="button" title={t("Remove map")} aria-label={`${t("Remove map")}: ${t(title)}`} disabled={item.locked || (override === null || (override === undefined && !material.present.includes(slot)))} onClick={() => updateMaterial({textures:{...material.textures,[slot]:null}})} className="rounded p-1 text-white/55 hover:bg-white/10 disabled:opacity-25"><Trash2 size={12}/></button></div></div>
           <div className="mt-2"><Slider label={`${title} strength`} value={Number(material[strength])} min={min} max={max} step={step} disabled={item.locked} onBegin={onBeginEdit} onChange={(value) => updateMaterial({[strength]:value},false)} /></div>

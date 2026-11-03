@@ -11,7 +11,7 @@ try {
   const canvas=await page.locator('canvas').first().boundingBox();
   await page.mouse.move(canvas.x+canvas.width*.55,canvas.y+canvas.height*.55);
   await page.mouse.wheel(0,-550);await page.waitForTimeout(800);
-  await page.mouse.move(canvas.x+canvas.width*.5,canvas.y+canvas.height*.5);await page.mouse.down();await page.mouse.move(canvas.x+canvas.width*.57,canvas.y+canvas.height*.52,{steps:7});await page.mouse.up();await page.waitForTimeout(3000);
+  await page.mouse.move(canvas.x+canvas.width*.5,canvas.y+canvas.height*.5);await page.mouse.down({button:'middle'});await page.mouse.move(canvas.x+canvas.width*.57,canvas.y+canvas.height*.52,{steps:7});await page.mouse.up({button:'middle'});await page.waitForTimeout(3000);
   const before=await page.evaluate(()=>({id:window.__larpRenderer.camera.uuid,pos:window.__larpRenderer.camera.position.toArray()}));
   await page.evaluate(()=>window.__larpTheme.setGfx({shadows:true,softShadows:false}));
   await page.waitForFunction(id=>window.__larpRenderer.camera.uuid!==id,before.id,{timeout:30000});await page.waitForTimeout(1500);

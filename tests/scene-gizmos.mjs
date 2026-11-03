@@ -75,7 +75,7 @@ try {
   const cameraBefore=await page.evaluate(()=>window.__larpRenderer.camera.position.toArray());
   const canvas=await page.locator('canvas').first().boundingBox();assert.ok(canvas);
   const empty={x:canvas.x+canvas.width*0.65,y:canvas.y+canvas.height*0.2};
-  await page.mouse.move(empty.x,empty.y);await page.mouse.down();await page.mouse.move(empty.x+110,empty.y+55,{steps:10});await page.mouse.up();
+  await page.mouse.move(empty.x,empty.y);await page.mouse.down({button:'middle'});await page.mouse.move(empty.x+110,empty.y+55,{steps:10});await page.mouse.up({button:'middle'});
   await page.waitForFunction(before=>window.__larpRenderer.camera.position.toArray().some((v,i)=>Math.abs(v-before[i])>0.1),cameraBefore);
   await page.mouse.click(empty.x,empty.y);
   await page.waitForFunction(()=>{let found=false;window.__larpRenderer.scene.traverse(o=>{if(o.isTransformControls)found=true});return !found;});

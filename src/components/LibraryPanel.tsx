@@ -23,7 +23,7 @@ interface LibraryPanelProps {
   focusSignal: number;
   layoutsSignal?: number;
   /** Adds a model downloaded from the web catalogue through the normal import pipeline. */
-  onImportedModel?: (model: ImportedModelData, warnings: string[]) => void;
+  onImportedModel?: (model: ImportedModelData, warnings: string[]) => boolean | void;
 }
 
 type LibraryTab = "components" | "layouts" | "web";

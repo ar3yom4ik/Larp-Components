@@ -86,7 +86,9 @@ export interface ComponentDef {
 
 /** All source bytes are bundled into the project so imports remain portable. */
 export interface ModelResource { path: string; dataUrl: string }
-export interface ModelAsset { id: string; entry: string; files: ModelResource[] }
+export interface ModelSource { provider: string; title: string; url: string; license: string }
+export interface ModelAsset { id: string; entry: string; files: ModelResource[]; source?: ModelSource }
+export type ModelUpAxis = "x" | "y" | "z";
 export type ModelUnits = "auto" | "m" | "mm" | "cm" | "in" | "ft";
 export type TextureSlot = "map" | "normalMap" | "roughnessMap" | "metalnessMap" | "aoMap" | "emissiveMap" | "alphaMap" | "bumpMap" | "displacementMap";
 export interface TextureOverride { name: string; dataUrl: string }
@@ -107,7 +109,7 @@ export interface ImportedCollision {
 }
 export interface ImportedModelData {
   asset: ModelAsset;
-  axis: "y" | "z";
+  axis: ModelUpAxis;
   units: ModelUnits;
   materials: ImportedMaterial[];
   meshCount: number;

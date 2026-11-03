@@ -19,6 +19,7 @@ import { t, useLanguage } from "./i18n";
 import { useAppearance, SKINS, setBuilding } from "./theme";
 import { estimateProjectBytes, MAX_PROJECT_CHARS, parseProject, serializeProject } from "./utils/project";
 import { nearestSensorFraction, resolveMountedSensors } from "./utils/sensorMount";
+import { copySceneItems, snapshotSceneItems } from "./utils/sceneClipboard";
 import { createProjectArchive, MAX_ARCHIVE_BYTES, readProjectArchive } from "./utils/projectArchive";
 import { loadExportHandle, storeExportHandle, clearExportHandle, permission, type ExportHandle } from "./utils/handles";
 import { MobileChrome, MobileNav, ProjectSettings, type TouchPanel } from "./components/MobileChrome";
@@ -140,7 +141,27 @@ export default function App() {
   useEffect(() => { document.documentElement.lang = language; document.title = `${projectName} - ${SKINS[appearance.skin].appName}`; }, [language, projectName, appearance.skin]);
   const [layoutName, setLayoutName] = useState(initial.layoutName);
   const [activeLayoutId, setActiveLayoutId] = useState<string | null>(initial.activeLayoutId);
-  const [selectedId, setSelectedId] = useState<string | null>(initial.items.find((i) => i.kind === "robot")?.id ?? null);
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => {
+    const first = initial.items.find((item) => item.kind === "robot")?.id;
+    return first ? [first] : [];
+  });
+  const selectedId = selectedIds.at(-1) ?? null;
+  // Existing panels select one primary item; the viewport can also toggle or
+  // replace a group without changing those panels' single-item contract.
+  const setSelectedId = useCallback((value: string | null | ((current: string | null) => string | null)) => {
+    setSelectedIds(current => {
+      const next = typeof value === "function" ? value(current.at(-1) ?? null) : value;
+      return next ? [next] : [];
+    });
+  }, []);
+  const selectViewport = useCallback((id: string | null, mode: "replace" | "toggle" | "preserve" = "replace") => {
+    setSelectedIds(current => {
+      if (!id) return mode === "replace" ? [] : current;
+      if (mode === "preserve" && current.includes(id)) return current;
+      if (mode === "toggle") return current.includes(id) ? current.filter(value => value !== id) : [...current, id];
+      return [id];
+    });
+  }, []);
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [tool, setTool] = useState<ToolMode>("select");
   const [snap, setSnap] = useState(true);
@@ -163,7 +184,8 @@ export default function App() {
   const [running, setRunning] = useState(true);
   const [simSpeed, setSimSpeed] = useState(1);
   const toastCounter = useRef(0);
-  const clipboard = useRef<SceneItem | null>(null);
+  const clipboard = useRef<{items:SceneItem[]; cut:boolean; pasteCount:number} | null>(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
   const fileHandle = useRef<ExportHandle | null>(null);
   const writeQueue = useRef<Promise<void>>(Promise.resolve());
   const handleGeneration = useRef(0);
@@ -382,10 +404,28 @@ export default function App() {
     const next=[...itemsRef.current,instance]; if(!fitsProject(next)) return;
     remember(itemsRef.current);applyItems(next);syncHistory();setSelectedId(instance.id);
   },[applyItems,fitsProject,remember,syncHistory]);
+  const updateMany = useCallback((edits: {id:string; changes:Partial<SceneItem>}[], record = false) => {
+    if (!edits.length) return;
+    const byId = new Map(edits.map(edit => [edit.id, edit.changes]));
+    let next = itemsRef.current.map(item => {
+      const changes = byId.get(item.id);
+      return changes ? {...item, ...changes, position: changes.position ? [...changes.position] as Vec3 : item.position, props: changes.props ? {...changes.props} : item.props} : item;
+    });
+    next = next.map(item => {
+      const changes = byId.get(item.id);
+      if (!changes?.position || !['sensor', 'laser'].includes(item.kind) || !item.props.mountedTo || byId.has(String(item.props.mountedTo))) return item;
+      const belt = next.find(candidate => candidate.id === item.props.mountedTo);
+      return belt ? {...item, props:{...item.props, mountPosition:nearestSensorFraction(belt, changes.position)}} : item;
+    });
+    if (record) remember(itemsRef.current);
+    applyItems(next);
+    if (record) syncHistory();
+  }, [applyItems, remember, syncHistory]);
+
   const updateCatalogModel = useCallback((id:string, changes:Partial<SceneItem>, record=true) => {
     const base=workpiecesRef.current.find(item=>item.id===id), assetId=base?.imported?.asset.id;
     if(!assetId) return false;
-    const update=(item:SceneItem):SceneItem => item.imported?.asset.id===assetId ? {...item,...(changes.imported?{imported:changes.imported}:{}),...(changes.props?{props:{...item.props,...changes.props}}:{})} : item;
+    const update=(item:SceneItem):SceneItem => item.imported?.asset.id===assetId ? {...item,...(changes.imported?{imported:changes.imported}:{}),...(changes.scale !== undefined ? {scale:changes.scale} : {}),...(changes.props?{props:{...item.props,...changes.props}}:{})} : item;
     const next=itemsRef.current.map(update), catalog=workpiecesRef.current.map(update);
     if(estimateProjectBytes({items:next,workpieces:catalog,projectName,layoutName,activeLayoutId})>MAX_PROJECT_CHARS-4096) return false;
     if(record) remember(itemsRef.current);
@@ -399,7 +439,7 @@ export default function App() {
       remember(itemsRef.current);
       applyItems(itemsRef.current.filter((item) => item.id !== id));
       syncHistory();
-      setSelectedId((current) => (current === id ? null : current));
+      setSelectedIds(current => current.filter(value => value !== id));
       notify(`${target.name} removed`, "info");
     },
     [applyItems, notify, remember, syncHistory],
@@ -459,7 +499,7 @@ export default function App() {
     if (!previous) return;
     futureRef.current = [{items: itemsRef.current, workpieces: workpiecesRef.current}, ...futureRef.current].slice(0, 40);
     applyItems(previous.items, previous.workpieces);
-    setSelectedId((current) => (current && previous.items.some((item) => item.id === current) ? current : null));
+    setSelectedIds(current => current.filter(id => previous.items.some(item => item.id === id)));
     syncHistory();
   }, [applyItems, syncHistory]);
 
@@ -468,32 +508,65 @@ export default function App() {
     if (!next) return;
     pastRef.current = [...pastRef.current, {items: itemsRef.current, workpieces: workpiecesRef.current}].slice(-40);
     applyItems(next.items, next.workpieces);
-    setSelectedId((current) => (current && next.items.some((item) => item.id === current) ? current : null));
+    setSelectedIds(current => current.filter(id => next.items.some(item => item.id === id)));
     syncHistory();
   }, [applyItems, syncHistory]);
 
 
+  const deleteSelected = useCallback(() => {
+    const ids = new Set(selectedIds);
+    const targets = itemsRef.current.filter(item => ids.has(item.id));
+    if (!targets.length) { notify("Select a component first", "info"); return; }
+    remember(itemsRef.current);
+    applyItems(itemsRef.current.filter(item => !ids.has(item.id)));
+    syncHistory(); setSelectedIds([]);
+    notify(targets.length === 1 ? `${targets[0].name} removed` : `${targets.length} components removed`, "info");
+  }, [applyItems, notify, remember, selectedIds, syncHistory]);
+
+  const duplicateSelected = useCallback(() => {
+    const ids = new Set(selectedIds);
+    const source = itemsRef.current.filter(item => ids.has(item.id));
+    if (!source.length) { notify("Select a component first", "info"); return; }
+    const copies = copySceneItems(source, [1, 0, 1]);
+    const next = [...itemsRef.current, ...copies];
+    if (!fitsProject(next)) return;
+    remember(itemsRef.current); applyItems(next); syncHistory(); setSelectedIds(copies.map(item => item.id));
+    notify(source.length === 1 ? `${source[0].name} duplicated` : `${source.length} components duplicated`);
+  }, [applyItems, fitsProject, notify, remember, selectedIds, syncHistory]);
+
   const copySelected = useCallback(() => {
-    if (!selectedId) { notify("Select a component first", "info"); return; }
-    const source = itemsRef.current.find((item) => item.id === selectedId);
-    if (!source) return;
-    clipboard.current = { ...source, position: [...source.position] as Vec3, props: { ...source.props }, signalTargets: source.signalTargets ? [...source.signalTargets] : undefined, signalChannels:source.signalChannels?.map(channel => ({...channel})), signalRoutes:source.signalRoutes?.map(route => ({...route})), points: source.points?.map((p) => [...p] as [number, number]), pointHeights: source.pointHeights ? [...source.pointHeights] : undefined, program: source.program ? { ...source.program } : undefined };
-    notify(`${source.name} copied`);
-  }, [notify, selectedId]);
+    const ids = new Set(selectedIds);
+    const source = itemsRef.current.filter(item => ids.has(item.id));
+    if (!source.length) { notify("Select a component first", "info"); return; }
+    clipboard.current = {items:snapshotSceneItems(source), cut:false, pasteCount:0};
+    setHasClipboard(true);
+    notify(source.length === 1 ? `${source[0].name} copied` : `${source.length} components copied`);
+  }, [notify, selectedIds]);
+
+  const cutSelected = useCallback(() => {
+    const ids = new Set(selectedIds);
+    const source = itemsRef.current.filter(item => ids.has(item.id));
+    if (!source.length) { notify("Select a component first", "info"); return; }
+    clipboard.current = {items:snapshotSceneItems(source), cut:true, pasteCount:0};
+    setHasClipboard(true);
+    remember(itemsRef.current); applyItems(itemsRef.current.filter(item => !ids.has(item.id))); syncHistory(); setSelectedIds([]);
+    notify(source.length === 1 ? `${source[0].name} cut` : `${source.length} components cut`);
+  }, [applyItems, notify, remember, selectedIds, syncHistory]);
 
   const paste = useCallback(() => {
     const source = clipboard.current;
-    if (!source) { notify("Nothing to paste", "info"); return; }
-    const item = makeItem(source.kind, [source.position[0] + 0.8, source.position[1], source.position[2] + 0.8], source.rotation, {
-      name: `${source.name} copy`, rotationX: source.rotationX, rotationZ: source.rotationZ, scale: source.scale, color: source.color, props: { ...source.props },
-      signalTargets: source.signalTargets ? [...source.signalTargets] : undefined,
-      signalChannels:source.signalChannels?.map(channel => ({...channel})), signalRoutes:source.signalRoutes?.map(route => ({...route})),
-      points: source.points?.map((p) => [...p] as [number, number]), pointHeights: source.pointHeights ? [...source.pointHeights] : undefined, script: source.script,
-      program: source.program ? { ...source.program } : undefined, imported: source.imported, worker: source.worker,
-    });
-    const next = [...itemsRef.current, item];
+    if (!source?.items.length) { notify("Nothing to paste", "info"); return; }
+    // The first paste after a cut is a move, retaining IDs so external wires and
+    // programs reconnect. Subsequent pastes are independent remapped copies.
+    const existing = new Set(itemsRef.current.map(item => item.id));
+    const restoreCut = source.cut && source.items.every(item => !existing.has(item.id));
+    const count = source.pasteCount + 1;
+    const copies = restoreCut ? snapshotSceneItems(source.items) : copySceneItems(source.items, [count * .8, 0, count * .8]);
+    const next = [...itemsRef.current, ...copies];
     if (!fitsProject(next)) return;
-    remember(itemsRef.current); applyItems(next); syncHistory(); setSelectedId(item.id); notify(`${item.name} pasted`);
+    source.cut = false; source.pasteCount = count;
+    remember(itemsRef.current); applyItems(next); syncHistory(); setSelectedIds(copies.map(item => item.id));
+    notify(copies.length === 1 ? `${copies[0].name} pasted` : `${copies.length} components pasted`);
   }, [applyItems, fitsProject, notify, remember, syncHistory]);
 
   const projectText = useCallback(() => serializeProject({ items: itemsRef.current, workpieces: workpiecesRef.current, projectName, layoutName, activeLayoutId }), [activeLayoutId, layoutName, projectName]);
@@ -674,7 +747,7 @@ export default function App() {
       if (mobile) setMobilePanel("inspector");
       notify("Rigged character assigned to worker"); return true;
     }
-    const name = model.asset.entry.split("/").pop()?.replace(/\.[^.]+$/, "") || "Imported model";
+    const name = model.asset.source?.title || model.asset.entry.split("/").pop()?.replace(/\.[^.]+$/, "") || "Imported model";
     const item = makeItem("imported-model", importPosition.current ?? freeSpot(itemsRef.current), 0, {name, imported:model});
     const next = [...itemsRef.current, item];
     if (!fitsProject(next)) return false;
@@ -687,7 +760,7 @@ export default function App() {
     return true;
   }, [applyItems, fitsProject, mobile, modelTarget, notify, remember, syncHistory, updateItem]);
 
-  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getWorkpieces: () => workpiecesRef.current, getText: projectText, setItems: applyItems, select: setSelectedId};
+  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getWorkpieces: () => workpiecesRef.current, getText: projectText, setItems: applyItems, select: setSelectedId, getSelection: () => selectedIds};
 
   /* ----- spline editing ----- */
 
@@ -876,8 +949,9 @@ export default function App() {
       if (is("undo")) { event.preventDefault(); undo(); return; }
       if (is("save")) { event.preventDefault(); void saveProject(); return; }
       if (is("copy")) { event.preventDefault(); copySelected(); return; }
+      if (is("cut")) { event.preventDefault(); cutSelected(); return; }
       if (is("paste")) { event.preventDefault(); paste(); return; }
-      if (is("duplicate")) { event.preventDefault(); if (selectedId) duplicateItem(selectedId); return; }
+      if (is("duplicate")) { event.preventDefault(); duplicateSelected(); return; }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (is("deselect")) {
         setSelectedId(null);
@@ -888,7 +962,7 @@ export default function App() {
         if (selectedId) {
           event.preventDefault();
           if (selectedPoint !== null) removePoint();
-          else deleteItem(selectedId);
+          else deleteSelected();
         }
         return;
       }
@@ -905,7 +979,7 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deleteItem, duplicateItem, redo, saveProject, selectedId, selectedPoint, toggleRun, undo, mobile, genOpen, modelOpen, copySelected, paste, storageReady]);
+  }, [deleteSelected, duplicateSelected, redo, saveProject, selectedId, selectedPoint, toggleRun, undo, mobile, genOpen, modelOpen, copySelected, cutSelected, paste, storageReady]);
 
   const libraryPanel = (
     <LibraryPanel
@@ -962,7 +1036,7 @@ export default function App() {
   const projectSettings = <ProjectSettings inline={mobile} project={projectName} rename={setProjectName} save={() => void saveProject()} exportFile={downloadProject} exportArchive={downloadArchive} importFile={importProject} newProject={newProject} mode={interfaceMode} setMode={setInterfaceMode} onClose={() => setSettingsOpen(false)} />;
   const mobileTools = <MobileTools selected={selected} selectedPoint={selectedPoint} snap={snap}
     onSnap={() => setSnap((v) => !v)} onCopy={copySelected} onPaste={paste}
-    onDuplicate={() => selectedId && duplicateItem(selectedId)} onDelete={() => selectedId && deleteItem(selectedId)}
+    onDuplicate={duplicateSelected} onDelete={deleteSelected}
     onAddPoint={addPoint} onRemovePoint={removePoint} onReversePath={reversePath}
     onAutoArrange={autoArrange} onReset={resetSim} onImportModel={() => openModelImport()}
     onLayouts={() => { setLayoutsSignal((v) => v + 1); setMobilePanel('library'); }}
@@ -989,8 +1063,8 @@ export default function App() {
         onRedo={redo}
         selected={selected}
         selectedPoint={selectedPoint}
-        onDuplicate={() => (selectedId ? duplicateItem(selectedId) : notify("Select a component first", "info"))}
-        onDelete={() => (selectedId ? deleteItem(selectedId) : notify("Select a component first", "info"))}
+        onDuplicate={duplicateSelected}
+        onDelete={deleteSelected}
         running={running}
         onToggleRun={toggleRun}
         onReset={resetSim}
@@ -1027,7 +1101,7 @@ export default function App() {
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1">
-            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} onSelect={setSelectedId} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onUpdateItem={updateItem} onBeginEdit={beginEdit} onDeleteItem={deleteItem} onDuplicateItem={duplicateItem} onShowFloorMap={() => setFloorMapOpen(true)} />
+            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectViewport} onSelectMany={setSelectedIds} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onUpdateItem={updateItem} onUpdateItems={updateMany} onBeginEdit={beginEdit} onDuplicateItem={duplicateItem} onCopy={copySelected} onCut={cutSelected} onPaste={paste} canPaste={hasClipboard} onDeleteSelected={deleteSelected} onDuplicateSelected={duplicateSelected} onShowFloorMap={() => setFloorMapOpen(true)} />
             {!mobile && <div className="absolute bottom-3 left-[110px] z-20 flex gap-1.5 xl:hidden"><button type="button" onClick={() => setMobilePanel("inspector")} className="flex items-center gap-1.5 rounded border border-white/15 bg-[#2a2a2c]/95 px-2.5 py-1.5 text-[10px] text-white/80"><SlidersHorizontal size={12} className="text-[var(--teal)]" />{t("Properties")}</button></div>}
           </div>
           {dockNode}

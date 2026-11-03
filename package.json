@@ -35,7 +35,10 @@
     "test:catalog-browser": "node tests/catalog-browser.mjs",
     "test:camera-browser": "node tests/camera-settings-browser.mjs",
     "test:sensor-browser": "node tests/sensor-mounted-browser.mjs",
-    "test:factory-signal-browser": "node tests/factory-signal-nodes-browser.mjs"
+    "test:factory-signal-browser": "node tests/factory-signal-nodes-browser.mjs",
+    "test:selection-browser": "node tests/selection-browser.mjs && node tests/selection-physics-browser.mjs",
+    "test:web-catalog-browser": "node tests/web-catalog-browser.mjs",
+    "test:web-catalog-live": "node tests/web-catalog-live.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

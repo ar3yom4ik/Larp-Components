@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { orientModelSize, orientModelVector } from "./modelAxis";
 import type {
   ImportedCollision,
   ImportedModelData,
@@ -262,8 +263,7 @@ export function importedCollisionBoxes(
 ): ImportedCollision["boxes"] | undefined {
   const collision = importedCollision(model);
   if (!collision) return undefined;
-  const orient = ([x, y, z]: Vec3): Vec3 =>
-    model.axis === "z" ? [x, z, -y] : [x, y, z];
+  const orient = (value: Vec3): Vec3 => orientModelVector(value, model.axis);
   const a = orient(collision.min),
     b = orient(collision.max);
   const min = a.map((v, i) => Math.min(v, b[i])) as Vec3,
@@ -278,10 +278,7 @@ export function importedCollisionBoxes(
   const offset = [-(min[0] + max[0]) / 2, -min[1], -(min[2] + max[2]) / 2];
   return collision.boxes.map((part) => {
     const center = orient(part.center),
-      dimensions =
-        model.axis === "z"
-          ? [part.size[0], part.size[2], part.size[1]]
-          : part.size;
+      dimensions = orientModelSize(part.size, model.axis);
     return {
       center: center.map((v, i) => (v + offset[i]) * factor) as Vec3,
       size: dimensions.map((v) => v * factor) as Vec3,

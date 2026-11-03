@@ -81,7 +81,7 @@ export async function importPolyHavenModel(
   }
 
   onProgress?.('Preparing model…');
-  const modelAsset = makeAsset(resources, entryName);
+  const modelAsset = {...makeAsset(resources, entryName), source: {provider:"Poly Haven", title:asset.name, url:`https://polyhaven.com/a/${encodeURIComponent(asset.id)}`, license:"CC0 1.0"}};
   const { root, warnings, clips } = await loadModelAsset(modelAsset);
   const model = describeImportedModel(modelAsset, root, clips);
   const size = resources.reduce((sum, resource) => sum + Math.round(resource.dataUrl.length * 0.75), 0);

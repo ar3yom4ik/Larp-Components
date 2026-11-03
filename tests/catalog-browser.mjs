@@ -14,10 +14,40 @@ try{
  await dlg.getByRole('button',{name:'Import model',exact:true}).click();
  await page.waitForFunction(()=>window.__larpProject.getItems().filter(i=>i.kind==='imported-model').length===1,{timeout:30000});
  const entry=page.getByRole('button',{name:'Add imported model: combined'});await entry.waitFor();await entry.locator('img').waitFor({timeout:30000});
+ const thumbnail=await entry.locator('img').evaluate(image=>{const c=document.createElement('canvas');c.width=image.naturalWidth;c.height=image.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,c.width,c.height).data;let visible=0;for(let i=3;i<pixels.length;i+=4)if(pixels[i]>0)visible++;return {visible,width:c.width,height:c.height};});
+ assert.ok(thumbnail.visible>100,`imported-model thumbnail is not blank: ${JSON.stringify(thumbnail)}`);
  await entry.click();await page.waitForFunction(()=>window.__larpProject.getItems().filter(i=>i.kind==='imported-model').length===2);
  assert.equal(await page.evaluate(()=>window.__larpProject.getWorkpieces().length),1,'one shared base per imported asset');
  await page.getByRole('button',{name:'Edit catalog model: combined'}).click();
  const editor=page.getByRole('dialog',{name:'Edit catalog model'});
+ // The shared editor has an interactive 3D preview on the right, supports
+ // resizes, and applies both axis and proportional scale to every instance.
+ const preview=editor.getByRole('region',{name:'3D model preview'});
+ await preview.locator('canvas').waitFor();
+ const previewBox=await preview.boundingBox(), settingsBox=await editor.locator('.catalog-editor-settings').boundingBox();
+ assert.ok(previewBox.x>=settingsBox.x+settingsBox.width-2,'preview appears to the right of the controls');
+ const windowBefore=await editor.boundingBox();
+ await editor.getByRole('separator',{name:'Resize window'}).focus();await page.keyboard.press('ArrowLeft');
+ const windowAfter=await editor.boundingBox();assert.ok(windowAfter.width<windowBefore.width,'catalog editor can be resized');
+ await editor.getByLabel('Up axis').selectOption('x');
+ await editor.getByLabel('Model scale').fill('2');
+ await page.waitForFunction(()=>window.__larpProject.getItems().filter(i=>i.kind==='imported-model').every(i=>i.imported.axis==='x'&&i.scale===2));
+ assert.equal(await page.evaluate(()=>window.__larpProject.getWorkpieces()[0].scale),2,'workpiece shares catalog scale');
+ assert.ok(Math.abs(Number(await editor.getByLabel('Size Y (m)').inputValue())-6)<.01,'X-up dimensions reflect source orientation');
+ await editor.getByLabel('Size Y (m)').fill('3');
+ await page.waitForFunction(()=>window.__larpProject.getItems().filter(i=>i.kind==='imported-model').every(i=>i.scale===1));
+ // Cancel the real file chooser, then reopen and choose an image. Neither path
+ // may trap the modal or leave a stale input value.
+ const choose=editor.getByRole('button',{name:'Choose texture: Base color map'});
+ let chooserPromise=page.waitForEvent('filechooser');await choose.click();await (await chooserPromise).setFiles([]);
+ await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Choose texture: Base color map');
+ assert.equal(await editor.locator('input[data-texture-input="Base color map"]').inputValue(),'');
+ chooserPromise=page.waitForEvent('filechooser');await choose.click();
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7+pK0AAAAASUVORK5CYII=','base64');
+ await (await chooserPromise).setFiles({name:'texture.png',mimeType:'image/png',buffer:png});
+ await page.waitForFunction(()=>window.__larpProject.getWorkpieces()[0].imported.materials[0].textures.map?.name==='texture.png');
+ await editor.getByRole('button',{name:'Restore source map: Base color map'}).click();
+ await page.waitForFunction(()=>window.__larpProject.getWorkpieces()[0].imported.materials[0].textures.map===undefined);
  await editor.getByLabel('Model units').selectOption('cm');
  await editor.getByLabel('Shared collision shape').selectOption('box');
  await page.waitForFunction(()=>window.__larpProject.getItems().filter(i=>i.kind==='imported-model').every(i=>i.props.collisionShape==='box'));
@@ -38,6 +68,7 @@ try{
  await page.waitForTimeout(1500);await page.reload({waitUntil:'networkidle',timeout:120000});
  await page.waitForFunction(()=>window.__larpProject.getItems().filter(i=>i.kind==='imported-model').length===3,{timeout:30000});
  assert.equal(await page.evaluate(()=>window.__larpProject.getWorkpieces().length),1,'base survives project reload');
+ assert.equal(await page.evaluate(()=>window.__larpProject.getWorkpieces()[0].imported.axis),'x','X-up survives project reload');
  await page.getByRole('button',{name:'Fullscreen catalog'}).click();
  await page.getByRole('button',{name:'Exit fullscreen catalog'}).click();
  await page.locator('canvas').first().click({button:'right',position:{x:100,y:100}});
@@ -81,5 +112,5 @@ try{
  await page.mouse.click(point.x,point.y,{button:'right'});
  await page.getByRole('menu',{name:'Layout context menu'}).getByText('Context pushbutton').waitFor();
  assert.equal(await page.evaluate(id=>window.__larp.signalState.get(id),buttonId),false,'right-click must not activate button');
- assert.deepEqual(errors,[]);console.log('catalog: thumbnails, shared edits, submodels, drag, reload, placeholder and AI Factory product pickers OK');
+ assert.deepEqual(errors,[]);console.log('catalog: thumbnails, preview, resizing, X-up, shared scale, texture cancel, submodels, reload and AI Factory product pickers OK');
 }finally{releaseFileList?.();await browser.close()}

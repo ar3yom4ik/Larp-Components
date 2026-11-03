@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedModelData, ModelUnits } from "../types";
 import { extension, getCachedModel, materialsOf, removeModelMeshes, TEXTURE_SLOTS } from "../utils/modelImport";
+import { modelAxisRotation } from "../utils/modelAxis";
 import { buildImportedCollision, importedCollision, registerImportedCollision } from "../utils/modelCollision";
 
 type Pbr = THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
@@ -149,7 +150,7 @@ export function useImportedModelInstance(model: ImportedModelData) {
   const transform = useMemo(() => {
     if (!loaded) return {scale:1, offset: [0, 0, 0] as [number, number, number]};
     // Three's loaders already convert glTF, FBX and COLLADA axes to Y-up.
-    const temp = new THREE.Group(); temp.rotation.x = model.axis === "z" ? -Math.PI / 2 : 0;
+    const temp = new THREE.Group(); temp.rotation.set(...modelAxisRotation(model.axis));
     const boundsObject = loaded.object.clone(true);
     temp.add(boundsObject); temp.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(temp);
@@ -169,5 +170,5 @@ export function ImportedModel({ model, id }: { model: ImportedModelData; id: str
   const {loaded, error, transform} = useImportedModelInstance(model);
   if (error) return <mesh userData={{importError:error, itemId:id}} position={[0,.5,0]}><boxGeometry args={[1,1,1]} /><meshStandardMaterial color="#c04444" wireframe /></mesh>;
   if (!loaded) return <mesh position={[0,.5,0]}><boxGeometry args={[.8,1,.8]} /><meshStandardMaterial color="#96a2aa" wireframe /></mesh>;
-  return <group userData={{isImportedModel:true, itemId:id}} position={transform.offset} scale={transform.scale}><group rotation={[model.axis === "z" ? -Math.PI / 2 : 0,0,0]}><primitive object={loaded.object} /></group></group>;
+  return <group userData={{isImportedModel:true, itemId:id}} position={transform.offset} scale={transform.scale}><group rotation={modelAxisRotation(model.axis)}><primitive object={loaded.object} /></group></group>;
 }

@@ -16,6 +16,7 @@ export const KEY_ACTIONS: KeyAction[] = [
   { id: 'undo', label: 'Undo', group: 'Edit', key: 'Ctrl+Z' },
   { id: 'redo', label: 'Redo', group: 'Edit', key: 'Ctrl+Shift+Z' },
   { id: 'copy', label: 'Copy', group: 'Edit', key: 'Ctrl+C' },
+  { id: 'cut', label: 'Cut', group: 'Edit', key: 'Ctrl+X' },
   { id: 'paste', label: 'Paste', group: 'Edit', key: 'Ctrl+V' },
   { id: 'duplicate', label: 'Duplicate', group: 'Edit', key: 'Ctrl+D' },
   { id: 'delete', label: 'Delete selected', group: 'Edit', key: 'Delete' },

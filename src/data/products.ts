@@ -1,4 +1,5 @@
 import type { ImportedModelData, SceneItem } from "../types";
+import { orientModelSize } from "../utils/modelAxis";
 import { importedCollision, importedCollisionRevision } from "../utils/modelCollision";
 
 export type ProductShape = "box" | "cookie" | "cylinder" | "bottle" | "sphere" | "gear" | "board" | "frame";
@@ -113,7 +114,7 @@ export function importedModelSize(
     (collision
       ? collision.max.map((v, i) => v - collision.min[i])
       : [0.34, 0.26, 0.34]);
-  const oriented = model.axis === "z" ? [raw[0], raw[2], raw[1]] : raw;
+  const oriented = orientModelSize(raw as [number, number, number], model.axis);
   const units = { m: 1, mm: 0.001, cm: 0.01, in: 0.0254, ft: 0.3048 };
   const factor =
     model.units === "auto"

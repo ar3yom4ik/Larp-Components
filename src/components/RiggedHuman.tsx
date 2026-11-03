@@ -8,6 +8,7 @@ import { useImportedModelInstance } from "./ImportedModel";
 import { getCachedAnimation, getCachedModel } from "../utils/modelImport";
 import { boneMap, defaultWorker, findRoleClip, retargetWorkerClip } from "../utils/workerAnimation";
 import { WorkerGear } from "./WorkerCosmetics";
+import { modelAxisRotation } from "../utils/modelAxis";
 import { applyShirtTint, DEFAULT_SHIRT_COLOR } from "../utils/workerShirt";
 
 export const DEFAULT_WORKER_SETTINGS: WorkerSettings = { appearance: "default", motions: {}, height: 1.78, groundFeet: true, forward: "+z" };
@@ -85,7 +86,7 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
     try {
       const temp = new THREE.Group(), axis = new THREE.Group();
       temp.rotation.y = forwardAngle[settings.forward];
-      axis.rotation.x = model.axis === "z" ? -Math.PI / 2 : 0;
+      axis.rotation.set(...modelAxisRotation(model.axis));
       temp.add(axis);
       axis.add(loaded.object.clone(true));
       temp.updateMatrixWorld(true);
@@ -225,7 +226,7 @@ function AnimatedRig({ item, model, settings, fallback }: { item: SceneItem; mod
   const hasGear = hatKind !== "none" || item.props.glasses === true || item.props.ears === true || item.props.headphones === true || item.props.earrings === true;
   return <group ref={outer} userData={{ isRiggedWorker: true, itemId: item.id, activeRole: "loading" }}>
     <group ref={visual} userData={{ isWorkerVisual: true }} position={transform.offset} scale={transform.scale} rotation={[0, forwardAngle[settings.forward], 0]}>
-      <group rotation={[model.axis === "z" ? -Math.PI / 2 : 0, 0, 0]}><primitive object={loaded.object} /></group>
+      <group rotation={modelAxisRotation(model.axis)}><primitive object={loaded.object} /></group>
     </group>
     {hasGear && (head
       ? createPortal(<WorkerGear item={item} shirtColor={shirtColor} glasses={item.props.glasses === true} />, gearHolder)

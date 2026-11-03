@@ -78,7 +78,12 @@ function cleanAsset(input: unknown): ModelAsset {
     return {path: file.path, dataUrl: file.dataUrl};
   });
   if (!files.some((f) => f.path === a.entry)) throw new Error("Embedded model entry is missing");
-  return {id: a.id, entry: a.entry, files};
+  const info = a.source;
+  let source: ModelAsset["source"];
+  if (info && typeof info.provider === "string" && typeof info.title === "string" && typeof info.url === "string" && typeof info.license === "string") {
+    try { if (new URL(info.url).protocol === "https:") source = {provider:info.provider.slice(0,120), title:info.title.slice(0,240), url:info.url.slice(0,2048), license:info.license.slice(0,240)}; } catch { /* ignore unsafe provenance URLs */ }
+  }
+  return {id: a.id, entry: a.entry, files, ...(source ? {source} : {})};
 }
 function cleanMaterial(input: ImportedMaterial, index: number): ImportedMaterial {
   if (!input || typeof input !== "object") throw new Error("Invalid imported material");
@@ -115,7 +120,7 @@ type StoredModel = Partial<ImportedModelData> & {assetId?: string};
 function cleanModel(model: StoredModel | undefined, assets: Map<string, ModelAsset>): ImportedModelData {
   const asset = model?.assetId ? assets.get(model.assetId) : model?.asset ? cleanAsset(model.asset) : undefined;
   if (!model || !asset || !Array.isArray(model.materials) || model.materials.length > 2000) throw new Error("Imported model is missing its asset or material data");
-  return {asset, axis: model.axis === "z" ? "z" : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), hiddenMeshes: Array.isArray(model.hiddenMeshes) ? [...new Set(model.hiddenMeshes.filter((v): v is number => Number.isInteger(v) && v >= 0 && v < (model.meshCount ?? 0)))] : undefined, triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), sourceSize: Array.isArray(model.sourceSize) && model.sourceSize.length === 3 && model.sourceSize.every((n) => finite(n) && n >= 0 && n <= 1_000_000) ? model.sourceSize as [number, number, number] : undefined, collision: cleanCollision(model.collision), rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
+  return {asset, axis: model.axis === "z" || model.axis === "x" ? model.axis : "y", units: model.units && units.includes(model.units) ? model.units : "auto", materials: model.materials.map(cleanMaterial), meshCount: clamp(model.meshCount, 0, 0, 1_000_000), hiddenMeshes: Array.isArray(model.hiddenMeshes) ? [...new Set(model.hiddenMeshes.filter((v): v is number => Number.isInteger(v) && v >= 0 && v < (model.meshCount ?? 0)))] : undefined, triangleCount: clamp(model.triangleCount, 0, 0, 1_000_000_000), sourceSize: Array.isArray(model.sourceSize) && model.sourceSize.length === 3 && model.sourceSize.every((n) => finite(n) && n >= 0 && n <= 1_000_000) ? model.sourceSize as [number, number, number] : undefined, collision: cleanCollision(model.collision), rigged: model.rigged === true, animationNames: Array.isArray(model.animationNames) ? model.animationNames.slice(0,500).map((name) => String(name).slice(0,120)) : []};
 }
 function cleanWorker(value: unknown, assets: Map<string, ModelAsset>): WorkerSettings {
   const worker = value as WorkerSettings & {model?: StoredModel};

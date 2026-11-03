@@ -299,3 +299,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focu
   .factory-studio-footer > span { display: none; }
   .factory-studio-footer { justify-content: flex-end; }
 }
+
+/* The catalog editor stays usable when its resizable window is narrow. */
+.catalog-editor-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+  grid-auto-rows: minmax(240px, 1fr);
+  overflow-y: auto;
+}

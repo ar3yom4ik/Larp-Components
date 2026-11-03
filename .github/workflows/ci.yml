@@ -62,6 +62,13 @@ jobs:
         run: npm run test:catalog-browser && npm run test:camera-browser && npm run test:sensor-browser
       - name: Factory graph and signal node regressions
         run: npm run test:factory-browser && npm run test:factory-signal-browser && npm run test:signals-browser
+      - name: Selection, physics and web catalog regressions
+        run: npm run test:selection-browser && npm run test:web-catalog-browser && npm run test:gizmos-browser
+      # A provider outage must not make an otherwise offline editor fail CI.
+      # This separate, non-blocking check verifies real browser CORS and GLBs.
+      - name: Live web catalog diagnostic (external services)
+        continue-on-error: true
+        run: npm run test:web-catalog-live
 
   # Only an already-published prerelease at this exact internal PR head is
   # eligible. Forks and unrelated PRs never receive a write-capable token.
