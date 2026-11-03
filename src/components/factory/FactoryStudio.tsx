@@ -5,6 +5,8 @@ import { NodeInspector } from "./NodeInspector";
 import { nodesByCategory, getNodeDef } from "../../gen/graph/registry";
 import { connect, makeNode, removeNode, setParam, validateGraph } from "../../gen/graph/graph";
 import { compileGraph } from "../../gen/graph/compile";
+import { ensurePickupSensor } from "../../gen/graph/pickupSensors";
+import { setChannel } from "../../gen/graph/signal";
 import { arrangeGraphNodes, groupNodes } from "../../gen/graph/layout";
 import { useFactoryGraph, setGraph as storeGraph, resetGraph, replaceGraph, undoGraph, redoGraph } from "../../gen/graphStore";
 import { describeIntent, analyzePrompt } from "../../gen/prompt";
@@ -54,7 +56,7 @@ export function FactoryStudio({
   // preview IDs/results stable when a node is moved, and avoid rebuilding the
   // entire factory just to persist a new canvas position.
   const structure = JSON.stringify({
-    nodes: graph.nodes.map(({ id, type, params }) => ({ id, type, params })),
+    nodes: graph.nodes.map(({ id, type, params, io }) => ({ id, type, params, io })),
     links: graph.links,
   });
   const validation = useMemo(() => validateGraph(graph), [structure]);
@@ -74,7 +76,8 @@ export function FactoryStudio({
   const handleConnect = useCallback((from: { node: string; port: string }, to: { node: string; port: string }) => {
     const result = connect(graph, from, to);
     if (!result.ok) { flash(result.error ?? t('Cannot connect those ports.')); return; }
-    storeGraph(result.graph);
+    const next = from.port === 'out' && to.port === 'in' ? ensurePickupSensor(result.graph,from.node,to.node) : result.graph;
+    storeGraph(next);
   }, [graph]);
 
   const addNode = (type: string) => {
@@ -206,8 +209,10 @@ export function FactoryStudio({
               </div>
             ) : <NodeInspector
               node={selected}
+              graph={graph}
               items={productItems}
-              onChange={(key, value) => { if (selected) storeGraph(setParam(graph, selected.id, key, value)); }}
+              onChannelChange={(port,patch) => { if (selected) storeGraph(setChannel(graph,selected.id,port,patch)); }}
+              onChange={(key, value) => { if (selected) { const next=setParam(graph, selected.id, key, value); storeGraph(key === 'range' && selected.type === 'part.laser' ? setParam(next,selected.id,'autoRange',false) : next); } }}
               onReset={(key) => {
                 if (!selected) return;
                 storeGraph({

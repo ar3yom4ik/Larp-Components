@@ -3,7 +3,8 @@ import { samplePath, type P2 } from "./spline";
 import { getProduct, importedModelSize, importedProductSource, MACHINE_KINDS, palletSize } from "../data/products";
 import { distanceToSegment, navigate, navigateLayers, pointIsFree, projectToFree, type Barrier, type WalkObstacle, type Point3 } from "./navigation";
 import { SpatialHash } from "./spatial";
-import { isLogicSource, isSignalSource, signalTargets } from "../utils/signalPorts";
+import { isLogicSource, isSignalSource, legacySignalTargets } from "../utils/signalPorts";
+import { signalChannelKey, signalFunction, validSignalPort } from "../utils/signalChannels";
 import { itemLocalToWorld, rotateVector, rotationMatrix, unrotateVector } from "../utils/transform";
 import { RigidBodyWorld, makeBeamBlocker } from "./rigidBodies";
 import type { SweepStart } from "./continuous";
@@ -808,6 +809,11 @@ export class Engine {
   signalActivations = new Map<string, number>();
   private feederSignals = new Map<string, FeederSignalState>();
   private robotSignals = new Map<string, FeederSignalState>();
+  /** Runtime signal-channel proxies are not scene objects. A signal feedback
+   * loop advances one simulation substep at a time rather than recursing. */
+  private channelSpecs: {item: SceneItem; port: number; key: string; mode: string}[] = [];
+  private channelInputs = new Map<string, SceneItem[]>();
+  private componentPulses = new Map<string, number>();
   barriers: Barrier[] = [];
   walkBarriers: Barrier[] = [];
   walkObstacles: WalkObstacle[] = [];
@@ -1087,9 +1093,6 @@ export class Engine {
       this.signalState.set(item.id, value);
       if (value && previousSignals.get(item.id) !== true) this.noteSignalActivation(item.id);
     }
-    const currentIds = new Set(items.map((item) => item.id));
-    for (const id of this.signalActivations.keys()) if (!currentIds.has(id)) this.signalActivations.delete(id);
-    for (const id of this.buttonUntil.keys()) if (!currentIds.has(id)) this.buttonUntil.delete(id);
     this.humans = humans;
     for (const id of this.collectors.keys()) if (!items.some((i) => i.id === id)) this.collectors.delete(id);
     this.barriers = barriers;
@@ -1115,6 +1118,15 @@ export class Engine {
     // of one another. Also performed after reset, which restores the origins.
     this.placeHumansSafely();
     this.rebuildIndices(conveyors, rects, barriers);
+    const currentIds = new Set(items.map((item) => item.id));
+    for (const spec of this.channelSpecs) {
+      currentIds.add(spec.key);
+      this.signalState.set(spec.key, spec.item.visible !== false && previousSignals.get(spec.key) === true);
+    }
+    for (const id of this.signalActivations.keys()) if (!currentIds.has(id)) this.signalActivations.delete(id);
+    for (const id of this.buttonUntil.keys()) if (!currentIds.has(id)) this.buttonUntil.delete(id);
+    for (const id of this.componentPulses.keys()) if (!currentIds.has(id)) this.componentPulses.delete(id);
+    this.updateChannelOutputs();
     // Returning to an unconnected belt restores its authored manual setting.
     for (const [id, belt] of conveyors) if (!this.triggers.has(id) && previousTriggers.has(id)) belt.active = this.itemById.get(id)?.props.active !== false;
     this.updateConveyorSignals();
@@ -1133,17 +1145,44 @@ export class Engine {
     for (const item of this.items) this.itemById.set(item.id, item);
     const logic: SceneItem[] = [];
     const triggers = new Map<string, SceneItem[]>();
+    const inputs = new Map<string, SceneItem[]>();
+    const ports = new Map<string, Set<number>>();
+    const addPort = (id: string, port: number) => {
+      if (!validSignalPort(port)) return;
+      const list = ports.get(id) ?? new Set<number>(); list.add(port); ports.set(id,list);
+    };
+    const addSource = (target: string, input: number, source: SceneItem) => {
+      const all = triggers.get(target) ?? [];
+      if (!all.some(entry => entry.id === source.id)) all.push(source);
+      triggers.set(target,all);
+      const key = signalChannelKey(target,input), row = inputs.get(key) ?? [];
+      if (!row.some(entry => entry.id === source.id)) row.push(source);
+      inputs.set(key,row);
+    };
     for (const item of this.items) {
       if (!isSignalSource(item)) continue;
       if (item.visible !== false && isLogicSource(item)) logic.push(item);
-      // A hidden source is inactive, but its feeder remains signal-controlled
-      // rather than unexpectedly reverting to automatic production.
-      for (const target of signalTargets(item)) {
-        const targetKind = this.itemById.get(target)?.kind;
-        if (item.visible === false && targetKind !== "feeder" && !["robot", "cobot", "kuka", "fanuc", "conveyor", "roller"].includes(targetKind ?? "")) continue;
-        const list = triggers.get(target);
-        if (list) list.push(item); else triggers.set(target, [item]);
+      for (const channel of item.signalChannels ?? []) addPort(item.id,channel.port);
+      // Legacy connections still drive port 1 when their destination has
+      // numbered channels. Hidden wires remain attached but are inactive.
+      for (const target of legacySignalTargets(item)) if (this.itemById.has(target)) {
+        const destination = this.itemById.get(target)!;
+        if (destination.signalChannels?.length || destination.signalRoutes?.length) addPort(target,1);
+        addSource(target,1,item);
       }
+      for (const route of item.signalRoutes ?? []) {
+        if (!validSignalPort(route.output) || !validSignalPort(route.input) || !this.itemById.has(route.targetId) || route.targetId === item.id) continue;
+        addPort(item.id,route.output); addPort(route.targetId,route.input);
+        const proxy: SceneItem = {...item,id:signalChannelKey(item.id,route.output)};
+        addSource(route.targetId,route.input,proxy);
+      }
+    }
+    this.channelInputs = inputs;
+    this.channelSpecs = [];
+    for (const item of this.items) for (const port of ports.get(item.id) ?? []) {
+      const setting = item.signalChannels?.find(channel => channel.port === port);
+      const mode = signalFunction(item.kind,setting?.mode)?.value;
+      if (mode) this.channelSpecs.push({item,port,key:signalChannelKey(item.id,port),mode});
     }
     this.logicItems = logic;
     this.beamBlockers = logic.some(item => item.kind === "laser") ? this.items.filter(item => item.visible !== false && !(item.imported?.materials.length && item.imported.materials.every(material => material.opacity < .95))).map(item => ({id:item.id,test:makeBeamBlocker(item,this.items)})) : [];
@@ -1555,7 +1594,10 @@ export class Engine {
     for (const [id, value] of this.signalState) if (value) this.noteSignalActivation(id);
     this.feederSignals.clear();
     this.robotSignals.clear();
+    this.componentPulses.clear();
     this.robots.forEach((robot) => { robot.outputPulse = 0; });
+    for (const spec of this.channelSpecs) this.signalState.set(spec.key,false);
+    this.updateChannelOutputs();
     for (const group of this.mergeGroups.values()) group.reservation = null;
     this.syncFeederSignals();
     this.syncRobotSignals();
@@ -1885,6 +1927,7 @@ export class Engine {
 
   process(machine: MachineRT, box: Box, seconds?: number) {
     if (machine.busy) return machine.part === box;
+    if (this.triggers.has(machine.id) && !this.signalFor(machine.id)) return false;
     if (box.lastMachine === machine.id || (machine.inputProduct !== "any" && box.productId !== machine.inputProduct)) return false;
     machine.part = box; machine.remaining = Math.max(0.5, seconds ?? machine.cycle);
     machine.busy = true; machine.progress = 0;
@@ -1894,6 +1937,7 @@ export class Engine {
 
   private updateMachine(machine: MachineRT, dt: number) {
     if (!machine.busy) {
+      if (this.triggers.has(machine.id) && !this.signalFor(machine.id)) return;
       if (machine.kind === "assembly") {
         const t = machine.table();
         const parts = this.boxes.filter((b) => b.state === "free" && b.claim === 0 && b.lastMachine !== machine.id && Math.hypot(b.x - t.x, b.z - t.z) < 0.48 && Math.abs(b.y - b.hy - (t.y - 0.002)) < 0.12);
@@ -2360,6 +2404,9 @@ export class Engine {
       this.humanStations.set(human.id, station);
     }
     const task = station.task;
+    if (this.triggers.has(human.id) && human.stage === 0 && !human.held && !this.signalFor(human.id)) {
+      human.walking = false; human.status = "waiting for signal"; return;
+    }
     const speed = station.speed;
     const source = station.source;
     const dest = station.dest;
@@ -2729,7 +2776,7 @@ export class Engine {
     const up = this.approach(robot, robot.tip, robot.program?.clearance ?? 0.35);
     yield this.servo(robot, () => up, 0.02, 0.8);
     robot.cycles += 1;
-    if (emitOutput && robot.outputMode === "operation-end") robot.outputPulse = 0.1;
+    if (emitOutput) robot.outputPulse = 0.1;
     robot.lastCycle = this.time - robot.lastCycleAt;
     robot.lastCycleAt = this.time;
     return true;
@@ -2886,11 +2933,16 @@ export class Engine {
     this.robots.forEach((robot) => this.updateRobot(robot, dt));
     this.machines.forEach((machine) => this.updateMachine(machine, dt));
     this.humans.forEach((human) => {
+      const completed = human.completed;
       this.updateHuman(human, dt);
+      if (human.completed > completed) this.componentPulses.set(human.id, 0.1);
       if (this.hasWalkableFloors && (!this.rigidBodies.dynamicCount || !this.rigidBodies.pose(human.id))) this.updateHumanFloor(human, dt);
     });
     this.updateLogic();
     this.robots.forEach((robot) => { robot.outputPulse = Math.max(0, robot.outputPulse - dt); });
+    for (const [id, pulse] of this.componentPulses) {
+      if (pulse <= dt) this.componentPulses.delete(id); else this.componentPulses.set(id,pulse-dt);
+    }
     this.prepareMergeReservations();
     this.productStarts.clear();
     // Save the real integrator start, including support corrections, for swept
@@ -2954,6 +3006,7 @@ export class Engine {
     if (remaining) state.pending.set(sourceId, remaining); else state.pending.delete(sourceId);
     feeder.timer = feeder.interval;
     this.spawn(feeder.productId, feeder.x, sy, feeder.z, feeder.yaw);
+    this.componentPulses.set(feeder.id, 0.1);
     feeder.supply -= 1;
   }
 
@@ -2971,6 +3024,7 @@ export class Engine {
     }
     feeder.timer = feeder.interval;
     this.spawn(feeder.productId, feeder.x, sy, feeder.z, feeder.yaw);
+    this.componentPulses.set(feeder.id, 0.1);
     feeder.supply -= 1;
   }
 
@@ -3059,6 +3113,7 @@ export class Engine {
     if (!item || item.kind !== "button") return;
     if (!on) this.buttonUntil.delete(id);
     this.writeSignal(id, on);
+    this.updateChannelOutputs();
     this.updateConveyorSignals();
     this.log(`${item.name}: ${on ? "pressed" : "released"}`, "info");
   }
@@ -3079,6 +3134,43 @@ export class Engine {
     for (const [id, conveyor] of this.conveyors) {
       const sources = this.triggers.get(id);
       if (sources?.length) conveyor.active = sources.some((source) => source.visible !== false && this.signalState.get(source.id) === true);
+    }
+  }
+
+  private updateChannelOutputs() {
+    if (!this.channelSpecs.length) return;
+    const before = new Map(this.signalState);
+    for (const {item,port,key,mode} of this.channelSpecs) {
+      if (item.visible === false) { this.writeSignal(key,false); continue; }
+      const inputs = this.channelInputs.get(signalChannelKey(item.id,port)) ?? [];
+      const connected = inputs.length > 0;
+      const high = inputs.some(source => source.visible !== false && before.get(source.id) === true);
+      const enabled = !connected || high;
+      let output = false;
+      if (mode === "relay") output = high || (item.kind === "plc" && item.props.signal === true);
+      else if (mode === "invert") output = connected && !high;
+      else if (item.kind === "laser" || item.kind === "sensor") {
+        const detected = this.signalState.get(item.id) === true;
+        output = enabled && (mode === "clear" ? !detected : detected);
+      } else if (item.kind === "button") output = enabled && this.signalState.get(item.id) === true;
+      else if (["robot","cobot","kuka","fanuc"].includes(item.kind)) {
+        const robot = this.robots.get(item.id);
+        output = !!robot && (mode === "moving" ? robot.status === "moving" || !!robot.held : robot.outputPulse > 0);
+      } else if (item.kind === "feeder") output = (this.componentPulses.get(item.id) ?? 0) > 0;
+      else if (item.kind === "conveyor" || item.kind === "roller") {
+        const belt = this.conveyors.get(item.id);
+        output = !!belt && (mode === "stopped" ? !belt.active : belt.active);
+      } else if (this.machines.has(item.id)) {
+        const machine = this.machines.get(item.id)!;
+        output = mode === "ready" ? !machine.busy : machine.busy;
+      } else if (item.kind === "operator") {
+        const human = this.humans.get(item.id);
+        output = !!human && (mode === "completed" ? (this.componentPulses.get(item.id) ?? 0) > 0 : !["idle","waiting","waiting for signal"].includes(human.status));
+      } else if (item.kind === "crates") {
+        const pallet = this.pallets.get(item.id);
+        output = !!pallet && enabled && (mode === "available" ? pallet.cursor < pallet.capacity : pallet.cursor >= pallet.capacity);
+      }
+      this.writeSignal(key,output);
     }
   }
 
@@ -3113,6 +3205,12 @@ export class Engine {
     // Keep robot output state current even while disconnected, so connecting an
     // idle robot never replays a stale signal from an earlier connection.
     for (const robot of this.robots.values()) this.writeSignal(robot.itemId, robot.outputMode === "operation-end" ? robot.outputPulse > 0 : robot.status === "moving" || !!robot.held);
+    for (const belt of this.conveyors.values()) if (this.signalState.has(belt.id)) this.writeSignal(belt.id,belt.active);
+    for (const feeder of this.feeders.values()) if (this.signalState.has(feeder.id)) this.writeSignal(feeder.id,(this.componentPulses.get(feeder.id) ?? 0) > 0);
+    for (const machine of this.machines.values()) if (this.signalState.has(machine.id)) this.writeSignal(machine.id,machine.busy);
+    for (const pallet of this.pallets.values()) if (this.signalState.has(pallet.id)) this.writeSignal(pallet.id,pallet.cursor >= pallet.capacity);
+    for (const human of this.humans.values()) if (this.signalState.has(human.id)) this.writeSignal(human.id,!["idle","waiting","waiting for signal"].includes(human.status));
+    this.updateChannelOutputs();
     this.updateConveyorSignals();
   }
 
@@ -3121,8 +3219,14 @@ export class Engine {
     const hasPending = !!direct && [...direct.pending.values()].some((count) => count > 0);
     const legacy = this.triggers.get(sourceId) ?? [];
     const legacyHigh = legacy.some((item) => item.visible !== false && this.signalState.get(item.id) === true);
+    // A detector is also a level-based presence gate: a queue of touching
+    // workpieces can hold its beam continuously high while the robot removes
+    // them one by one. Buttons and other triggers remain edge-queued, so a
+    // held button does not repeatedly launch new operations.
+    const detectorHigh = (this.triggers.get(robotId) ?? []).some((item) =>
+      item.visible !== false && (item.kind === "laser" || item.kind === "sensor") && this.signalState.get(item.id) === true);
     if (hasPending) { if (consume) this.consumeRobotSignal(robotId); return true; }
-    if (legacyHigh) return true;
+    if (detectorHigh || legacyHigh) return true;
     return !direct && legacy.length === 0;
   }
 

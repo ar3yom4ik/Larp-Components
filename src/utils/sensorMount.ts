@@ -31,7 +31,7 @@ export function resolveMountedSensors(items: SceneItem[]): SceneItem[] {
     if((item.kind!=='laser'&&item.kind!=='sensor') || !item.props.mountedTo) return item;
     const belt=belts.get(String(item.props.mountedTo)); if(!belt) return item;
     const fraction=Number(item.props.mountPosition ?? .85), pose=mountedSensorPose(belt,Number.isFinite(fraction)?fraction:.85);
-    const range=conveyorWidth(belt)+.2;
+    const range=item.props.autoRange === false ? Number(item.props.range) || 3 : conveyorWidth(belt)+.2;
     if(item.position.every((x,i)=>Math.abs(x-pose.position[i])<1e-8) && Math.abs(item.rotation-pose.rotation)<1e-8 && (item.kind!=='laser' || item.props.range===range)) return item;
     changed=true;
     return {...item,...pose,props:item.kind==='laser'?{...item.props,range}:item.props};

@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { SceneItem } from '../types';
 import { sim } from '../sim/engine';
-import { signalAnchor, signalTargets, signalWireColor } from '../utils/signalPorts';
+import { signalAnchor, legacySignalTargets, signalWireColor } from '../utils/signalPorts';
+import { signalChannelKey } from '../utils/signalChannels';
 
 function wireCurve(source: SceneItem, target: SceneItem) {
   const a = new THREE.Vector3(...signalAnchor(source, 'source'));
@@ -13,11 +14,12 @@ function wireCurve(source: SceneItem, target: SceneItem) {
   return new THREE.CatmullRomCurve3([a, new THREE.Vector3(a.x, a.y + 0.22, a.z), mid, new THREE.Vector3(b.x, b.y + 0.22, b.z), b]);
 }
 
-function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
+function Wire({ source, target, output, input }: { source: SceneItem; target: SceneItem; output?: number; input?: number }) {
   const packet = useRef<THREE.Group>(null);
   const cable = useRef<THREE.MeshStandardMaterial>(null);
   const glow = useRef<THREE.MeshBasicMaterial>(null);
-  const color = signalWireColor(source.props.wireColor);
+  const color = signalWireColor((output ? source.signalChannels?.find(channel => channel.port === output)?.color : undefined) ?? source.props.wireColor);
+  const stateKey = output ? signalChannelKey(source.id,output) : source.id;
   const packetColor = useMemo(() => new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.6), [color]);
   const curve = useMemo(() => wireCurve(source, target), [source.kind, source.position, source.rotation, source.rotationX, source.rotationZ, source.scale, source.props.range, source.props.mountedTo, target.kind, target.position, target.rotation, target.rotationX, target.rotationZ, target.scale, target.props.range, target.props.mountedTo]);
   const curveRef = useRef(curve);
@@ -31,7 +33,7 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
     return () => { geometry.dispose(); glowGeometry.dispose(); moving.current.cable?.dispose(); moving.current.glow?.dispose(); moving.current = {key: '', elapsed: 0}; };
   }, [curve, geometry, glowGeometry]);
   const duration = Math.max(0.65, Math.min(2.4, curve.getLength() / 4));
-  const animation = useRef({ revision: sim.signalActivations.get(source.id) ?? 0, wasLive: false, progress: -1, queued: 0, repeatDelay: 0 });
+  const animation = useRef({ revision: sim.signalActivations.get(stateKey) ?? 0, wasLive: false, progress: -1, queued: 0, repeatDelay: 0 });
 
   useFrame((_, delta) => {
     // Rebuild only moving wires, at a bounded rate; ordinary factory wiring
@@ -64,8 +66,8 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
     }
     const activeCurve = curveRef.current;
     const state = animation.current;
-    const live = sim.signalState.get(source.id) === true;
-    const revision = sim.signalActivations.get(source.id) ?? 0;
+    const live = sim.signalState.get(stateKey) === true;
+    const revision = sim.signalActivations.get(stateKey) ?? 0;
     const newPulses = Math.max(0, revision - state.revision);
     // A newly mounted wire may already be high; short pulses are counted by the
     // engine even if they were over before this frame was drawn.
@@ -101,7 +103,7 @@ function Wire({ source, target }: { source: SceneItem; target: SceneItem }) {
   // Keep JSX endpoint props stable; otherwise an unrelated React render can
   // overwrite the live positions after the moving-geometry key has settled.
   const [start, end] = useMemo(() => [curve.getPoint(0), curve.getPoint(1)], [curve]);
-  return <group name="signal-wire" userData={{ signalWire: true, sourceId: source.id, targetId: target.id }}>
+  return <group name="signal-wire" userData={{ signalWire: true, sourceId: source.id, targetId: target.id, outputPort: output, inputPort: input }}>
     <mesh ref={cableMesh} name="signal-cable" geometry={geometry} raycast={() => null}>
       <meshStandardMaterial ref={cable} color={color} emissive={color} emissiveIntensity={0.12} roughness={0.4} />
     </mesh>
@@ -122,8 +124,11 @@ export function WireLayer({ items }: { items: SceneItem[] }) {
   const wires = useMemo(() => {
     const byId = new Map(items.map((item) => [item.id, item]));
     return items.filter((item) => item.visible !== false)
-      .flatMap((source) => signalTargets(source).map((id) => ({ source, target: byId.get(id) })))
-      .filter((wire): wire is { source: SceneItem; target: SceneItem } => !!wire.target && wire.target.visible !== false);
+      .flatMap((source) => [
+        ...legacySignalTargets(source).map((id) => ({source,target:byId.get(id),output:undefined as number | undefined,input:undefined as number | undefined})),
+        ...(source.signalRoutes ?? []).map(route => ({source,target:byId.get(route.targetId),output:route.output,input:route.input})),
+      ])
+      .filter((wire): wire is {source:SceneItem;target:SceneItem;output:number | undefined;input:number | undefined} => !!wire.target && wire.target.visible !== false);
   }, [items]);
-  return <>{wires.map((w) => <Wire key={`${w.source.id}-${w.target.id}`} source={w.source} target={w.target} />)}</>;
+  return <>{wires.map((w) => <Wire key={`${w.source.id}-${w.output ?? 'legacy'}-${w.target.id}-${w.input ?? 'legacy'}`} source={w.source} target={w.target} output={w.output} input={w.input} />)}</>;
 }

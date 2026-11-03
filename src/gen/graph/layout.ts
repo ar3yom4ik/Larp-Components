@@ -1,6 +1,7 @@
 import { estimatedNodeHeight, NODE_WIDTH } from './metrics';
 export { estimatedNodeHeight, NODE_WIDTH, NODE_HEADER, PORT_PAD, PORT_ROW } from './metrics';
 import { makeNode, uid } from './graph';
+import { signalPortNumber } from './signal';
 import type { GraphGroup, GraphLink, GraphNode, NodeGraph } from './types';
 
 export const GROUP_COLOR = '#5973a6';
@@ -44,9 +45,14 @@ export function pasteGraphSelection(graph: NodeGraph, clipboard: GraphClipboard,
   const nodes = clipboard.nodes.map(old => {
     const node = makeNode(old.type, old.x + offset, old.y + offset, structuredClone(old.params), old.title);
     node.collapsed = old.collapsed;
+    node.io = old.io ? structuredClone(old.io) : undefined;
     idMap.set(old.id,node.id);
     return node;
   });
+  for (const node of nodes) {
+    const mounted = node.params.mountedTo;
+    if (typeof mounted === 'string' && idMap.has(mounted)) node.params.mountedTo = idMap.get(mounted)!;
+  }
   const links = clipboard.links.flatMap(link => {
     const from = idMap.get(link.from.node), to = idMap.get(link.to.node);
     return from && to ? [{id:uid('l'),from:{node:from,port:link.from.port},to:{node:to,port:link.to.port}}] : [];
@@ -64,7 +70,7 @@ export function arrangeGraphNodes(graph: NodeGraph, ids: Iterable<string>, heigh
   const indegree = new Map(nodes.map(node => [node.id,0]));
   const outs = new Map<string,string[]>();
   for (const link of graph.links) {
-    if (!selected.has(link.from.node) || !selected.has(link.to.node)) continue;
+    if (!selected.has(link.from.node) || !selected.has(link.to.node) || signalPortNumber(link.from.port, 'out') !== null) continue;
     indegree.set(link.to.node,(indegree.get(link.to.node) ?? 0)+1);
     outs.set(link.from.node,[...(outs.get(link.from.node) ?? []),link.to.node]);
   }
@@ -91,7 +97,7 @@ export function arrangeGraphNodes(graph: NodeGraph, ids: Iterable<string>, heigh
     column.sort((a,b) => a.y-b.y || a.x-b.x);
     for (const node of column) {
       positions.set(node.id,{x:left+rank*(NODE_WIDTH+100),y});
-      y += (heights.get(node.id) ?? estimatedNodeHeight(node)) + 48;
+      y += (heights.get(node.id) ?? estimatedNodeHeight(node, graph)) + 48;
     }
   }
   return {...graph,nodes:graph.nodes.map(node => positions.has(node.id) ? {...node,...positions.get(node.id)!} : node)};

@@ -1,5 +1,6 @@
 import type { ImportedCollision, ImportedMaterial, ImportedModelData, ModelAsset, ModelUnits, RobotProgram, SceneItem, TextureOverride, TextureSlot, WorkerMotionRole, WorkerSettings } from "../types";
 import { COMPONENTS, getDef } from "../data/library";
+import { signalFunction, validSignalPort } from "./signalChannels";
 
 export interface ProjectFile {
   version: "5.1";
@@ -178,7 +179,21 @@ export function parseProject(text: string): ProjectFile {
       const worker = item.kind === "operator" && item.worker ? cleanWorker(item.worker, assets) : undefined;
       if (item.signalTargets !== undefined && (!Array.isArray(item.signalTargets) || item.signalTargets.some((id) => typeof id !== "string" || !id || id.length > 1024))) throw new Error("Invalid signal destinations");
       const signalTargets = item.signalTargets?.length ? [...new Set(item.signalTargets)] : undefined;
-      return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
+      if (item.signalChannels !== undefined && !Array.isArray(item.signalChannels)) throw new Error("Invalid signal channels");
+      const channelPorts = new Set<number>();
+      const signalChannels = item.signalChannels?.map(channel => {
+        if (!channel || !validSignalPort(channel.port) || channelPorts.has(channel.port) || typeof channel.mode !== "string") throw new Error("Invalid signal channel");
+        channelPorts.add(channel.port);
+        const mode = signalFunction(item.kind,channel.mode)?.value;
+        if (!mode || (channel.color !== undefined && !/^#[0-9a-f]{6}$/i.test(channel.color))) throw new Error("Invalid signal channel settings");
+        return {port:channel.port,mode,...(channel.color ? {color:channel.color} : {})};
+      });
+      if (item.signalRoutes !== undefined && !Array.isArray(item.signalRoutes)) throw new Error("Invalid signal routes");
+      const signalRoutes = item.signalRoutes?.map(route => {
+        if (!route || !validSignalPort(route.output) || !validSignalPort(route.input) || typeof route.targetId !== "string" || !route.targetId || route.targetId.length > 1024 || route.targetId === item.id) throw new Error("Invalid signal route");
+        return {output:route.output,targetId:route.targetId,input:route.input};
+      });
+      return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, signalChannels, signalRoutes, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
     });
   };
   const items = parseItems(data.items);

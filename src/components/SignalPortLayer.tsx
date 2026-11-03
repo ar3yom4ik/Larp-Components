@@ -75,7 +75,7 @@ export function SignalPortLayer({ items, sourceId, targets, onSource, onTarget, 
       if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < 5 && !state.moved) return;
       state.moved = true;
       const source = latest.current.items.find((item) => item.id === state.sourceId);
-      setPreview({ x1: state.anchorX, y1: state.anchorY, x2: event.clientX, y2: event.clientY, color: signalWireColor(source?.props.wireColor) });
+      setPreview({ x1: state.anchorX, y1: state.anchorY, x2: event.clientX, y2: event.clientY, color: signalWireColor(source?.signalChannels?.[0]?.color ?? source?.props.wireColor) });
     };
     const finish = (event: PointerEvent) => {
       const state = gesture.current;

@@ -32,7 +32,8 @@ import { workerShirtColor } from "./RiggedHuman";
 import { PalletPattern } from "./PalletPattern";
 import { importedProductId, MACHINE_KINDS } from "../data/products";
 import { t, useLanguage } from "../i18n";
-import { isSignalSource, signalTargets, signalTargetsPatch, signalWireColor } from "../utils/signalPorts";
+import { canSignalInput, isSignalSource, signalTargets, signalTargetsPatch, signalWireColor } from "../utils/signalPorts";
+import { signalFunction, signalFunctions } from "../utils/signalChannels";
 
 interface PropertiesPanelProps {
   selected: SceneItem | null;
@@ -244,7 +245,7 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
   const isWorker = selected.kind === "operator" || selected.kind === "mobile-robot";
   const feederSources = selected.kind === "feeder" ? items.filter((item) => isSignalSource(item) && signalTargets(item).includes(selected.id)) : [];
   const connectedTargets = isLogic ? signalTargets(selected) : [];
-  const targetCandidates = isLogic ? items.filter((item) => item.id !== selected.id && !["fence", "wall", "light"].includes(item.kind)) : [];
+  const targetCandidates = isLogic ? items.filter((item) => canSignalInput(item,selected.id)) : [];
   const points = selected.points ?? [];
   const length = isFence ? points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - points[i][0], p[1] - points[i][1]), 0) : isConveyor ? samplePath(points.length >= 2 ? points : [[-1, 0], [1, 0]], 0.2, selected.pointHeights).length : 0;
   const rt = isRobot ? sim.robots.get(selected.id) : undefined;
@@ -511,7 +512,7 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
           </>}
           {isRobot && <>
             <label className="block text-[10px] text-white/45">{t("Robot output")}
-              <select aria-label={t("Robot output")} disabled={selected.locked} className={cn(inputCls, "mt-1")} value={selected.props.outputMode === "moving" ? "moving" : "operation-end"} onChange={(event) => onUpdate(selected.id, {props: {...selected.props, outputMode: event.target.value}})}>
+              <select aria-label={t("Robot output")} disabled={selected.locked} className={cn(inputCls, "mt-1")} value={(selected.signalChannels?.find(channel => channel.port === 1)?.mode ?? selected.props.outputMode) === "moving" ? "moving" : "operation-end"} onChange={(event) => onUpdate(selected.id, {props: {...selected.props, outputMode: event.target.value}, signalChannels:selected.signalChannels?.map(channel => channel.port === 1 ? {...channel,mode:event.target.value} : channel)})}>
                 <option value="moving">{t("Moving or holding")}</option>
                 <option value="operation-end">{t("Pulse on operation end")}</option>
               </select>
@@ -542,8 +543,24 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
             <label className="block text-[10px] text-white/45">{t("Attach to conveyor")}<select aria-label={t("Attach to conveyor")} disabled={selected.locked} value={String(selected.props.mountedTo || "")} onChange={event => onUpdate(selected.id, {props:{...selected.props,mountedTo:event.target.value,mountPosition:Number(selected.props.mountPosition ?? .85)}})} className={cn(inputCls,"mt-1")}><option value="">{t("Free standing")}</option>{items.filter(item => item.kind === "conveyor" || item.kind === "roller").map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             {!!selected.props.mountedTo && <label className="block text-[10px] text-white/45">{t("Position along conveyor")}<input aria-label={t("Position along conveyor")} type="range" disabled={selected.locked} min={0} max={1} step={.01} value={Number(selected.props.mountPosition ?? .85)} onFocus={onBeginEdit} onChange={event => onUpdate(selected.id,{props:{...selected.props,mountPosition:Number(event.target.value)}},false)} className="accent-range mt-1 w-full" /></label>}
           </>}
+          {selected.kind === "laser" && !!selected.props.mountedTo && <label className="flex items-center justify-between text-[11px] text-white/65">{t("Auto-fit beam to conveyor")}<Toggle label={t("Auto-fit beam to conveyor")} checked={selected.props.autoRange !== false} onChange={v => onUpdate(selected.id,{props:{...selected.props,autoRange:v}})} /></label>}
           {selected.kind === "laser" && <label className="flex items-center justify-between text-[11px] text-white/65">{t("Normally closed")}<Toggle label={t("Normally closed")} checked={selected.props.normallyClosed === true} onChange={(v) => onUpdate(selected.id, { props: { ...selected.props, normallyClosed: v } })} /></label>}
           <div className="flex items-center justify-between rounded bg-white/[0.03] px-2 py-1.5 text-[10px] text-white/55"><span>{t("Live signal")}</span><span className={cn("flex items-center gap-1 font-mono", sim.signalState.get(selected.id) ? "text-[#76e08b]" : "text-white/35")}><i className={cn("h-1.5 w-1.5 rounded-full", sim.signalState.get(selected.id) ? "bg-[#76e08b]" : "bg-white/30")} />{sim.signalState.get(selected.id) ? "TRUE" : "FALSE"}</span></div>
+        </div></Section>}
+        {!!selected.signalChannels?.length && <Section title={t("Signal I/O")}><div className="space-y-2" data-scene-signal-settings>
+          {selected.signalChannels.map(channel => <div key={channel.port} className="rounded border border-white/10 bg-white/[0.03] p-2">
+            <div className="mb-1 text-[10px] text-white/60">IN {channel.port} → OUT {channel.port}</div>
+            <select aria-label={`${t("Signal function")} ${channel.port}`} disabled={selected.locked} value={signalFunction(selected.kind,channel.mode)?.value ?? channel.mode}
+              onChange={event => onUpdate(selected.id,{signalChannels:selected.signalChannels?.map(entry => entry.port === channel.port ? {...entry,mode:event.target.value} : entry), ...(isRobot && channel.port === 1 ? {props:{...selected.props,outputMode:event.target.value}} : {})})} className={inputCls}>
+              {signalFunctions(selected.kind).map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
+            </select>
+            <p className="mt-1 text-[9px] leading-relaxed text-white/40">{t(signalFunction(selected.kind,channel.mode)?.help ?? '')}</p>
+            <label className="mt-2 flex items-center justify-between gap-2 text-[10px] text-white/50"><span>{t("Output colour")} {channel.port}</span>
+              <input type="color" aria-label={`${t("Output colour")} ${channel.port}`} disabled={selected.locked} value={signalWireColor(channel.color ?? selected.props.wireColor)}
+                onChange={event => onUpdate(selected.id,{signalChannels:selected.signalChannels?.map(entry => entry.port === channel.port ? {...entry,color:event.target.value} : entry)})} className="h-7 w-10 cursor-pointer rounded border border-white/15 bg-transparent" />
+            </label>
+            {channel.color && <button type="button" disabled={selected.locked} onClick={() => onUpdate(selected.id,{signalChannels:selected.signalChannels?.map(entry => entry.port === channel.port ? {...entry,color:undefined} : entry)})} className="mt-1 text-[9px] text-white/45 underline hover:text-white">{t("Use component wire colour")}</button>}
+          </div>)}
         </div></Section>}
         {selected.kind === "light" && <Section title={t("Light")}><div className="space-y-3"><label className="block text-[10px] text-white/45">{t("Type")}<select aria-label={t("Light type")} value={String(selected.props.lightType || "spot")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, lightType: e.target.value } })} className={cn(inputCls, "mt-1")}><option value="spot">{t("Spot")}</option><option value="point">{t("Point")}</option></select></label><label className="block text-[10px] text-white/45">{t("Colour")}<input aria-label={t("Light colour")} type="color" value={String(selected.props.color || "#fff1d0")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, color: e.target.value } })} className="mt-1 h-8 w-full bg-transparent" /></label><label className="flex items-center justify-between text-[11px] text-white/65">{t("Cast shadows")}<Toggle label={t("Cast shadows")} checked={selected.props.castShadow === true} onChange={(v) => onUpdate(selected.id, { props: { ...selected.props, castShadow: v } })} /></label><p className="text-[10px] text-white/35">{t("Lights also respond to the enhanced and global-illumination graphics modes.")}</p></div></Section>}
         {selected.kind === "imported-model" && <ModelMaterialEditor item={selected} onUpdate={onUpdate} onBeginEdit={onBeginEdit} />}
@@ -566,8 +583,8 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
 
         {selected.kind !== "imported-model" && <Section title={t("Behaviour")}>
           <div className="space-y-3">
-            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "activeDuration", "mode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", "physicsMode", "physicsMass", "collisionShape", "catalogBaseId", "mountedTo", "mountPosition", ...(["conveyor", "roller"].includes(selected.kind) ? ["speed", "width"] : []), ...(selected.kind === "crates" ? ["cols", "rows", "layers", "retainFull"] : [])].includes(key)).map(([key, value]) => (
-              <PropControl key={key} kind={selected.kind} propKey={key} value={value} onChange={(next) => onUpdate(selected.id, { props: { ...selected.props, [key]: next } }, false)} />
+            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "activeDuration", "mode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", "physicsMode", "physicsMass", "collisionShape", "catalogBaseId", "mountedTo", "mountPosition", "autoRange", ...(["conveyor", "roller"].includes(selected.kind) ? ["speed", "width"] : []), ...(selected.kind === "crates" ? ["cols", "rows", "layers", "retainFull"] : [])].includes(key)).map(([key, value]) => (
+              <PropControl key={key} kind={selected.kind} propKey={key} value={value} onChange={(next) => onUpdate(selected.id, { props: { ...selected.props, [key]: next, ...(selected.kind === "laser" && key === "range" ? {autoRange:false} : {}) } }, false)} />
             ))}
             {Object.keys(selected.props).length === 0 && <p className="text-[10px] text-white/35">{t("No parameters.")}</p>}
           </div>

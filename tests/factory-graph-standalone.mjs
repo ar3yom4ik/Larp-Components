@@ -31,6 +31,9 @@ try {
     await page.getByRole('button',{name:'AI Factory',exact:true}).first().click({timeout:60000});
     const dialog=page.getByRole('dialog',{name:'AI Factory'});
     await dialog.getByText('Valid graph',{exact:true}).waitFor();
+    const detector=dialog.locator('[data-node-type="part.laser"]');
+    assert.equal(await detector.count(),1,`${name}: legacy graph migrates a visible pickup sensor`);
+    assert.equal(await detector.locator('[data-signal-row="1"]').count(),1,`${name}: sensor has numbered I/O`);
     const first=dialog.locator('[data-node="f1"]'),second=dialog.locator('[data-node="f2"]');
     await first.locator('div').first().click(); await second.locator('div').first().click({modifiers:['Shift']});
     await first.locator('div').first().click({button:'right'});

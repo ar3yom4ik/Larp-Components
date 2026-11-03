@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.5] - 2026-11-03 (prerelease)
+
+- Made laser, proximity, push-button and PLC triggers editable physical graph nodes. Pickup sensors and their two signal links are created for new conveyor-to-robot connections and placed at the robot's source station; old graphs migrate their existing pickup choices.
+- Added expandable numbered IN/function/OUT pairs, per-channel functions and wire colours. Signal feedback is independent of material flow and survives graph and project export; built scene wires use the same colours and glow on activation.
+- Added per-channel simulation for detector gates, PLC relays/inverters, feeder pulses, conveyor state, robot moving/operation-end outputs, machine/worker enable and pallet status. Mounted lasers can retain a manually edited beam length.
+- Prevented continuous detector signals from stalling queued pickup parts and made graph IDs robust across reloads. Added graph, runtime, serialization, feedback, browser and offline regression coverage; the simulator remains an approximation, not an industrial safety or PLC system.
+
 ## [3.0.0-alpha.4] - 2026-11-03 (prerelease)
 
 - Removed fixed scene, workpiece, signal-target and live-product count ceilings; rendering grows as needed. The 180 MB project-size limit and device resources still apply.

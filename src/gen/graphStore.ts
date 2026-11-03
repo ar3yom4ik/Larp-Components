@@ -5,6 +5,7 @@ import './graph/nodes';
 import './graph/components';
 import { parseGraph, serializeGraph } from './graph/graph';
 import { defaultComponentGraph } from './graph/componentCompile';
+import { upgradePickupSensors } from './graph/pickupSensors';
 import type { NodeGraph } from './graph/types';
 
 /**
@@ -20,7 +21,7 @@ function load(): NodeGraph {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultComponentGraph();
-    const graph = parseGraph(JSON.parse(raw));
+    const graph = upgradePickupSensors(parseGraph(JSON.parse(raw)));
     return graph.nodes.length ? graph : defaultComponentGraph();
   } catch {
     return defaultComponentGraph();
@@ -66,7 +67,7 @@ export function graphValue() {
 }
 
 export function replaceGraph(next: NodeGraph) {
-  setGraph(parseGraph(next));
+  setGraph(upgradePickupSensors(parseGraph(next)));
 }
 
 export function resetGraph() {

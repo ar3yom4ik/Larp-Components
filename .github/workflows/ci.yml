@@ -60,6 +60,8 @@ jobs:
           exit 1
       - name: Catalog, camera and sensor regressions
         run: npm run test:catalog-browser && npm run test:camera-browser && npm run test:sensor-browser
+      - name: Factory graph and signal node regressions
+        run: npm run test:factory-browser && npm run test:factory-signal-browser && npm run test:signals-browser
 
   # Only an already-published prerelease at this exact internal PR head is
   # eligible. Forks and unrelated PRs never receive a write-capable token.

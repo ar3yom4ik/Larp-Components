@@ -2,6 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AlertTriangle, ChevronDown, ChevronRight, Info, Maximize2 } from 'lucide-react';
 import { getNodeDef, PORT_COLORS } from '../../gen/graph/registry';
 import { connect, insertNodeInLink, setParam, updateNode } from '../../gen/graph/graph';
+import { channelColor, channelMode, nodePort, setChannel, signalPort, signalPortNumber, signalRows } from '../../gen/graph/signal';
+import { signalFunction, signalFunctions } from '../../utils/signalChannels';
+import { attachPickupSensorToLink, ensurePickupSensor } from '../../gen/graph/pickupSensors';
 import { arrangeGraphNodes, copyGraphSelection, estimatedNodeHeight, groupNodes, NODE_HEADER, NODE_WIDTH, pasteGraphSelection, PORT_PAD, PORT_ROW, removeGraphNodes } from '../../gen/graph/layout';
 import type { GraphClipboard } from '../../gen/graph/layout';
 import type { Diagnostic, GraphGroup, GraphNode, NodeGraph, PortRef } from '../../gen/graph/types';
@@ -17,6 +20,7 @@ const GROUP_FADE_END = 0.22;
 const NODE_COLORS: Record<string,string> = {
   'part.feeder':'#dd9a4c', 'part.conveyor':'#4da5d0', 'part.robot':'#a880db',
   'part.machine':'#61b995', 'part.pallet':'#d8839b', 'part.human':'#d7bf63',
+  'part.laser':'#d86262', 'part.sensor':'#63bfe6', 'part.button':'#dd8d5f', 'part.plc':'#819cba',
 };
 const portY = (index: number) => NODE_HEADER + PORT_PAD + index * PORT_ROW + PORT_ROW / 2;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -114,7 +118,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
       const left = Math.min(...nodes.map(node => node.x))-28;
       const top = Math.min(...nodes.map(node => node.y))-46;
       const right = Math.max(...nodes.map(node => node.x+NODE_WIDTH))+28;
-      const bottom = Math.max(...nodes.map(node => node.y+(heights.get(node.id) ?? estimatedNodeHeight(node))))+28;
+      const bottom = Math.max(...nodes.map(node => node.y+(heights.get(node.id) ?? estimatedNodeHeight(node,displayGraph))))+28;
       rects.set(group.id,{x:left,y:top,width:right-left,height:bottom-top});
     }
     return {rects,owners};
@@ -196,9 +200,9 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
 
   const completeConnection = (from:PortRef,to:PortRef) => {
     const target = byId.get(to.node);
-    const targetPort = target && getNodeDef(target.type)?.inputs.find(port => port.key === to.port);
+    const targetPort = nodePort(target,to.port,'in');
     const source = byId.get(from.node);
-    const sourcePort = source && getNodeDef(source.type)?.outputs.find(port => port.key === from.port);
+    const sourcePort = nodePort(source,from.port,'out');
     // Dragging one selected output to a many-input port wires the other selected
     // compatible outputs too, atomically, without generating graph clutter.
     if (targetPort?.many && sourcePort && selected.has(from.node) && selection.nodeIds.length > 1) {
@@ -243,8 +247,15 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
               if (point.x>rect.left+sx && point.x<rect.right+sx && point.y>rect.top+sy && point.y<rect.bottom+sy) { intersects = true; break; }
             }
             if (intersects && path.dataset.linkId) {
-              const result = insertNodeInLink(next,id,path.dataset.linkId);
-              if (result.ok) { next = result.graph; break; }
+              const insertion = insertNodeInLink(next,id,path.dataset.linkId);
+              const result = insertion.ok ? insertion : attachPickupSensorToLink(next,id,path.dataset.linkId);
+              if (result.ok) {
+                next = result.graph;
+                const source = next.nodes.find(node => node.id === id);
+                const toRobot = source?.type === 'part.conveyor' ? next.links.find(link => link.from.node === id && link.from.port === 'out' && link.to.port === 'in' && next.nodes.some(node => node.id === link.to.node && node.type === 'part.robot')) : undefined;
+                if (toRobot) next = ensurePickupSensor(next,id,toRobot.to.node);
+                break;
+              }
             }
           }
         }
@@ -255,7 +266,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
       if (Math.hypot(event.clientX-state.startX,event.clientY-state.startY)>3) {
         const a = toWorld(state.startX,state.startY), b = toWorld(event.clientX,event.clientY);
         const left = Math.min(a.x,b.x), right = Math.max(a.x,b.x), top = Math.min(a.y,b.y), bottom = Math.max(a.y,b.y);
-        const ids = graph.nodes.filter(node => node.x < right && node.x+NODE_WIDTH > left && node.y < bottom && node.y+(heights.get(node.id) ?? estimatedNodeHeight(node)) > top).map(node => node.id);
+        const ids = graph.nodes.filter(node => node.x < right && node.x+NODE_WIDTH > left && node.y < bottom && node.y+(heights.get(node.id) ?? estimatedNodeHeight(node,graph)) > top).map(node => node.id);
         onSelectionChange({nodeIds:[...new Set([...(state.additive ? state.baseSelection ?? [] : []),...ids])],groupId:null});
       }
       setBox(null);
@@ -266,7 +277,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
         const without = {...graph,links:graph.links.filter(link => link.id !== state.detachLinkId)};
         if (to && to.node !== state.from.node) {
           const result = connect(without,state.from,to);
-          if (result.ok) onChange(result.graph);
+          if (result.ok) onChange(state.from.port === 'out' && to.port === 'in' ? ensurePickupSensor(result.graph,state.from.node,to.node) : result.graph);
         } else onChange(without);
       } else if (!state.detachLinkId && to && to.node !== state.from.node) completeConnection(state.from,to);
       setHoverPort(null);
@@ -292,7 +303,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
     const left = Math.min(...graph.nodes.map(node => node.x))-48;
     const top = Math.min(...graph.nodes.map(node => node.y))-60;
     const right = Math.max(...graph.nodes.map(node => node.x+NODE_WIDTH))+48;
-    const bottom = Math.max(...graph.nodes.map(node => node.y+(heights.get(node.id) ?? estimatedNodeHeight(node))))+48;
+    const bottom = Math.max(...graph.nodes.map(node => node.y+(heights.get(node.id) ?? estimatedNodeHeight(node,graph))))+48;
     const next = clamp(Math.min((rect.width-40)/(right-left),(rect.height-40)/(bottom-top),1),MIN_ZOOM,MAX_ZOOM);
     setZoom(next); setPan({x:(rect.width-(right-left)*next)/2-left*next,y:(rect.height-(bottom-top)*next)/2-top*next});
   },[graph.nodes,heights]);
@@ -395,7 +406,10 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
   },[graph.links,groups]);
   const endpoint = (node:GraphNode,port:string,side:'in'|'out',linkId:string) => {
     const def = getNodeDef(node.type);
-    const index = Math.max(0,(side === 'in' ? def?.inputs : def?.outputs)?.findIndex(entry => entry.key === port) ?? 0);
+    const number = signalPortNumber(port,side);
+    const index = number === null
+      ? Math.max(0,(side === 'in' ? def?.inputs : def?.outputs)?.findIndex(entry => entry.key === port) ?? 0)
+      : Math.max(def?.inputs.length ?? 0,def?.outputs.length ?? 0) + Math.max(0,signalRows(displayGraph,node).indexOf(number));
     const point = {x:node.x+(side === 'out' ? NODE_WIDTH : 0),y:node.y+portY(index)};
     const proxy = proxyPorts.get(`${linkId}:${side}`);
     if (!proxy) return point;
@@ -434,21 +448,23 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
             const internal = !!fromGroup && fromGroup.id === toGroup?.id;
             const from = endpoint(fromNode,link.from.port,'out',link.id), to = endpoint(toNode,link.to.port,'in',link.id);
             const path = pathBetween(from,to);
-            const type = getNodeDef(fromNode.type)?.outputs.find(port => port.key === link.from.port)?.type ?? 'config';
-            const color = PORT_COLORS[type] ?? '#94a3b8';
+            const type = nodePort(fromNode,link.from.port,'out')?.type ?? 'config';
+            const number = signalPortNumber(link.from.port,'out');
+            const color = number === null ? (PORT_COLORS[type] ?? '#94a3b8') : channelColor(fromNode,number);
             return <g key={link.id} opacity={internal ? groupFade : 1}>
               <path data-link-id={link.id} d={path} fill="none" stroke="transparent" strokeWidth={14} className={cn('cursor-pointer',(!internal || groupFade > 0.15) && 'pointer-events-auto')}
                 onPointerDown={event => { if (event.button !== 0) return; event.stopPropagation(); onChange({...graph,links:graph.links.filter(entry => entry.id !== link.id)}); }}><title>{t('Click to remove this wire')}</title></path>
-              <path d={path} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.8} />
+              <path data-link-visible={link.id} data-link-type={type} d={path} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.8} />
               {overview && fromGroup && !internal && <circle cx={from.x} cy={from.y} r={Math.max(5,3/zoom)} fill={color} stroke="#1c1c1f" strokeWidth={1/zoom} />}
               {overview && toGroup && !internal && <circle cx={to.x} cy={to.y} r={Math.max(5,3/zoom)} fill={color} stroke="#1c1c1f" strokeWidth={1/zoom} />}
             </g>;
           })}
           {wire && (() => {
-            const node = byId.get(wire.from.node), def = node && getNodeDef(node.type);
-            const index = Math.max(0,def?.outputs.findIndex(port => port.key === wire.from.port) ?? 0);
-            const from = {x:(node?.x ?? 0)+NODE_WIDTH,y:(node?.y ?? 0)+portY(index)};
-            return <path d={pathBetween(from,wire)} fill="none" stroke="#e2e8f0" strokeWidth={2} strokeDasharray="5 4" />;
+            const node = byId.get(wire.from.node);
+            if (!node) return null;
+            const from = endpoint(node,wire.from.port,'out','');
+            const number = signalPortNumber(wire.from.port,'out');
+            return <path d={pathBetween(from,wire)} fill="none" stroke={number === null ? '#e2e8f0' : channelColor(node,number)} strokeWidth={2} strokeDasharray="5 4" />;
           })()}
         </svg>
         {displayGraph.nodes.map(node => {
@@ -471,7 +487,8 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
               {error ? <AlertTriangle size={10} className="text-red-200" /> : warning ? <AlertTriangle size={10} className="text-amber-100" /> : null}
               <button type="button" data-no-drag aria-label={collapsed ? t('Expand') : t('Collapse')} onClick={() => onChange(updateNode(graph,node.id,{collapsed:!collapsed}))} className="rounded p-0.5 text-white/70 hover:bg-white/10 hover:text-white">{collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}</button>
             </div>
-            <div className="flex gap-2 px-2 py-2" data-node-ports>
+            <div className="px-2 py-2" data-node-ports>
+              <div className="flex gap-2">
               <div className="flex min-w-0 flex-1 flex-col">
                 {def.inputs.map((port,index) => <div key={port.key} className="relative flex h-[18px] items-center">
                   <button type="button" data-no-drag data-input-node={node.id} data-input-port={port.key} aria-label={`${def.title} ${port.label}`}
@@ -493,12 +510,32 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
                   {!collapsed && index === 0 && <span className="ml-1 font-mono text-[7px] uppercase text-white/20">{port.type}</span>}
                 </div>)}
               </div>
+              </div>
+              {signalRows(displayGraph,node).map(number => {
+                const input = signalPort('in',number), output = signalPort('out',number);
+                const color = channelColor(node,number), option = signalFunction(node.type,channelMode(node,number));
+                return <div key={number} data-signal-row={number} className="relative flex h-[18px] items-center gap-1">
+                  <button type="button" data-no-drag data-input-node={node.id} data-input-port={input} aria-label={`${def.title} signal IN ${number}`}
+                    onPointerDown={event => beginInputDrag(event,node,input)} onPointerEnter={() => setHoverPort(`${node.id}:in:${input}`)} onPointerLeave={() => setHoverPort(null)}
+                    className="absolute -left-[13px] h-[9px] w-[9px] rounded-full border border-[#1c1c1f]" style={{background:'#4da9d8',boxShadow:hoverPort === `${node.id}:in:${input}` ? '0 0 0 3px rgba(255,255,255,.25)' : undefined}} title={`${t('Signal input')} ${number}`} />
+                  {!collapsed && <><span className="shrink-0 font-mono text-[8px] text-sky-200/70">IN {number}</span>
+                    <select data-no-drag aria-label={`${t('Signal function')} ${number}`} title={option?.help ? t(option.help) : undefined} value={channelMode(node,number)}
+                      onPointerDown={event => event.stopPropagation()} onChange={event => onChange(setChannel(graph,node.id,number,{mode:event.target.value}))}
+                      className="h-[16px] min-w-0 flex-1 rounded bg-[#19191b] px-0.5 text-[8px] text-white/85">
+                      {signalFunctions(node.type).map(entry => <option key={entry.value} value={entry.value}>{t(entry.label)}</option>)}
+                    </select>
+                    <span className="shrink-0 font-mono text-[8px] text-sky-200/70">OUT {number}</span></>}
+                  <button type="button" data-no-drag data-output-node={node.id} data-output-port={output} aria-label={`${def.title} signal OUT ${number}`}
+                    onPointerDown={event => beginWire(event,node,output)} onPointerEnter={() => setHoverPort(`${node.id}:out:${output}`)} onPointerLeave={() => setHoverPort(null)}
+                    className="absolute -right-[13px] h-[9px] w-[9px] cursor-crosshair rounded-full border border-[#1c1c1f]" style={{background:color,boxShadow:hoverPort === `${node.id}:out:${output}` ? '0 0 0 3px rgba(255,255,255,.25)' : undefined}} title={`${t('Signal output')} ${number} — ${t('drag to an input port')}`} />
+                </div>;
+              })}
             </div>
             {!collapsed && node.type.startsWith('part.') && <div data-no-drag className="space-y-1 border-t border-white/10 px-2 py-1.5" onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
-              {def.params.map(param => <label key={param.key} className="flex items-center gap-1 text-[9px] text-white/55">
+              {def.params.filter(param => !param.hidden && (param.kind === 'select' || param.kind === 'number')).map(param => <label key={param.key} className="flex items-center gap-1 text-[9px] text-white/55">
                 <span className="w-[72px] shrink-0 truncate" title={t(param.label)}>{t(param.label)}</span>
                 {param.kind === 'select' ? <select aria-label={t(param.label)} value={String(node.params[param.key] ?? param.default)} onChange={event => onChange(setParam(graph,node.id,param.key,event.target.value))} className="min-w-0 flex-1 rounded bg-[#19191b] px-1 text-white/85">{param.options?.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>
-                  : param.kind === 'number' ? <><input aria-label={t(param.label)} type="range" min={param.min} max={param.max} step={param.step} value={Number(node.params[param.key] ?? param.default)} onChange={event => onChange(setParam(graph,node.id,param.key,Number(event.target.value)))} className="min-w-0 flex-1 accent-range"/><span className="w-7 text-right font-mono">{String(node.params[param.key] ?? param.default)}</span></> : null}
+                  : param.kind === 'number' ? <><input aria-label={t(param.label)} type="range" min={param.min} max={param.max} step={param.step} value={Number(node.params[param.key] ?? param.default)} onChange={event => { const next=setParam(graph,node.id,param.key,Number(event.target.value)); onChange(param.key === 'range' && node.type === 'part.laser' ? setParam(next,node.id,'autoRange',false) : next); }} className="min-w-0 flex-1 accent-range"/><span className="w-7 text-right font-mono">{String(node.params[param.key] ?? param.default)}</span></> : null}
               </label>)}
             </div>}
             {!collapsed && def.summary && <div data-no-drag className="border-t border-white/5 px-2 py-1"><div className="truncate font-mono text-[8.5px] text-white/40">{def.summary(node.params)}</div></div>}

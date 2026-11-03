@@ -9,12 +9,26 @@
  */
 import { getNodeDef } from './registry';
 import { NODE_WIDTH } from './metrics';
+import { nodePort, signalPortNumber } from './signal';
+import { signalFunction } from '../../utils/signalChannels';
 import type { Diagnostic, GraphGroup, GraphLink, GraphNode, NodeGraph, PortType } from './types';
 
+// A fresh session namespace prevents collisions when saved graphs are opened
+// after a reload, in another tab, or while the development module is replaced.
+// The counter alone used to restart with a short wrapping timestamp.
+const sessionId = (() => {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID().replace(/-/g, '');
+    if (typeof globalThis.crypto?.getRandomValues === 'function') {
+      return [...globalThis.crypto.getRandomValues(new Uint32Array(4))].map(value => value.toString(16).padStart(8,'0')).join('');
+    }
+  } catch { /* Some embedded/offline browsers restrict crypto. */ }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+})();
 let counter = 0;
 export function uid(prefix = 'n') {
   counter += 1;
-  return `${prefix}${Date.now().toString(36).slice(-4)}${counter.toString(36)}`;
+  return `${prefix}${sessionId}-${counter.toString(36)}`;
 }
 
 /**
@@ -71,8 +85,7 @@ function link(from: GraphNode, fromPort: string, to: GraphNode, toPort: string):
 
 export function portType(graph: NodeGraph, ref: { node: string; port: string }, side: 'in' | 'out'): PortType | undefined {
   const node = graph.nodes.find((entry) => entry.id === ref.node);
-  const def = node ? getNodeDef(node.type) : undefined;
-  return (side === 'in' ? def?.inputs : def?.outputs)?.find((port) => port.key === ref.port)?.type;
+  return nodePort(node, ref.port, side)?.type;
 }
 
 export interface ConnectResult { ok: boolean; graph: NodeGraph; error?: string }
@@ -87,8 +100,7 @@ export function connect(graph: NodeGraph, from: { node: string; port: string }, 
   if (outType !== inType) return { ok: false, graph, error: `Cannot connect ${outType} to ${inType}.` };
 
   const targetNode = graph.nodes.find((node) => node.id === to.node);
-  const def = targetNode ? getNodeDef(targetNode.type) : undefined;
-  const many = def?.inputs.find((port) => port.key === to.port)?.many ?? false;
+  const many = nodePort(targetNode, to.port, 'in')?.many ?? false;
 
   const links = graph.links.filter((entry) => {
     if (entry.from.node === from.node && entry.from.port === from.port && entry.to.node === to.node && entry.to.port === to.port) return false;
@@ -96,7 +108,7 @@ export function connect(graph: NodeGraph, from: { node: string; port: string }, 
     return true;
   });
   const next: NodeGraph = { ...graph, links: [...links, { id: uid('l'), from, to }] };
-  const cycles = findCycles(next);
+  const cycles = outType === 'signal' ? [] : findCycles(next);
   if (cycles.length) return { ok: false, graph, error: 'That wire would create a loop. Node graphs must stay acyclic.' };
   return { ok: true, graph: next };
 }
@@ -146,9 +158,12 @@ export function indexGraph(graph: NodeGraph) {
 /** Kahn's algorithm. Returns a stable topological order and any nodes stuck in cycles. */
 export function topoSort(graph: NodeGraph): { order: GraphNode[]; cycle: string[] } {
   const { byId, outgoing } = indexGraph(graph);
+  // Signal edges are runtime control wiring. They may feed back to an upstream
+  // feeder and must not constrain the material/data evaluation DAG.
+  const isSignal = (entry: GraphLink) => nodePort(byId.get(entry.from.node), entry.from.port, 'out')?.type === 'signal';
   const indegree = new Map(graph.nodes.map((node) => [node.id, 0]));
   for (const entry of graph.links) {
-    if (byId.has(entry.from.node) && byId.has(entry.to.node)) indegree.set(entry.to.node, (indegree.get(entry.to.node) ?? 0) + 1);
+    if (!isSignal(entry) && byId.has(entry.from.node) && byId.has(entry.to.node)) indegree.set(entry.to.node, (indegree.get(entry.to.node) ?? 0) + 1);
   }
   // Index-based queue avoids repeated array shifts and node scans on large graphs.
   const queue = graph.nodes.filter((node) => (indegree.get(node.id) ?? 0) === 0);
@@ -157,7 +172,7 @@ export function topoSort(graph: NodeGraph): { order: GraphNode[]; cycle: string[
     const node = queue[head];
     order.push(node);
     for (const link of outgoing.get(node.id) ?? []) {
-      if (!byId.has(link.to.node)) continue;
+      if (isSignal(link) || !byId.has(link.to.node)) continue;
       const remaining = (indegree.get(link.to.node) ?? 1) - 1;
       indegree.set(link.to.node, remaining);
       if (remaining === 0) queue.push(byId.get(link.to.node)!);
@@ -199,6 +214,13 @@ export function validateGraph(graph: NodeGraph): Diagnostic[] {
         }
       }
     }
+    for (const entry of ins.filter(link => signalPortNumber(link.to.port, 'in') !== null)) {
+      const input = nodePort(node, entry.to.port, 'in');
+      const source = byId.get(entry.from.node);
+      const output = nodePort(source, entry.from.port, 'out');
+      if (!input || output?.type !== input.type) diagnostics.push({id:`type:${entry.id}`,severity:'error',nodeId:node.id,port:entry.to.port,message:`${def.title}: signal input needs a signal output.`});
+      if (ins.filter(link => link.to.port === entry.to.port).length > 1) diagnostics.push({id:`multi:${node.id}:${entry.to.port}`,severity:'error',nodeId:node.id,port:entry.to.port,message:`${def.title}: ${entry.to.port} accepts one wire.`});
+    }
     for (const entry of outgoing.get(node.id) ?? []) {
       if (!byId.has(entry.to.node)) {
         diagnostics.push({ id: `dangling:${entry.id}`, severity: 'warning', nodeId: node.id, message: `${def.title}: a wire points at a node that no longer exists.` });
@@ -235,8 +257,11 @@ export function serializeGraph(graph: NodeGraph) {
 export function parseGraph(input: unknown): NodeGraph {
   if (!input || typeof input !== 'object') return defaultGraph();
   const source = input as Partial<NodeGraph>;
+  const candidates = Array.isArray(source.nodes) ? source.nodes : [];
+  const reservedIds = new Set(candidates.map(node => node && typeof node.id === 'string' ? node.id : '').filter(Boolean));
+  const usedIds = new Set<string>();
   const nodes: GraphNode[] = [];
-  for (const candidate of Array.isArray(source.nodes) ? source.nodes : []) {
+  for (const candidate of candidates) {
     if (!candidate || typeof candidate !== 'object') continue;
     const node = candidate as Partial<GraphNode>;
     if (typeof node.type !== 'string' || !getNodeDef(node.type)) continue;
@@ -247,14 +272,26 @@ export function parseGraph(input: unknown): NodeGraph {
       // Keep only values the definition knows about; defaults are applied at read time.
       if (value !== undefined && typeof value === typeof param.default) params[param.key] = value;
     }
+    const io: NonNullable<GraphNode['io']> = {};
+    if (node.io && typeof node.io === 'object' && !Array.isArray(node.io)) for (const [key, value] of Object.entries(node.io)) {
+      const port = Number(key);
+      if (!Number.isSafeInteger(port) || port <= 0 || String(port) !== key || !value || typeof value !== 'object') continue;
+      const mode = typeof value.mode === 'string' && signalFunction(node.type, value.mode)?.value === value.mode ? value.mode : undefined;
+      const color = typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color) ? value.color : undefined;
+      if (mode || color) io[key] = { ...(mode ? {mode} : {}), ...(color ? {color} : {}) };
+    }
+    let id = typeof node.id === 'string' && node.id && !usedIds.has(node.id) ? node.id : '';
+    if (!id) { do { id = uid(); } while (usedIds.has(id) || reservedIds.has(id)); }
+    usedIds.add(id);
     nodes.push({
-      id: typeof node.id === 'string' && node.id ? node.id : uid(),
+      id,
       type: node.type,
       x: Number.isFinite(node.x) ? Math.max(-1000000, Math.min(1000000, Number(node.x))) : 40,
       y: Number.isFinite(node.y) ? Math.max(-1000000, Math.min(1000000, Number(node.y))) : 40,
       params,
       title: typeof node.title === 'string' ? node.title.slice(0, 80) : undefined,
       collapsed: node.collapsed === true,
+      io: Object.keys(io).length ? io : undefined,
     });
   }
   const present = new Set(nodes.map((node) => node.id));
@@ -291,13 +328,13 @@ export function parseGraph(input: unknown): NodeGraph {
       nodeIds,
     });
   }
-  const graph: NodeGraph = { version: 1, nodes, links, groups: groups.length ? groups : undefined, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined };
+  const graph: NodeGraph = { version: 1, signalSchema: source.signalSchema === 1 ? 1 : undefined, nodes, links, groups: groups.length ? groups : undefined, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined };
   // Drop wires that no longer type-check after a registry change.
   const byId = new Map(nodes.map((node) => [node.id, node]));
   return { ...graph, links: links.filter((entry) => {
     const from = byId.get(entry.from.node), to = byId.get(entry.to.node);
-    const outType = from && getNodeDef(from.type)?.outputs.find((port) => port.key === entry.from.port)?.type;
-    const inType = to && getNodeDef(to.type)?.inputs.find((port) => port.key === entry.to.port)?.type;
+    const outType = nodePort(from, entry.from.port, 'out')?.type;
+    const inType = nodePort(to, entry.to.port, 'in')?.type;
     return !!outType && outType === inType;
   }) };
 }
@@ -329,7 +366,7 @@ export function insertNodeInLink(graph: NodeGraph, nodeId: string, linkId: strin
   const queue = [target.id];
   for (let i = 0; i < queue.length; i++) {
     for (const edge of second.graph.links) {
-      if (edge.from.node !== queue[i] || edge.to.node === nodeId || downstream.has(edge.to.node)) continue;
+      if (edge.from.node !== queue[i] || signalPortNumber(edge.from.port, 'out') !== null || edge.to.node === nodeId || downstream.has(edge.to.node)) continue;
       downstream.add(edge.to.node); queue.push(edge.to.node);
     }
   }

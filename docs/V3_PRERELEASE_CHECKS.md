@@ -27,3 +27,7 @@ finishes, re-run CI to attach the asset.
 ## Alpha.4 follow-up
 
 The alpha.4 work adds unit regressions for signal-controlled conveyors/feeders, button pulses, operation-end robot outputs, mounted pickup sensors, pallet replacement, large scenes, imported catalog bases/submodels and collision choices. Browser checks cover camera and GI-room restoration, thumbnails, shared edits, drag/drop, project reload, AI Factory product pickers and an in-scene loading placeholder. The TypeScript comparison uses explicit historical robot-output mode; the new operation-end default has separate signal tests. Physics, sensor opacity and thumbnail fidelity remain approximations.
+
+## Alpha.5 follow-up
+
+Explicit graph sensor nodes and numbered I/O are covered by `tests/graph-signals.ts` and `tests/factory-signal-nodes-browser.mjs`, including migration, pickup placement, per-port functions/colours, feedback, simulation and archive round-trips. The browser checks run in CI. Current physical graphs support conveyor merges and shared pickup stations; viewport signal sources can have multiple destinations. Signal feedback is stepped, not an industrial PLC or safety controller; laser opacity and beam behavior remain approximate.

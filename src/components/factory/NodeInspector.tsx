@@ -1,8 +1,10 @@
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { getNodeDef } from '../../gen/graph/registry';
+import { channelColor, channelMode, signalRows } from '../../gen/graph/signal';
+import { signalFunction, signalFunctions } from '../../utils/signalChannels';
 import { ProductPicker } from '../ProductPicker';
 import type { SceneItem } from '../../types';
-import type { GraphNode, ParamDef } from '../../gen/graph/types';
+import type { GraphNode, NodeGraph, ParamDef } from '../../gen/graph/types';
 import { t } from '../../i18n';
 import { cn } from '../../utils/cn';
 
@@ -14,13 +16,17 @@ import { cn } from '../../utils/cn';
  */
 export function NodeInspector({
   node,
+  graph,
   items = [],
+  onChannelChange,
   onChange,
   onReset,
   onDelete,
   onClose,
 }: {
   node: GraphNode | null;
+  graph: NodeGraph;
+  onChannelChange: (port: number, patch: {mode?: string; color?: string}) => void;
   items?: readonly SceneItem[];
   onChange: (key: string, value: unknown) => void;
   onReset: (key: string) => void;
@@ -59,7 +65,7 @@ export function NodeInspector({
         {def.params.length === 0 && <p className="text-[10.5px] text-white/30">{t('This node has no settings; it uses whatever is wired into it.')}</p>}
 
         <div className="space-y-2.5">
-          {def.params.map((param) => (
+          {def.params.filter(param => !param.hidden).map((param) => (
             <div key={param.key} className="block" title={param.help ? t(param.help) : undefined}>
               <span className="mb-1 flex items-center justify-between gap-2">
                 <span className="text-[10px] uppercase tracking-wider text-white/45">{t(param.label)}</span>
@@ -72,7 +78,22 @@ export function NodeInspector({
               </span>
 
               {param.kind === 'boolean' && (
-                <input type="checkbox" checked={Boolean(value(param))} onChange={(event) => onChange(param.key, event.target.checked)} className="h-4 w-4 accent-[var(--app-accent)]" />
+                <input type="checkbox" aria-label={t(param.label)} checked={Boolean(value(param))} onChange={(event) => onChange(param.key, event.target.checked)} className="h-4 w-4 accent-[var(--app-accent)]" />
+              )}
+
+              {param.kind === 'string' && (
+                <input type="text" aria-label={t(param.label)} value={String(value(param) ?? '')} onChange={event => onChange(param.key,event.target.value)} className="w-full rounded border border-white/12 bg-[#1e1e20] px-2 py-1.5 text-[11px] text-white/85" />
+              )}
+
+              {param.kind === 'color' && (
+                <input type="color" aria-label={t(param.label)} value={String(value(param) ?? '#4da9d8')} onChange={event => onChange(param.key,event.target.value)} className="h-8 w-12 cursor-pointer rounded border border-white/15 bg-transparent" />
+              )}
+
+              {param.kind === 'nodeRef' && (
+                <select aria-label={t(param.label)} value={String(value(param))} onChange={event => onChange(param.key,event.target.value)} className="w-full rounded border border-white/12 bg-[#1e1e20] px-2 py-1.5 text-[11px] text-white/85">
+                  <option value="auto">{t('Automatic')}</option><option value="none">{t('Free standing')}</option>
+                  {graph.nodes.filter(entry => entry.type === 'part.conveyor').map(entry => <option key={entry.id} value={entry.id}>{entry.title || `${t('Conveyor')} · ${entry.id}`}</option>)}
+                </select>
               )}
 
               {param.kind === 'text' && (
@@ -97,6 +118,8 @@ export function NodeInspector({
                   />
                   <input
                     type="number"
+                    aria-label={t(param.label)}
+                    step={param.step ?? 1}
                     min={param.unbounded ? undefined : param.min}
                     max={param.unbounded ? undefined : param.max}
                     value={Number(value(param))}
@@ -123,9 +146,25 @@ export function NodeInspector({
           ))}
         </div>
 
-        <div className={cn('mt-4 rounded border px-2 py-1.5 text-[9px] leading-relaxed', 'border-white/10 bg-white/[0.03] text-white/35')}>
+        {signalRows(graph,node).length > 0 && <div className="mt-4 space-y-2 border-t border-white/10 pt-3" data-node-signal-settings>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60">{t('Signal I/O')}</div>
+          <p className="text-[9px] leading-relaxed text-white/40">{t('Each numbered pair has its own function and output colour. A new pair appears when a port is connected.')}</p>
+          {signalRows(graph,node).map(port => <div key={port} className="rounded border border-white/10 bg-black/10 p-2">
+            <div className="mb-1 text-[10px] text-white/65">IN {port} → OUT {port}</div>
+            <select aria-label={`${t('Signal function')} ${port}`} value={channelMode(node,port)} onChange={event => onChannelChange(port,{mode:event.target.value})} className="w-full rounded border border-white/12 bg-[#1e1e20] px-1.5 py-1 text-[10px] text-white/85">
+              {signalFunctions(node.type).map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
+            </select>
+            <p className="mt-1 text-[9px] leading-relaxed text-white/40">{t(signalFunction(node.type,channelMode(node,port))?.help ?? '')}</p>
+            <label className="mt-2 flex items-center justify-between gap-2 text-[9px] text-white/55"><span>{t('Output colour')} {port}</span>
+              <input type="color" aria-label={`${t('Output colour')} ${port}`} value={channelColor(node,port)} onChange={event => onChannelChange(port,{color:event.target.value})} className="h-7 w-10 cursor-pointer rounded border border-white/15 bg-transparent" />
+            </label>
+            {node.io?.[String(port)]?.color && <button type="button" onClick={() => onChannelChange(port,{color:undefined})} className="mt-1 text-[9px] text-white/45 underline hover:text-white">{t('Use component wire colour')}</button>}
+          </div>)}
+        </div>}
+
+        {!node.type.startsWith('part.') && <div className={cn('mt-4 rounded border px-2 py-1.5 text-[9px] leading-relaxed', 'border-white/10 bg-white/[0.03] text-white/35')}>
           {t('Values you change here override what the prompt asked for. Untouched values follow the prompt, then the defaults.')}
-        </div>
+        </div>}
       </div>
 
       <div className="shrink-0 border-t border-white/10 px-3 py-2">

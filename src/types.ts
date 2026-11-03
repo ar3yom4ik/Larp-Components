@@ -1,3 +1,5 @@
+import type { SignalChannel, SignalRoute } from "./utils/signalChannels";
+
 export type Category =
   | "Robots"
   | "Conveyors"
@@ -147,6 +149,9 @@ export interface SceneItem {
   /** Additional signal destinations. The first remains in props.connectedTo
    * for compatibility with older single-target projects. */
   signalTargets?: string[];
+  /** Independent signal ports and their directed connections. */
+  signalChannels?: SignalChannel[];
+  signalRoutes?: SignalRoute[];
   /** Spline control points in item-local XZ coordinates (conveyors). */
   points?: [number, number][];
   /** Local Y offsets for conveyor/roller spline points; absent in legacy projects. */

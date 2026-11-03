@@ -36,6 +36,7 @@ export function nodesByCategory(): { category: NodeCategory; defs: NodeDef[] }[]
 
 /** Port colours, shared by the editor and the legend. */
 export const PORT_COLORS: Record<string, string> = {
+  signal: '#4da9d8',
   flow: '#fbbf24',
   machine: '#34d399',
   intent: '#c084fc',

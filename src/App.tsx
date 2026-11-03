@@ -435,6 +435,7 @@ export default function App() {
         color: source.color,
         props: { ...source.props, ...(source.imported ? {catalogBaseId: typeof source.props.catalogBaseId === "string" ? source.props.catalogBaseId : source.id} : {}) },
         signalTargets: source.signalTargets ? [...source.signalTargets] : undefined,
+        signalChannels: source.signalChannels?.map(channel => ({...channel})), signalRoutes: source.signalRoutes?.map(route => ({...route})),
         points: source.points ? source.points.map((p) => [...p] as [number, number]) : undefined,
         pointHeights: source.pointHeights ? [...source.pointHeights] : undefined,
         script: source.script,
@@ -476,7 +477,7 @@ export default function App() {
     if (!selectedId) { notify("Select a component first", "info"); return; }
     const source = itemsRef.current.find((item) => item.id === selectedId);
     if (!source) return;
-    clipboard.current = { ...source, position: [...source.position] as Vec3, props: { ...source.props }, signalTargets: source.signalTargets ? [...source.signalTargets] : undefined, points: source.points?.map((p) => [...p] as [number, number]), pointHeights: source.pointHeights ? [...source.pointHeights] : undefined, program: source.program ? { ...source.program } : undefined };
+    clipboard.current = { ...source, position: [...source.position] as Vec3, props: { ...source.props }, signalTargets: source.signalTargets ? [...source.signalTargets] : undefined, signalChannels:source.signalChannels?.map(channel => ({...channel})), signalRoutes:source.signalRoutes?.map(route => ({...route})), points: source.points?.map((p) => [...p] as [number, number]), pointHeights: source.pointHeights ? [...source.pointHeights] : undefined, program: source.program ? { ...source.program } : undefined };
     notify(`${source.name} copied`);
   }, [notify, selectedId]);
 
@@ -486,6 +487,7 @@ export default function App() {
     const item = makeItem(source.kind, [source.position[0] + 0.8, source.position[1], source.position[2] + 0.8], source.rotation, {
       name: `${source.name} copy`, rotationX: source.rotationX, rotationZ: source.rotationZ, scale: source.scale, color: source.color, props: { ...source.props },
       signalTargets: source.signalTargets ? [...source.signalTargets] : undefined,
+      signalChannels:source.signalChannels?.map(channel => ({...channel})), signalRoutes:source.signalRoutes?.map(route => ({...route})),
       points: source.points?.map((p) => [...p] as [number, number]), pointHeights: source.pointHeights ? [...source.pointHeights] : undefined, script: source.script,
       program: source.program ? { ...source.program } : undefined, imported: source.imported, worker: source.worker,
     });

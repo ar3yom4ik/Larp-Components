@@ -35,6 +35,7 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run test:speed-standalone` | Offline packaged-file speed and startup fallback checks (run after `npm run build`). |
 | `npm run test:startup-browser` | Playwright startup, blocked-module and error-recovery checks against the development server. |
 | `npm run test:factory-browser` | Playwright checks for graph selection, groups, tooltips, wiring, insertion and merge building. |
+| `npm run test:factory-signal-browser` | Playwright checks for sensor nodes, numbered signal ports, colors, wiring and pickup placement. |
 | `npm run test:factory-standalone` | Checks the production preview, offline graph editing and iframe loading. |
 | `npm run test:catalog-browser` | Browser checks for catalog import, shared edits, submodels, drag and loading placeholder. |
 | `npm run test:camera-browser` | Browser checks for graphics-setting and GI-room camera restoration. |
@@ -62,6 +63,12 @@ Select an object and use **Move** or **Rotate** for X/Y/Z gizmos. To make a slop
 Every component has **Properties → Physics → Kinematic/Dynamic** and **Weight (kg)**. Choose a mode for legacy components. Kinematic equipment stays at its edited pose (task-driven workers still walk); dynamic objects fall, collide and keep their usual simulated function. Reset returns them to the authored layout. Tilted equipment uses oriented support faces, fast bodies and products receive swept collision checks, and workers can route between connected floors. Imported geometry uses mesh-derived compound colliders; complex contacts are still approximate. See the [user guide](docs/USER_GUIDE.md#physics-and-upper-floors).
 
 To use an imported model as a product, import it, set its units/scale/weight, then select it in a feeder's **Spawn product** picker (or a machine/pallet product picker). Its saved workpiece definition and embedded asset remain available even if the source scene object is deleted. The catalog shows cached thumbnails and supports fullscreen and drag-to-scene. Editing the base model's units, materials, mass or collider affects its instances; **Submodels** removes or restores meshes across them. Poly Haven imports directly; Sloyd, Poly Pizza and Thingiverse open their own sites for manual download, subject to each model's licence.
+
+### Sensor nodes and numbered signals
+
+In **AI Factory → Node graph**, laser, proximity, push-button and PLC triggers are editable nodes. Connecting a conveyor to a robot automatically adds a pickup sensor with signal IN and OUT; it mounts near that robot on the source belt. The robot’s **Automatic pickup sensor** setting chooses laser, proximity or none for new connections. Select an existing sensor to edit its settings, mount, beam/radius and wire colour. You can also drop a loose sensor onto a conveyor-to-robot material wire to attach it without replacing the material connection.
+
+Material and signal wires are separate. Each physical node starts with **IN 1 → function → OUT 1**; wiring either port exposes the next numbered pair. Choose each pair’s function and optional output colour in the node or its inspector. For example, a robot can report moving on one output and pulse operation-end on another. Signal feedback to an upstream feeder is allowed; material loops are not. Saved graphs and `.lcmx` projects retain numbered ports, functions and colours.
 
 ### Signal-controlled feeders and robots
 

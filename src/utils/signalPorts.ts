@@ -2,6 +2,7 @@ import type { SceneItem, Vec3 } from '../types';
 import { isRobotKind } from './kinds';
 import { itemLocalToWorld } from './transform';
 import { conveyorWidth } from './conveyor';
+import { signalFunctions } from './signalChannels';
 
 export const DEFAULT_WIRE_COLOR = '#4da9d8';
 
@@ -12,30 +13,50 @@ export function isLogicSource(item: SceneItem): boolean {
 
 /** Robots publish a host-managed moving/holding signal as well. */
 export function isSignalSource(item: SceneItem): boolean {
-  return isLogicSource(item) || isRobotKind(item.kind);
+  return isLogicSource(item) || isRobotKind(item.kind) || (signalFunctions(item.kind).length > 0 && (!!item.signalChannels?.length || !!item.signalRoutes?.length || !!item.props.connectedTo || !!item.signalTargets?.length));
 }
 
 /** Output ports can only be edited on visible, unlocked sources. */
 export function canSignalOutput(item: SceneItem): boolean {
-  return item.visible !== false && !item.locked && isSignalSource(item);
+  return item.visible !== false && !item.locked && (isSignalSource(item) || signalFunctions(item.kind).length > 0);
 }
 
 /** PLCs and feeders consume signals; robots and conveyors expose trigger/script endpoints. */
 export function canSignalInput(item: SceneItem, sourceId: string): boolean {
-  return item.visible !== false && item.id !== sourceId && ['plc', 'robot', 'cobot', 'kuka', 'fanuc', 'conveyor', 'roller', 'feeder'].includes(item.kind);
+  if (item.visible === false || item.id === sourceId || !signalFunctions(item.kind).length) return false;
+  // Legacy stand-alone detectors/buttons have only a source state; graph-built
+  // ones carry explicit channel configurations and can also be enabled via IN.
+  if (['button','laser','sensor','crates'].includes(item.kind)) return !!item.signalChannels?.length;
+  return true;
 }
 
 /** The first destination uses the legacy field; subsequent branches live on
  * the item. Filtering here also tolerates old or partially edited projects. */
-export function signalTargets(item: SceneItem): string[] {
+export function legacySignalTargets(item: SceneItem): string[] {
   const first = typeof item.props.connectedTo === 'string' ? item.props.connectedTo : '';
   const extra = Array.isArray(item.signalTargets) ? item.signalTargets : [];
   return [...new Set([first, ...extra].filter((id): id is string => typeof id === 'string' && !!id && id !== item.id))];
 }
 
+export function signalTargets(item: SceneItem): string[] {
+  return [...new Set([...legacySignalTargets(item), ...(item.signalRoutes ?? []).map(route => route.targetId)].filter(id => id && id !== item.id))];
+}
+
 export function signalTargetsPatch(item: SceneItem, targets: string[]): Partial<SceneItem> {
   const clean = [...new Set(targets.filter((id) => id && id !== item.id))];
-  return { props: { ...item.props, connectedTo: clean[0] ?? '' }, signalTargets: clean.length > 1 ? clean.slice(1) : undefined };
+  const keep = new Set(clean);
+  const routes = (item.signalRoutes ?? []).filter(route => keep.has(route.targetId));
+  const removed = (item.signalRoutes ?? []).filter(route => !keep.has(route.targetId));
+  let legacy = legacySignalTargets(item).filter(id => keep.has(id));
+  const known = new Set([...legacy, ...routes.map(route => route.targetId)]);
+  const added = clean.filter(id => !known.has(id));
+  if (item.signalChannels?.length) {
+    // The scene editor has one visible OUT. Preserve a rerouted channel when
+    // possible, otherwise use the first numbered output for new scene wires.
+    const template = removed.length === 1 && added.length === 1 ? removed[0] : undefined;
+    for (const id of added) routes.push({output:template?.output ?? item.signalChannels[0].port, targetId:id, input:template?.input ?? 1});
+  } else legacy = [...legacy,...added];
+  return { props: { ...item.props, connectedTo: legacy[0] ?? '' }, signalTargets: legacy.length > 1 ? legacy.slice(1) : undefined, signalRoutes: routes.length ? routes : undefined };
 }
 
 /** Old projects have no wire colour, and imported projects may contain invalid values. */

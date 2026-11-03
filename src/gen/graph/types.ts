@@ -16,6 +16,7 @@ import type { SceneItem } from '../../types';
 
 /** Port types. Two ports connect when their types match exactly. */
 export type PortType =
+  | 'signal'   // runtime control signal; may form feedback loops
   | 'flow'     // material handoff between physical modules
   | 'machine'  // machine attachment to a robot
   | 'intent'   // tagged meaning extracted from a prompt
@@ -43,7 +44,7 @@ export interface PortDef {
   help?: string;
 }
 
-export type ParamKind = 'number' | 'select' | 'boolean' | 'text' | 'seed' | 'product' | 'multi';
+export type ParamKind = 'number' | 'select' | 'boolean' | 'text' | 'string' | 'color' | 'nodeRef' | 'seed' | 'product' | 'multi';
 
 export interface ParamDef {
   key: string;
@@ -55,6 +56,8 @@ export interface ParamDef {
   step?: number;
   /** Permit typed numeric values beyond the convenient slider bounds. */
   unbounded?: boolean;
+  /** Internal migration metadata, not an editable setting. */
+  hidden?: boolean;
   options?: { value: string; label: string }[];
   help?: string;
 }
@@ -96,6 +99,8 @@ export interface GraphNode {
   title?: string;
   /** Collapsed nodes hide parameters but keep their connection ports. */
   collapsed?: boolean;
+  /** Settings for independent, numbered signal I/O pairs. */
+  io?: Record<string, { mode?: string; color?: string }>;
 }
 
 export interface PortRef { node: string; port: string }
@@ -116,6 +121,8 @@ export interface GraphGroup {
 
 export interface NodeGraph {
   version: 1;
+  /** Existing version-1 graphs without this marker are upgraded to explicit pickup sensors. */
+  signalSchema?: 1;
   nodes: GraphNode[];
   links: GraphLink[];
   /** Optional editor-only frames; old version-1 graphs need not contain them. */

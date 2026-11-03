@@ -6,6 +6,9 @@ import { samplePath } from '../../sim/spline';
 import { resolveMountedSensors } from '../../utils/sensorMount';
 import type { ComponentKind, SceneItem } from '../../types';
 import { indexGraph, makeNode, topoSort, uid, validateGraph } from './graph';
+import { ensurePickupSensor, upgradePickupSensors } from './pickupSensors';
+import { channelMode, signalPortNumber, signalRows } from './signal';
+import { signalWireColor } from '../../utils/signalPorts';
 import type { GraphLink, GraphNode, NodeGraph, PlantResult } from './types';
 import type { CompileResult } from './compile';
 
@@ -13,13 +16,14 @@ import type { CompileResult } from './compile';
 export function defaultComponentGraph(): NodeGraph {
   const feeder = makeNode('part.feeder', 40, 80);
   const belt = makeNode('part.conveyor', 300, 80);
-  const robot = makeNode('part.robot', 560, 80);
-  const machine = makeNode('part.machine', 300, 340);
-  const belt2 = makeNode('part.conveyor', 820, 80);
-  const robot2 = makeNode('part.robot', 1080, 80);
-  const pallet = makeNode('part.pallet', 1340, 80);
+  const robot = makeNode('part.robot', 820, 80);
+  const machine = makeNode('part.machine', 560, 400);
+  const belt2 = makeNode('part.conveyor', 1080, 80);
+  const robot2 = makeNode('part.robot', 1600, 80);
+  const pallet = makeNode('part.pallet', 1860, 80);
   const wire = (from: GraphNode, out: string, to: GraphNode, input: string): GraphLink => ({id:uid('l'),from:{node:from.id,port:out},to:{node:to.id,port:input}});
-  return {version:1,nodes:[feeder,belt,robot,machine,belt2,robot2,pallet],links:[wire(feeder,'out',belt,'in'),wire(belt,'out',robot,'in'),wire(machine,'machine',robot,'machine'),wire(robot,'out',belt2,'in'),wire(belt2,'out',robot2,'in'),wire(robot2,'out',pallet,'in')]};
+  const graph: NodeGraph = {version:1,signalSchema:1,nodes:[feeder,belt,robot,machine,belt2,robot2,pallet],links:[wire(feeder,'out',belt,'in'),wire(belt,'out',robot,'in'),wire(machine,'machine',robot,'machine'),wire(robot,'out',belt2,'in'),wire(belt2,'out',robot2,'in'),wire(robot2,'out',pallet,'in')]};
+  return ensurePickupSensor(ensurePickupSensor(graph,belt.id,robot.id),belt2.id,robot2.id);
 }
 
 interface FlowEnd { x: number; z: number; palletZ?: number; pickupBack?: number; side?: number; station?: number }
@@ -28,6 +32,7 @@ interface MergeEntry { sourceId: string; along: number; side: number }
 /** Compile a DAG of physical parts. Multiple workers can share a belt as
  * competing consumers; other fan-out still needs an explicit splitter. */
 export function compileComponentGraph(graph: NodeGraph): CompileResult {
+  graph = upgradePickupSensors(graph);
   const start = performance.now();
   const connectedIds = new Set(graph.links.flatMap((link) => [link.from.node, link.to.node]));
   const activeGraph = { ...graph, nodes: graph.nodes.filter((node) => connectedIds.has(node.id)) };
@@ -39,12 +44,14 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const inFlow = (id: string) => (incoming.get(id) ?? []).filter((link) => link.to.port === 'in' && link.from.port === 'out');
   const outFlow = (id: string) => (outgoing.get(id) ?? []).filter((link) => link.from.port === 'out' && link.to.port === 'in');
   const machineIn = (id: string) => (incoming.get(id) ?? []).filter((link) => link.to.port === 'machine');
+  const automation = (node: GraphNode) => ['part.laser','part.sensor','part.button','part.plc'].includes(node.type);
   if (graph.nodes.some((node) => !node.type.startsWith('part.'))) error('Physical modules cannot be mixed with legacy settings nodes.');
   const feeders = activeGraph.nodes.filter((node) => node.type === 'part.feeder');
   if (!feeders.length) error('Add a feeder to start a production line.');
 
   const reachable = new Set(feeders.map((node) => node.id));
   for (const node of order) {
+    if (automation(node)) continue;
     const ins = inFlow(node.id), outs = outFlow(node.id);
     const predecessors = ins.map((link) => byId.get(link.from.node));
     const nextTypes = outs.map(link => byId.get(link.to.node)?.type);
@@ -74,7 +81,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const machineIds = new Set<string>();
   for (const node of activeGraph.nodes) {
     if (node.type === 'part.robot' || node.type === 'part.human') for (const link of machineIn(node.id)) machineIds.add(link.from.node);
-    if (node.type !== 'part.machine' && !reachable.has(node.id)) error('This part is not connected to a production line.', node.id);
+    if (node.type !== 'part.machine' && !automation(node) && !reachable.has(node.id)) error('This part is not connected to a production line.', node.id);
   }
   for (const node of activeGraph.nodes.filter((entry) => entry.type === 'part.machine')) {
     if (!machineIds.has(node.id)) error('This part is not connected to a production line.', node.id);
@@ -82,7 +89,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   }
   if (diagnostics.some((entry) => entry.severity === 'error')) return {plant:null,diagnostics,results:new Map(),ms:performance.now()-start};
 
-  const value = (node: GraphNode, key: string, fallback: string | number) => node.params[key] ?? fallback;
+  const value = (node: GraphNode, key: string, fallback: string | number | boolean) => node.params[key] ?? fallback;
   const number = (node: GraphNode, key: string, fallback: number, min: number, max: number) => {
     const n = Number(value(node, key, fallback));
     return Math.max(min, Math.min(max, Number.isFinite(n) ? n : fallback));
@@ -106,7 +113,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const mergeConnectors = new Map<string, SceneItem>();
   const ends = new Map<string, FlowEnd>();
   for (const part of order) {
-    if (part.type === 'part.machine') continue;
+    if (part.type === 'part.machine' || automation(part)) continue;
     const ins = inFlow(part.id);
     const parents = ins.map((link) => ({ node: byId.get(link.from.node)!, end: ends.get(link.from.node)! }));
     let item: SceneItem;
@@ -208,13 +215,70 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     const mode = machine ? (machine.kind==='assembly' ? 'assemble' : machine.kind==='paint' ? 'paint' : 'tend') : target.kind==='crates' ? 'palletize' : 'transfer';
     robot.program = {mode,sourceId:source.id,targetId:target.id,machineId:machine?.id,repeat:true,delay:0,clearance:0.3,...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack} : {})};
     robot.script = programToCode(robot.program);
-    const detection = String(value(part,'detection','laser'));
-    if (detection !== 'none') {
-      const length=samplePath(source.points ?? [[-2,0],[2,0]],.1,source.pointHeights).length;
-      const fraction=Math.max(0,Math.min(1,(length-(robot.program.pickupBack ?? .3))/length));
-      const kind=detection === 'proximity' ? 'sensor' : 'laser';
-      items.push(makeItem(kind, [0,0,0], 0, {name:`Pickup ${kind === 'laser' ? 'laser' : 'proximity'} ${items.length+1}`, props:{mountedTo:source.id,mountPosition:fraction,connectedTo:robot.id,radius:.5}}));
+  }
+  // Automation nodes are real scene objects, not implicit compiler side effects.
+  // Their signal wires and material flow are independent graphs.
+  for (const part of activeGraph.nodes.filter(automation)) {
+    const kind = part.type.slice(5) as 'laser' | 'sensor' | 'button' | 'plc';
+    const signalIn = (incoming.get(part.id) ?? []).filter(link => signalPortNumber(link.to.port,'in') !== null);
+    const signalOut = (outgoing.get(part.id) ?? []).filter(link => signalPortNumber(link.from.port,'out') !== null);
+    const robotNode = signalOut.map(link => byId.get(link.to.node)).find(node => node?.type === 'part.robot');
+    const robot = robotNode ? instances.get(robotNode.id) : undefined;
+    const mountChoice = String(value(part,'mountedTo','auto'));
+    let beltNode: GraphNode | undefined;
+    if (mountChoice !== 'none' && mountChoice !== 'auto') beltNode = byId.get(mountChoice);
+    if (mountChoice === 'auto') {
+      beltNode = signalIn.map(link => byId.get(link.from.node)).find(node => node?.type === 'part.conveyor');
+      if (!beltNode && robotNode) beltNode = byId.get(inFlow(robotNode.id)[0]?.from.node ?? '');
     }
+    const belt = beltNode?.type === 'part.conveyor' ? instances.get(beltNode.id) : undefined;
+    const neighbour = robot ?? signalOut.map(link => instances.get(link.to.node)).find(Boolean) ?? signalIn.map(link => instances.get(link.from.node)).find(Boolean);
+    const position: [number,number,number] = neighbour ? [neighbour.position[0]-.8,0,neighbour.position[2]-.8] : [0,0,0];
+    const props: SceneItem['props'] = {
+      signal: value(part,'signal',false) === true,
+      address: String(value(part,'address',kind === 'button' ? 'DI-01' : kind === 'laser' ? 'DI-02' : kind === 'sensor' ? 'DI-03' : 'PLC-01')),
+      wireColor: signalWireColor(value(part,'wireColor','#4da9d8')),
+    };
+    if (kind === 'button') props.activeDuration = number(part,'activeDuration',0,0,300);
+    if (kind === 'laser') { props.range = number(part,'range',3,.1,100); props.autoRange = value(part,'autoRange',true) !== false; props.normallyClosed = value(part,'normallyClosed',false) === true; }
+    if (kind === 'sensor') props.radius = number(part,'radius',.8,.2,100);
+    if ((kind === 'laser' || kind === 'sensor') && belt) {
+      const length = samplePath(belt.points ?? [[-2,0],[2,0]],.1,belt.pointHeights).length;
+      const authored = number(part,'mountPosition',-1,-1,1);
+      const pickupBack = robot?.program?.sourceId === belt.id ? (robot.program.pickupBack ?? .3) : length*.15;
+      props.mountedTo = belt.id;
+      props.mountPosition = authored >= 0 ? authored : Math.max(0,Math.min(1,(length-pickupBack)/Math.max(length,.001)));
+    }
+    const title = part.title || (kind === 'laser' ? 'Laser trigger' : kind === 'sensor' ? 'Proximity sensor' : kind === 'button' ? 'Push button' : 'PLC control');
+    const item = makeItem(kind,position,0,{name:`${title} ${items.length+1}`,props});
+    instances.set(part.id,item); items.push(item);
+  }
+
+  // Persist each independent output function/colour and the exact source/target
+  // port numbers so the simulation, 3D wires and saved projects agree.
+  for (const part of activeGraph.nodes) {
+    const item = instances.get(part.id);
+    if (!item) continue;
+    const relevant = new Set<number>([1]);
+    for (const link of incoming.get(part.id) ?? []) {
+      const input = signalPortNumber(link.to.port,'in'); if (input !== null) relevant.add(input);
+    }
+    for (const link of outgoing.get(part.id) ?? []) {
+      const output = signalPortNumber(link.from.port,'out'); if (output !== null) relevant.add(output);
+    }
+    for (const key of Object.keys(part.io ?? {})) { const port=Number(key); if (Number.isSafeInteger(port) && port>0) relevant.add(port); }
+    item.signalChannels = signalRows(graph,part).filter(port => relevant.has(port)).map(port => ({
+      port, mode:channelMode(part,port), ...(part.io?.[String(port)]?.color ? {color:signalWireColor(part.io[String(port)].color)} : {}),
+    }));
+    // The legacy single robot OUT and numbered OUT 1 describe the same mode.
+    if (part.type === 'part.robot') item.props.outputMode = channelMode(part,1);
+  }
+  for (const link of graph.links) {
+    const output = signalPortNumber(link.from.port,'out'), input = signalPortNumber(link.to.port,'in');
+    if (output === null || input === null) continue;
+    const source = instances.get(link.from.node), target = instances.get(link.to.node);
+    if (!source || !target) continue;
+    (source.signalRoutes ??= []).push({output,targetId:target.id,input});
   }
   const resolvedItems = resolveMountedSensors(items);
   const warnings = validateFactory(resolvedItems);
