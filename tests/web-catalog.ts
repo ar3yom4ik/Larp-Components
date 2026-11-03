@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { filterWebAssets, gobkitModels, parseGobkit, parseThreeDAssets, threeDAssetsModels } from '../src/utils/webCatalog';
+import { filterWebAssets, gobkitModels, kenneyModels, parseGobkit, parseKenney } from '../src/utils/webCatalog';
 
 const free = {packs:[{id:'pack', name:'Nature', kind:'props', models:[
   {id:'tree', name:'Oak Tree', url:'https://gobkit.com/freebies/tree.glb', license:'CC0 1.0'},
@@ -19,17 +19,25 @@ assert.deepEqual(filterWebAssets(gobkit, 'forest alice').map(item=>item.name), [
 assert.deepEqual(filterWebAssets(gobkit, 'nature oak').map(item=>item.name), ['Oak Tree']);
 assert.equal(gobkit[1].thumbnail, community.items[0].thumb_url);
 
-const data = {page:2,total:7,totalPages:3,data:[
-  {slug:'table',title:'Work Table',status:'published',license:{slug:'cc0-1.0'},url:'https://3dassets.dev/assets/table',cdnUrl:'https://cdn.3dassets.dev/assets/1/v1/model.glb',thumbnailUrl:'https://cdn.3dassets.dev/assets/1/v1/thumb.webp',category:{title:'Furniture'},tags:[{title:'factory'}],stats:{fileSize:123}},
-  {slug:'evil',cdnUrl:'https://cdn.3dassets.dev.example.com/model.glb'},
-  {slug:'restricted',cdnUrl:'https://cdn.3dassets.dev/a.glb',license:{slug:'cc-by'}},
-  {slug:'unpublished',cdnUrl:'https://cdn.3dassets.dev/b.glb',status:'draft'},
+const data = {packs:[
+  {id:'furniture',name:'Furniture Kit',author:'Kenney',license:'CC0-1.0',url:'https://kenney.nl/assets/furniture-kit',models:[
+    {id:'furniture/table',name:'Work Table',file:'packs/furniture/table.glb',thumb:'packs/furniture/thumbs/table.webp',size:123},
+    {id:'duplicate',name:'Duplicate',file:'packs/furniture/table.glb'},
+    {id:'evil',file:'https://evil.example/model.glb'},
+    {id:'traversal',file:'packs/furniture/../../secret.glb'},
+    {id:'bad-thumb',name:'Safe model',file:'packs/furniture/safe.glb',thumb:'https://evil.example/steal.webp'},
+  ]},
+  {id:'restricted',author:'Kenney',license:'CC-BY',models:[{id:'restricted',file:'packs/furniture/restricted.glb'}]},
+  {id:'other',author:'Other',license:'CC0-1.0',models:[{id:'other',file:'packs/furniture/other.glb'}]},
 ]};
-const parsed = parseThreeDAssets(data);
-assert.equal(parsed.page,2); assert.equal(parsed.total,7); assert.equal(parsed.totalPages,3);
-assert.deepEqual(parsed.assets.map(item=>item.name),['Work Table']);
-assert.equal(parsed.assets[0].bytes,123);
-assert.equal(filterWebAssets(parsed.assets, 'factory').length,1);
+const parsed = parseKenney(data);
+assert.deepEqual(parsed.map(item=>item.name),['Work Table','Safe model']);
+assert.equal(parsed[0].bytes,123);
+assert.equal(parsed[0].downloadUrl,'https://hidencod.github.io/tge-assets/packs/furniture/table.glb');
+assert.equal(parsed[0].thumbnail,'https://hidencod.github.io/tge-assets/packs/furniture/thumbs/table.webp');
+assert.equal(parsed[0].url,'https://kenney.nl/assets/furniture-kit');
+assert.equal(parsed[1].thumbnail,'');
+assert.deepEqual(filterWebAssets(parsed, 'furniture table').map(item=>item.name),['Work Table']);
 
 // Simulate network errors and cancellation; production calls the same module
 // from the browser, with no external relay or credentials.
@@ -40,15 +48,14 @@ try {
     const url = String(input); calls.push(url);
     if (url.includes('/api/free')) return new Response(JSON.stringify(free), {status:200});
     if (url.includes('/api/community')) return new Response('down', {status:503});
-    if (url.includes('/api/v1/assets')) return new Response(JSON.stringify(data), {status:200});
+    if (url.includes('/tge-assets/catalog.json')) return new Response(JSON.stringify(data), {status:200});
     throw new Error('unexpected');
   };
   const partial = await gobkitModels();
   assert.deepEqual(partial.map(item=>item.name), ['Oak Tree'], 'a working source remains usable when the other is down');
-  await threeDAssetsModels('factory table',2);
-  const requested = new URL(calls.find(url=>url.includes('/api/v1/assets'))!);
-  assert.equal(requested.searchParams.get('q'),'factory table'); assert.equal(requested.searchParams.get('page'),'2');
+  assert.deepEqual((await kenneyModels()).map(item=>item.name),['Work Table','Safe model']);
+  assert.ok(calls.includes('https://hidencod.github.io/tge-assets/catalog.json'));
   const controller = new AbortController(); controller.abort();
   await assert.rejects(gobkitModels(controller.signal), error => (error as Error).name === 'AbortError');
 } finally { globalThis.fetch = originalFetch; }
-console.log('web catalog: matching, pagination, source/license filtering, bounded hosts, partial failure and abort OK');
+console.log('web catalog: matching, source/license filtering, bounded hosts, partial failure and abort OK');

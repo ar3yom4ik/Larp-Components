@@ -28,6 +28,7 @@ export const RU: Record<string, string> = {
   "Search CC0 models and import them into the project. Downloads require an internet connection.": "Ищите модели CC0 и импортируйте их в проект. Для загрузки нужен интернет.",
   "Model sources": "Источники моделей",
   "All sources": "Все источники",
+  "Kenney (mirror)": "Kenney (зеркало)",
   "Poly Haven textures": "Текстуры Poly Haven",
   "Search web models...": "Поиск веб-моделей...",
   "Clear search": "Очистить поиск",

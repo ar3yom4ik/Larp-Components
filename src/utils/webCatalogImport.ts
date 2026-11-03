@@ -35,7 +35,7 @@ export async function importWebModel(asset: WebAsset, options: {signal?:AbortSig
   const dataUrl = await readBlobAsDataUrl(file);
   const safeName = asset.name.replace(/[^a-z0-9._ -]/gi, '_').trim().slice(0, 120) || 'model';
   const entry = `${safeName}.glb`;
-  const modelAsset = {...makeAsset([{path:entry, dataUrl}], entry), source:{provider:asset.provider === 'gobkit' ? 'Gobkit' : '3DAssets.dev', title:asset.name, url:asset.url, license:'CC0 1.0'}};
+  const modelAsset = {...makeAsset([{path:entry, dataUrl}], entry), source:{provider:asset.provider === 'gobkit' ? 'Gobkit' : 'Kenney', title:asset.name, url:asset.url, license:'CC0 1.0'}};
   onProgress?.('Preparing model…');
   const {root, warnings, clips} = await loadModelAsset(modelAsset);
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');

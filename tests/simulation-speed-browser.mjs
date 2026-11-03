@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
 // Run against the Vite development server (TEST_URL may select its port).
-const url = process.env.TEST_URL || 'http://127.0.0.1:5173/';
+const url = process.env.TEST_URL || 'http://127.0.0.1:4173/';
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const context = await browser.newContext({ viewport: { width: 1200, height: 760 } });
 const errors = [];

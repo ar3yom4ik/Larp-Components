@@ -5,7 +5,7 @@ import { defaultGfx, QUALITY_PRESETS, sanitizeGfx, VXGI_RESOLUTIONS, type Graphi
 import { describeGi, getGraphicsStatus, resetGraphicsStatus, setGraphicsStatus } from "../src/graphicsStatus";
 import { APP_NAME, APP_VERSION, buildLine, buildStamp } from "../src/buildInfo";
 import { bindingFor, eventMatches, KEY_ACTIONS, resetAllBindings } from "../src/keybinds";
-import { filterPolyAssets, selectPolyFile, POLY_RESOLUTIONS, type PolyAsset } from "../src/utils/polyhaven";
+import { filterPolyAssets, formatPolyResolution, selectPolyFile, POLY_RESOLUTIONS, type PolyAsset } from "../src/utils/polyhaven";
 import { onViewportCommand, sendViewportCommand, type ViewportCommand } from "../src/viewportCommands";
 
 /* ----- presets: every quality level produces a complete, in-range setting set ----- */
@@ -107,6 +107,10 @@ const defaults = KEY_ACTIONS.map((action) => action.key).filter(Boolean);
 assert.equal(new Set(defaults).size, defaults.length, "default shortcuts are unique");
 
 /* ----- Poly Haven catalogue filter (no network) ----- */
+assert.equal(formatPolyResolution([4096,4096]), "4k");
+assert.equal(formatPolyResolution([500,256]), "500px");
+assert.equal(formatPolyResolution("2k"), "2k");
+assert.equal(formatPolyResolution(null), "1k");
 const assets: PolyAsset[] = [
   { id: "wooden_crate_01", name: "Wooden Crate 01", thumbnail: "", categories: ["crate", "wood"], downloads: 900, maxResolution: "4k" },
   { id: "wooden_crate_02", name: "Wooden Crate 02", thumbnail: "", categories: ["crate"], downloads: 1500, maxResolution: "4k" },

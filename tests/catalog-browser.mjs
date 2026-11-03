@@ -24,6 +24,10 @@ try{
  // resizes, and applies both axis and proportional scale to every instance.
  const preview=editor.getByRole('region',{name:'3D model preview'});
  await preview.locator('canvas').waitFor();
+ // Verify rendered model pixels, not just the presence of a WebGL canvas.
+ const previewPng=await preview.locator('canvas').screenshot();
+ const brightPixels=await page.evaluate(base64=>new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{const c=document.createElement('canvas');c.width=img.width;c.height=img.height;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);const p=ctx.getImageData(0,0,c.width,c.height).data;let n=0;for(let i=0;i<p.length;i+=4)if(p[i]>120&&p[i+1]>120&&p[i+2]>120)n++;resolve(n);};img.onerror=reject;img.src=`data:image/png;base64,${base64}`;}),previewPng.toString('base64'));
+ assert.ok(brightPixels>1000,`3D preview displays the actual test mesh (${brightPixels} bright pixels)`);
  const previewBox=await preview.boundingBox(), settingsBox=await editor.locator('.catalog-editor-settings').boundingBox();
  assert.ok(previewBox.x>=settingsBox.x+settingsBox.width-2,'preview appears to the right of the controls');
  const windowBefore=await editor.boundingBox();
@@ -81,6 +85,8 @@ try{
  const pending=new Promise(resolve=>releaseFileList=resolve);
  await page.route('https://api.polyhaven.com/assets?*',route=>route.fulfill({json:{fake_model:{name:'Placeholder test',thumbnail_url:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',categories:['test']}},headers:{'access-control-allow-origin':'*'}}));
  await page.route('https://api.polyhaven.com/files/fake_model',async route=>{await pending;await route.fulfill({json:{},headers:{'access-control-allow-origin':'*'}})});
+ await page.route('https://gobkit.com/api/*',route=>route.fulfill({json:route.request().url().endsWith('/free')?{packs:[]}:{items:[]},headers:{'access-control-allow-origin':'*'}}));
+ await page.route('https://hidencod.github.io/tge-assets/catalog.json',route=>route.fulfill({json:{packs:[]},headers:{'access-control-allow-origin':'*'}}));
  await page.getByRole('button',{name:'Web',exact:true}).click();
  await page.getByRole('button',{name:/Placeholder test/}).click();
  await page.waitForFunction(()=>!!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder'),{timeout:30000});

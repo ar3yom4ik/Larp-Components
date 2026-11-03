@@ -35,7 +35,7 @@ interface AssetsResponse {
     tags?: string[];
     category?: string;
     download_count?: number;
-    max_resolution?: string;
+    max_resolution?: string | number[];
   };
 }
 
@@ -62,6 +62,16 @@ export async function getPolyJson<T>(url: string, signal?: AbortSignal): Promise
   return (await response.json()) as T;
 }
 
+/** The API returns dimensions such as [4096, 4096], not a display string. */
+export function formatPolyResolution(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value;
+  if (Array.isArray(value)) {
+    const pixels = Math.max(0, ...value.filter((n): n is number => typeof n === 'number' && Number.isFinite(n)));
+    if (pixels > 0) return pixels >= 1024 && pixels % 1024 === 0 ? `${pixels / 1024}k` : `${pixels}px`;
+  }
+  return '1k';
+}
+
 let catalogue: Promise<PolyAsset[]> | null = null;
 
 /** The full model catalogue (about 500 entries) is fetched once per session. */
@@ -75,7 +85,7 @@ export function polyHavenModels(_signal?: AbortSignal): Promise<PolyAsset[]> {
         categories: asset.categories?.length ? asset.categories : asset.category ? [asset.category] : [],
         tags: asset.tags ?? [],
         downloads: asset.download_count ?? 0,
-        maxResolution: asset.max_resolution || '1k',
+        maxResolution: formatPolyResolution(asset.max_resolution),
       })),
     );
     // A failed catalogue should be retried on the next try, not cached forever.
