@@ -15,8 +15,8 @@ export const CATEGORIES: ("All" | Category)[] = [
 ];
 
 export const COMPONENTS: ComponentDef[] = [
-  { kind: "platform", name: "Elevated Platform", category: "Building", description: "Raised factory floor with adjustable dimensions and structural legs.", accent: "#8298aa", specs: [{label: "Deck", value: "Adjustable"}], defaults: { width: 4, depth: 4, height: 2.4 } },
-  { kind: "stairs", name: "Industrial Stairs", category: "Building", description: "Adjustable stepped access between a lower level and an elevated platform.", accent: "#d6ac4a", specs: [{label: "Access", value: "Multi-level"}], defaults: { width: 1.2, length: 4, height: 2.4 } },
+  { kind: "platform", name: "Elevated Platform", category: "Building", description: "Raised factory floor with adjustable dimensions and structural legs.", accent: "#8298aa", specs: [{label: "Deck", value: "Adjustable"}], defaults: { width: 4, depth: 4, height: 2, surfaceMaterial: "steel" } },
+  { kind: "stairs", name: "Industrial Stairs", category: "Building", description: "Adjustable stepped access between a lower level and an elevated platform.", accent: "#d6ac4a", specs: [{label: "Access", value: "Multi-level"}], defaults: { width: 1.2, length: 4, height: 2, surfaceMaterial: "steel" } },
   { kind: "imported-model", name: "Imported 3D model", category: "Building", description: "A local imported visual model with editable materials.", accent: "#75b9c8", specs: [{label:"Source",value:"Local file"}], defaults: {} },
   {
     kind: "robot",
@@ -212,7 +212,7 @@ export const COMPONENTS: ComponentDef[] = [
       { label: "Length", value: "6.0 m" },
       { label: "Height", value: "4.0 m" },
     ],
-    defaults: { length: 6, height: 4 },
+    defaults: { length: 6, height: 4, surfaceMaterial: "mid" },
   },
   {
     kind: "operator",
@@ -267,6 +267,13 @@ export const COMPONENTS: ComponentDef[] = [
     badge: "Sensor", accent: "#F05C5C",
     specs: [{ label: "Beam", value: "3.0 m" }, { label: "Type", value: "PNP" }],
     defaults: { range: 3.0, signal: false, connectedTo: "", address: "DI-02", normallyClosed: false },
+  },
+  {
+    kind: "color-sensor", name: "Color Sensor", category: "Automation",
+    description: "Laser-based material color detector with an independent output for each selected color.",
+    badge: "Sensor", accent: "#C084FC",
+    specs: [{ label: "Beam", value: "3.0 m" }, { label: "Outputs", value: "Per material" }],
+    defaults: { range: 3.0, signal: false, connectedTo: "", address: "DI-04", autoRange: true },
   },
   {
     kind: "sensor", name: "Proximity Sensor", category: "Automation",
@@ -381,7 +388,7 @@ export function makeItem(
     visible: true,
     locked: false,
     props: { ...def.defaults },
-    points: kind === "fence" ? [[-1.5, 0], [1.5, 0]] : isConveyor
+    points: kind === "platform" ? [[-Number(overrides.props?.width ?? 4)/2,-Number(overrides.props?.depth ?? 4)/2],[Number(overrides.props?.width ?? 4)/2,-Number(overrides.props?.depth ?? 4)/2],[Number(overrides.props?.width ?? 4)/2,Number(overrides.props?.depth ?? 4)/2],[-Number(overrides.props?.width ?? 4)/2,Number(overrides.props?.depth ?? 4)/2]] : kind === "wall" ? [[-Number(overrides.props?.length ?? 6)/2,0],[Number(overrides.props?.length ?? 6)/2,0]] : kind === "fence" ? [[-1.5, 0], [1.5, 0]] : isConveyor
       ? [
           [-2.5, 0],
           [0, 0],

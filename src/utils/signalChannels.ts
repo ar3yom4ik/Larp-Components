@@ -6,6 +6,8 @@ export interface SignalChannel {
   mode: string;
   /** Absent means inherit the component's wire colour. */
   color?: string;
+  /** Base material color selected for a color-sensor output. */
+  material?: string;
 }
 
 export interface SignalRoute {
@@ -20,15 +22,24 @@ export interface SignalFunction {
   help: string;
 }
 
+/** New detector/button nodes are sources, never signal receivers. */
+export function signalAcceptsInput(kind: string): boolean {
+  return !['part.laser','part.sensor','part.button','part.color-sensor','laser','sensor','button','color-sensor'].includes(kind);
+}
+
 const sensor: SignalFunction[] = [
-  {value:'detected', label:'Enable → detected', help:'The input enables this detector; the output is high while a part is detected. With no input it is always enabled.'},
-  {value:'clear', label:'Enable → clear', help:'The output is high while the enabled detector is clear.'},
+  {value:'detected', label:'Detected', help:'The output is high while a part is detected.'},
+  {value:'clear', label:'Clear', help:'The output is high while the enabled detector is clear.'},
+  // Kept for old saved projects; source-only UIs do not offer this legacy mode.
   {value:'relay', label:'Relay input', help:'Pass this input through to this output without using the detector.'},
 ];
 const button: SignalFunction[] = [
-  {value:'pressed', label:'Enable → pressed', help:'The input enables the button output. With no input the button is always enabled.'},
+  {value:'pressed', label:'Pressed', help:'The output is high while the button is pressed.'},
   {value:'relay', label:'Relay input', help:'Pass this input through to this output.'},
   {value:'invert', label:'Invert input', help:'Output the inverse of this connected input.'},
+];
+const colorSensor: SignalFunction[] = [
+  {value:'match',label:'Material colour detected',help:'High when a part or object in the beam has the selected base material colour.'},
 ];
 const plc: SignalFunction[] = [
   {value:'relay', label:'Relay input', help:'Pass this input through to this output.'},
@@ -61,6 +72,7 @@ const pallet: SignalFunction[] = [
 const machineKinds = new Set(['part.machine','cnc','press','weld','packaging','paint','cutter','inspection','assembly','kiln','lathe','grinder']);
 
 export function signalFunctions(kind: string): readonly SignalFunction[] {
+  if (kind === 'part.color-sensor' || kind === 'color-sensor') return colorSensor;
   if (kind === 'part.laser' || kind === 'part.sensor' || kind === 'laser' || kind === 'sensor') return sensor;
   if (kind === 'part.button' || kind === 'button') return button;
   if (kind === 'part.plc' || kind === 'plc') return plc;

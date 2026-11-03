@@ -85,9 +85,9 @@ export function updateWorkpieceCatalog(items: readonly SceneItem[], catalog: rea
     // Placements of the same asset share one base. Keep any pre-existing
     // definitions (and their IDs) for older project references.
     if (!previous && assets.has(item.imported.asset.id)) continue;
-    if (previous && previous.imported === item.imported && previous.name === item.name && previous.scale === item.scale && previous.color === item.color && previous.props.physicsMass === (item.props.physicsMass ?? 1) && previous.props.magnetic === (item.props.magnetic === true) && previous.props.physicsMode === (item.props.physicsMode ?? "legacy") && previous.props.collisionShape === (item.props.collisionShape ?? "accurate")) continue;
+    if (previous && previous.imported === item.imported && previous.name === item.name && previous.scale === item.scale && previous.color === item.color && previous.props.physicsMass === (item.props.physicsMass ?? 1) && previous.props.magnetic === (item.props.magnetic === true) && previous.props.physicsMode === (item.props.physicsMode ?? "legacy") && previous.props.collisionShape === (item.props.collisionShape ?? "accurate") && previous.props.physicsRestitution === item.props.physicsRestitution && previous.props.physicsFriction === item.props.physicsFriction) continue;
     next.set(item.id, {id:item.id, kind:"imported-model", name:item.name, position:[0,0,0], rotation:0, scale:item.scale,
-      color:item.color, visible:false, props:{physicsMass:item.props.physicsMass ?? 1, magnetic:item.props.magnetic === true, physicsMode:item.props.physicsMode ?? "legacy", collisionShape:item.props.collisionShape ?? "accurate"}, imported:item.imported});
+      color:item.color, visible:false, props:{physicsMass:item.props.physicsMass ?? 1, magnetic:item.props.magnetic === true, physicsMode:item.props.physicsMode ?? "legacy", collisionShape:item.props.collisionShape ?? "accurate", ...(item.props.physicsRestitution !== undefined ? {physicsRestitution:item.props.physicsRestitution} : {}), ...(item.props.physicsFriction !== undefined ? {physicsFriction:item.props.physicsFriction} : {})}, imported:item.imported});
     assets.add(item.imported.asset.id);
     changed = true;
   }

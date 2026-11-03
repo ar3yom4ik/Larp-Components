@@ -2,13 +2,13 @@ import type { SceneItem, Vec3 } from '../types';
 import { isRobotKind } from './kinds';
 import { itemLocalToWorld } from './transform';
 import { conveyorWidth } from './conveyor';
-import { signalFunctions } from './signalChannels';
+import { signalAcceptsInput, signalFunctions } from './signalChannels';
 
 export const DEFAULT_WIRE_COLOR = '#4da9d8';
 
 /** Sensors, buttons and PLCs are evaluated by the logic stepper. */
 export function isLogicSource(item: SceneItem): boolean {
-  return ['button', 'sensor', 'laser', 'plc'].includes(item.kind);
+  return ['button', 'sensor', 'laser', 'color-sensor', 'plc'].includes(item.kind);
 }
 
 /** Robots publish a host-managed moving/holding signal as well. */
@@ -24,9 +24,8 @@ export function canSignalOutput(item: SceneItem): boolean {
 /** PLCs and feeders consume signals; robots and conveyors expose trigger/script endpoints. */
 export function canSignalInput(item: SceneItem, sourceId: string): boolean {
   if (item.visible === false || item.id === sourceId || !signalFunctions(item.kind).length) return false;
-  // Legacy stand-alone detectors/buttons have only a source state; graph-built
-  // ones carry explicit channel configurations and can also be enabled via IN.
-  if (['button','laser','sensor','crates'].includes(item.kind)) return !!item.signalChannels?.length;
+  if (!signalAcceptsInput(item.kind)) return false;
+  if (item.kind === 'crates') return !!item.signalChannels?.length;
   return true;
 }
 
@@ -70,11 +69,38 @@ export function signalAnchor(item: SceneItem, end: 'source' | 'target'): Vec3 {
   let local: Vec3;
   if (item.kind === 'button') local = [0.16, 0.85, 0];
   else if (item.kind === 'sensor') local = [0, item.props.mountedTo ? 0.15 : 1.08, 0.1];
-  else if (item.kind === 'laser') { const range = Number(item.props.range); local = [Math.max(0.5, Number.isFinite(range) && range > 0 ? range : 3) / 2, item.props.mountedTo ? 0.1 : 0.85, 0]; }
+  else if (item.kind === 'laser' || item.kind === 'color-sensor') { const range = Number(item.props.range); local = [Math.max(0.5, Number.isFinite(range) && range > 0 ? range : 3) / 2, item.props.mountedTo ? 0.1 : 0.85, 0]; }
   else if (item.kind === 'plc') local = [0.45, 0.9, 0];
   else if (item.kind === 'feeder') local = [0.43, 2.1, 0];
   else if (item.kind === 'conveyor' || item.kind === 'roller') local = [0, 0.8, conveyorWidth(item) / 2];
   else if (['robot', 'cobot', 'kuka', 'fanuc'].includes(item.kind)) local = [0.4, 0.55, 0];
   else local = [0, end === 'source' ? 0.7 : 0.8, 0];
   return itemLocalToWorld(item, local, item.kind !== 'conveyor' && item.kind !== 'roller');
+}
+
+/** A null output denotes the unnumbered legacy signal. Numbered ports remain
+ * independent even when several of them lead to the same target component. */
+export function signalOutputConnections(item: SceneItem, output: number | null): {targetId:string; input:number}[] {
+  return output === null
+    ? legacySignalTargets(item).map(targetId => ({targetId,input:1}))
+    : (item.signalRoutes ?? []).filter(route => route.output === output).map(({targetId,input}) => ({targetId,input}));
+}
+
+export function signalPortConnectionPatch(item: SceneItem, output: number | null, targetId: string, input: number, connect: boolean): Partial<SceneItem> {
+  let legacy = legacySignalTargets(item);
+  let routes = [...(item.signalRoutes ?? [])];
+  let channels = item.signalChannels;
+  if (output === null && input === 1) {
+    legacy = legacy.filter(id => id !== targetId);
+    if (connect) legacy.push(targetId);
+  } else {
+    const port = output ?? 1;
+    if (output === null && connect && !channels?.some(channel => channel.port === port)) {
+      channels = [...(channels ?? []),{port,mode:signalFunctions(item.kind)[0]?.value ?? 'relay'}];
+    }
+    routes = routes.filter(route => !(route.output === port && route.targetId === targetId && route.input === input));
+    if (connect) routes.push({output:port,targetId,input});
+  }
+  return {props:{...item.props,connectedTo:legacy[0] ?? ''},signalTargets:legacy.length > 1 ? legacy.slice(1) : undefined,
+    signalRoutes:routes.length ? routes : undefined, ...(channels !== item.signalChannels ? {signalChannels:channels} : {})};
 }

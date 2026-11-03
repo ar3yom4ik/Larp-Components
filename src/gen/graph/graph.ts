@@ -9,7 +9,7 @@
  */
 import { getNodeDef } from './registry';
 import { NODE_WIDTH } from './metrics';
-import { nodePort, signalPortNumber } from './signal';
+import { migrateSensorMounts, nodePort, signalPortNumber } from './signal';
 import { signalFunction } from '../../utils/signalChannels';
 import type { Diagnostic, GraphGroup, GraphLink, GraphNode, NodeGraph, PortType } from './types';
 
@@ -278,7 +278,11 @@ export function parseGraph(input: unknown): NodeGraph {
       if (!Number.isSafeInteger(port) || port <= 0 || String(port) !== key || !value || typeof value !== 'object') continue;
       const mode = typeof value.mode === 'string' && signalFunction(node.type, value.mode)?.value === value.mode ? value.mode : undefined;
       const color = typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color) ? value.color : undefined;
-      if (mode || color) io[key] = { ...(mode ? {mode} : {}), ...(color ? {color} : {}) };
+      const material = typeof value.material === 'string' && /^#[0-9a-f]{6}$/i.test(value.material) ? value.material.toLowerCase() : undefined;
+      const programSource = node.type === 'part.robot' && typeof value.programSource === 'string' && value.programSource.length <= 1024 ? value.programSource : undefined;
+      const programTarget = node.type === 'part.robot' && typeof value.programTarget === 'string' && value.programTarget.length <= 1024 ? value.programTarget : undefined;
+      const programMode = node.type === 'part.robot' && ['palletize','transfer','tend','paint','assemble'].includes(value.programMode ?? '') ? value.programMode : undefined;
+      if (mode || color || material || programSource || programTarget || programMode) io[key] = { ...(mode ? {mode} : {}), ...(color ? {color} : {}), ...(material ? {material} : {}), ...(programSource ? {programSource} : {}), ...(programTarget ? {programTarget} : {}), ...(programMode ? {programMode} : {}) };
     }
     let id = typeof node.id === 'string' && node.id && !usedIds.has(node.id) ? node.id : '';
     if (!id) { do { id = uid(); } while (usedIds.has(id) || reservedIds.has(id)); }
@@ -328,10 +332,13 @@ export function parseGraph(input: unknown): NodeGraph {
       nodeIds,
     });
   }
-  const graph: NodeGraph = { version: 1, signalSchema: source.signalSchema === 1 ? 1 : undefined, nodes, links, groups: groups.length ? groups : undefined, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined };
+  const graph: NodeGraph = migrateSensorMounts({ version: 1, signalSchema: source.signalSchema === 1 || source.signalSchema === 2 ? source.signalSchema : undefined, nodes, links, groups: groups.length ? groups : undefined, note: typeof source.note === 'string' ? source.note.slice(0, 4000) : undefined });
+  // Keep the absence of the old schema marker so first-open automatic pickup
+  // upgrade still runs for pre-alpha.5 graphs.
+  if (source.signalSchema === undefined) graph.signalSchema = undefined;
   // Drop wires that no longer type-check after a registry change.
   const byId = new Map(nodes.map((node) => [node.id, node]));
-  return { ...graph, links: links.filter((entry) => {
+  return { ...graph, links: graph.links.filter((entry) => {
     const from = byId.get(entry.from.node), to = byId.get(entry.to.node);
     const outType = nodePort(from, entry.from.port, 'out')?.type;
     const inType = nodePort(to, entry.to.port, 'in')?.type;

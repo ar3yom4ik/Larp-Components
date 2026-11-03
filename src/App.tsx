@@ -92,19 +92,6 @@ function bootLog() {
   sim.log("AIFactory: ready. Describe the factory, then press 'Build factory'.", "info");
 }
 
-function freeSpot(items: SceneItem[]): Vec3 {
-  for (let ring = 0; ring < 8; ring += 1) {
-    const steps = ring === 0 ? 1 : ring * 8;
-    for (let k = 0; k < steps; k += 1) {
-      const a = (k / steps) * Math.PI * 2;
-      const x = Math.round(Math.cos(a) * ring * 3.2 * 2) / 2;
-      const z = Math.round(Math.sin(a) * ring * 3.2 * 2) / 2;
-      if (items.every((item) => Math.hypot(item.position[0] - x, item.position[2] - z) > 3)) return [x, 0, z];
-    }
-  }
-  return [0, 0, 0];
-}
-
 export default function App() {
   const language = useLanguage();
   const { mobile, mode: interfaceMode, setMode: setInterfaceMode } = useDevice();
@@ -119,9 +106,12 @@ export default function App() {
   const [modelOpen, setModelOpen] = useState(false);
   const [catalogEditId, setCatalogEditId] = useState<string | null>(null);
   const [loadingPosition, setLoadingPosition] = useState<Vec3 | null>(null);
+  const viewCenter = useRef<() => Vec3>(() => [0, 0, 0]);
+  const registerViewCenter = useCallback((getCenter: () => Vec3) => { viewCenter.current = getCenter; }, []);
+  const moveLoading = useCallback((position: Vec3) => { importPosition.current = position; setLoadingPosition(position); }, []);
   const importPosition = useRef<Vec3 | null>(null);
   const setImportLoading = useCallback((loading:boolean) => {
-    if (loading) { importPosition.current ??= freeSpot(itemsRef.current); setLoadingPosition(importPosition.current); }
+    if (loading) { importPosition.current ??= viewCenter.current(); setLoadingPosition(importPosition.current); }
     else { setLoadingPosition(null); importPosition.current = null; }
   }, []);
   const [modelFiles, setModelFiles] = useState<File[] | null>(null);
@@ -363,7 +353,7 @@ export default function App() {
   const updateItem = useCallback(
     (id: string, changes: Partial<SceneItem>, record = true) => {
       const moving = itemsRef.current.find((item) => item.id === id);
-      if (changes.position && moving && (moving.kind === "laser" || moving.kind === "sensor") && moving.props.mountedTo) {
+      if (changes.position && moving && (moving.kind === "laser" || moving.kind === "color-sensor" || moving.kind === "sensor" || moving.kind === "button") && moving.props.mountedTo) {
         const belt = itemsRef.current.find((item) => item.id === moving.props.mountedTo);
         if (belt) changes = {...changes, props:{...moving.props, ...changes.props, mountPosition:nearestSensorFraction(sim.getLiveItem(belt.id) ?? belt,changes.position)}};
       }
@@ -385,7 +375,7 @@ export default function App() {
 
   const addComponent = useCallback(
     (kind: ComponentKind, position?: Vec3) => {
-      const item = makeItem(kind, position ?? freeSpot(itemsRef.current));
+      const item = makeItem(kind, position ?? viewCenter.current());
       const next = [...itemsRef.current, item];
       if (!fitsProject(next)) return;
       remember(itemsRef.current);
@@ -400,7 +390,7 @@ export default function App() {
   const addCatalogModel = useCallback((id:string, position?:Vec3) => {
     const base = workpiecesRef.current.find(item => item.id === id);
     if (!base?.imported) return;
-    const instance = makeItem("imported-model", position ?? freeSpot(itemsRef.current), 0, {name:base.name, scale:base.scale, color:base.color, props:{...base.props,catalogBaseId:base.id}, imported:base.imported});
+    const instance = makeItem("imported-model", position ?? viewCenter.current(), 0, {name:base.name, scale:base.scale, color:base.color, props:{...base.props,catalogBaseId:base.id}, imported:base.imported});
     const next=[...itemsRef.current,instance]; if(!fitsProject(next)) return;
     remember(itemsRef.current);applyItems(next);syncHistory();setSelectedId(instance.id);
   },[applyItems,fitsProject,remember,syncHistory]);
@@ -413,7 +403,7 @@ export default function App() {
     });
     next = next.map(item => {
       const changes = byId.get(item.id);
-      if (!changes?.position || !['sensor', 'laser'].includes(item.kind) || !item.props.mountedTo || byId.has(String(item.props.mountedTo))) return item;
+      if (!changes?.position || !['sensor', 'laser', 'color-sensor', 'button'].includes(item.kind) || !item.props.mountedTo || byId.has(String(item.props.mountedTo))) return item;
       const belt = next.find(candidate => candidate.id === item.props.mountedTo);
       return belt ? {...item, props:{...item.props, mountPosition:nearestSensorFraction(belt, changes.position)}} : item;
     });
@@ -480,6 +470,7 @@ export default function App() {
         pointHeights: source.pointHeights ? [...source.pointHeights] : undefined,
         script: source.script,
         program: source.program ? { ...source.program } : undefined,
+        programs: source.programs ? Object.fromEntries(Object.entries(source.programs).map(([key,program]) => [key,{...program}])) : undefined,
         imported: source.imported,
         worker: source.worker,
       });
@@ -748,7 +739,7 @@ export default function App() {
       notify("Rigged character assigned to worker"); return true;
     }
     const name = model.asset.source?.title || model.asset.entry.split("/").pop()?.replace(/\.[^.]+$/, "") || "Imported model";
-    const item = makeItem("imported-model", importPosition.current ?? freeSpot(itemsRef.current), 0, {name, imported:model});
+    const item = makeItem("imported-model", importPosition.current ?? viewCenter.current(), 0, {name, imported:model});
     const next = [...itemsRef.current, item];
     if (!fitsProject(next)) return false;
     remember(itemsRef.current); applyItems(next); syncHistory(); setSelectedId(item.id);
@@ -1101,7 +1092,7 @@ export default function App() {
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1">
-            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectViewport} onSelectMany={setSelectedIds} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onUpdateItem={updateItem} onUpdateItems={updateMany} onBeginEdit={beginEdit} onDuplicateItem={duplicateItem} onCopy={copySelected} onCut={cutSelected} onPaste={paste} canPaste={hasClipboard} onDeleteSelected={deleteSelected} onDuplicateSelected={duplicateSelected} onShowFloorMap={() => setFloorMapOpen(true)} />
+            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectViewport} onSelectMany={setSelectedIds} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onMoveLoading={moveLoading} onViewCenterReady={registerViewCenter} onUpdateItem={updateItem} onUpdateItems={updateMany} onBeginEdit={beginEdit} onDuplicateItem={duplicateItem} onCopy={copySelected} onCut={cutSelected} onPaste={paste} canPaste={hasClipboard} onDeleteSelected={deleteSelected} onDuplicateSelected={duplicateSelected} onShowFloorMap={() => setFloorMapOpen(true)} />
             {!mobile && <div className="absolute bottom-3 left-[110px] z-20 flex gap-1.5 xl:hidden"><button type="button" onClick={() => setMobilePanel("inspector")} className="flex items-center gap-1.5 rounded border border-white/15 bg-[#2a2a2c]/95 px-2.5 py-1.5 text-[10px] text-white/80"><SlidersHorizontal size={12} className="text-[var(--teal)]" />{t("Properties")}</button></div>}
           </div>
           {dockNode}

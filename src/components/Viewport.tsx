@@ -26,11 +26,12 @@ import { PartIcon, partAccent } from "./PartIcon";
 import { FactoryEnvironment, FactoryModel, MODEL_HEIGHTS, type BuildingStyle } from "./FactoryModels";
 import { ImportedModel } from "./ImportedModel";
 import { ViewportErrorBoundary } from "./ViewportErrorBoundary";
-import { SignalPortLayer } from "./SignalPortLayer";
-import { canSignalInput, canSignalOutput, signalTargets, signalTargetsPatch, signalWireColor } from "../utils/signalPorts";
+import { SignalPortLayer, type OutputPort } from "./SignalPortLayer";
+import { canSignalInput, canSignalOutput, signalWireColor, signalOutputConnections, signalPortConnectionPatch } from "../utils/signalPorts";
 import { WireLayer } from "./WireLayer";
 import { WindowResizeHandle, type WindowSize } from "./WindowResizeHandle";
 import { BoxesLayer } from "./ProductModels";
+import { platformCorners, validPlatformCorners } from "../utils/upperFloor";
 import { PostEffects, RendererSettings } from "./GraphicsEffects";
 import { StudioEnvironment } from "./StudioEnvironment";
 import { SunLight } from "./SunLight";
@@ -75,6 +76,8 @@ interface ViewportProps {
   onAddCatalogAt: (id:string, position:Vec3) => void;
   onImportFiles: (files: File[], position?:Vec3) => void;
   loadingPosition: Vec3 | null;
+  onMoveLoading: (position: Vec3) => void;
+  onViewCenterReady: (getCenter: () => Vec3) => void;
   onUpdateItem: (id: string, changes: Partial<SceneItem>, record?: boolean) => void;
   onUpdateItems: (edits: {id:string; changes:Partial<SceneItem>}[], record?:boolean) => void;
   onBeginEdit: () => void;
@@ -330,12 +333,40 @@ function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; 
   return null;
 }
 
-function LoadingGhost({position}:{position:Vec3}) {
-  const group=useRef<THREE.Group>(null);
-  useFrame((state,delta)=>{if(group.current)group.current.rotation.y+=delta*1.8;state.invalidate();});
-  return <group ref={group} position={[position[0],position[1]+.7,position[2]]} name="import-loading-placeholder">
-    <mesh><boxGeometry args={[.8,.8,.8]}/><meshBasicMaterial color="#63d7ee" wireframe transparent opacity={.75}/></mesh>
-    <mesh rotation={[Math.PI/2,0,0]}><torusGeometry args={[.65,.025,8,36]}/><meshBasicMaterial color="#a8edff"/></mesh>
+function LoadingGhost({ position, onMove, controlsRef, onDragStart }: {
+  position: Vec3; onMove: (position: Vec3) => void;
+  controlsRef: RefObject<OrbitControlsImpl | null>; onDragStart: () => void;
+}) {
+  const { camera, gl } = useThree();
+  const active = useRef(false);
+  const offset = useRef(new THREE.Vector3());
+  const current = useRef(position); current.current = position;
+  useEffect(() => {
+    const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(), hit = new THREE.Vector3();
+    const project = (event: PointerEvent) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      mouse.set((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2);
+      ray.setFromCamera(mouse, camera);
+      return ray.ray.intersectPlane(GROUND, hit);
+    };
+    const move = (event: PointerEvent) => {
+      if (!active.current || !project(event)) return;
+      onMove([hit.x + offset.current.x, 0, hit.z + offset.current.z]);
+    };
+    const end = () => { if (!active.current) return; active.current = false; if (controlsRef.current) controlsRef.current.enabled = true; gl.domElement.style.cursor = ''; };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+    return () => { end(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); };
+  }, [camera, gl, controlsRef, onMove]);
+  return <group position={position} name="import-loading-placeholder" onPointerDown={(event) => {
+    if (event.button !== 0) return;
+    event.stopPropagation(); onDragStart();
+    const hit = new THREE.Vector3();
+    if (!event.ray.intersectPlane(GROUND, hit)) return;
+    offset.current.set(current.current[0] - hit.x, 0, current.current[2] - hit.z);
+    active.current = true; if (controlsRef.current) controlsRef.current.enabled = false; gl.domElement.style.cursor = 'grabbing';
+  }}>
+    <mesh position={[0,0.6,0]}><boxGeometry args={[1.2,1.2,1.2]}/><meshBasicMaterial color="#68dbe5" wireframe transparent opacity={0.8}/></mesh>
+    <mesh position={[0,0.6,0]}><boxGeometry args={[1.2,1.2,1.2]}/><meshBasicMaterial color="#3fbfcf" transparent opacity={0.12} depthWrite={false}/></mesh>
   </group>;
 }
 
@@ -384,13 +415,13 @@ function ConveyorHandles({
   selectedPoint: number | null;
   onGrab: (event: ThreeEvent<PointerEvent>, index: number) => void;
 }) {
-  const pts = item.points ?? [];
+  const pts = item.kind === 'platform' ? platformCorners(item) : item.points ?? [];
   return (
     <group>
       {pts.map((p, index) => {
         const active = selectedPoint === index;
         return (
-          <group key={index} userData={{ splineHandleFor: item.id, pointIndex: index }} position={[p[0], item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), p[1]]} onPointerDown={(event) => onGrab(event, index)}>
+          <group key={index} userData={{ splineHandleFor: item.id, pointIndex: index }} position={[p[0], ["fence","wall","platform"].includes(item.kind) ? Number(item.props.height ?? (item.kind === "wall" ? 4 : 2)) + 0.12 : BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), p[1]]} onPointerDown={(event) => onGrab(event, index)}>
             <mesh renderOrder={20}>
               <sphereGeometry args={[active ? 0.2 : 0.15, 16, 12]} />
               <meshBasicMaterial color={active ? TEAL_3D : "#ffffff"} depthTest={false} transparent opacity={0.96} toneMapped={false} />
@@ -414,6 +445,26 @@ function itemAtLivePose(item: SceneItem): SceneItem {
   return { ...current, position: [...current.position] as Vec3 };
 }
 
+/** Widen the visible transform handles without scaling their world-space
+ * endpoints. Three's controls bake each arrow into a separate mesh geometry. */
+function useWideGizmo(control: React.RefObject<TransformControlsImpl | null>) {
+  useEffect(() => {
+    const gizmo = (control.current as unknown as {gizmo?:{gizmo?:{translate?:THREE.Object3D;rotate?:THREE.Object3D}}} | null)?.gizmo?.gizmo;
+    if (!gizmo) return;
+    for (const child of gizmo.translate?.children ?? []) {
+      if (!(child instanceof THREE.Mesh) || !['X','Y','Z'].includes(child.name) || child.userData.larpWide) continue;
+      child.userData.larpWide = true;
+      child.geometry.scale(child.name === 'X' ? 1 : 2.2,child.name === 'Y' ? 1 : 2.2,child.name === 'Z' ? 1 : 2.2);
+    }
+    for (const child of gizmo.rotate?.children ?? []) {
+      if (!(child instanceof THREE.Mesh) || !['X','Y','Z','E'].includes(child.name) || child.userData.larpWide) continue;
+      child.userData.larpWide = true;
+      child.geometry.computeBoundingBox();const center=child.geometry.boundingBox?.getCenter(new THREE.Vector3());
+      if(center)child.geometry.translate(-center.x,-center.y,-center.z).scale(1.7,1.7,1.7).translate(center.x,center.y,center.z);
+    }
+  },[control]);
+}
+
 /** Three-axis transform controls use a world-space anchor separate from the
  * model, so the original drag-to-move/rotate and spline spheres keep working. */
 function ObjectGizmo({ item, group, tool, snap, onBeginEdit, onUpdateItem, onUpdateItems, onActive }: {
@@ -424,7 +475,45 @@ function ObjectGizmo({ item, group, tool, snap, onBeginEdit, onUpdateItem, onUpd
   const active = useRef(false);
   const wasPhysical = useRef(false);
   const control = useRef<TransformControlsImpl>(null);
+  useWideGizmo(control);
+  const {scene,camera,gl} = useThree();
   const snapshot = useRef<{items:SceneItem[]; origin:THREE.Vector3; orientation:THREE.Quaternion} | null>(null);
+  useEffect(() => {
+    const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(), floor=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+    const move=(event:PointerEvent) => {
+      const state=snapshot.current, axis=(control.current as unknown as {axis?:string} | null)?.axis;
+      if(!active.current || !state || tool !== 'move' || axis !== 'XYZ')return;
+      const rect=gl.domElement.getBoundingClientRect();
+      pointer.set((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);
+      raycaster.setFromCamera(pointer,camera);
+      const floorPoint=new THREE.Vector3(), floorHit=raycaster.ray.intersectPlane(floor,floorPoint);
+      const selected=new Set(state.items.map(entry=>entry.id));
+      const hit=raycaster.intersectObjects(scene.children,true).find(entry=>{
+        let node:THREE.Object3D | null=entry.object, sceneItem:string | undefined, buildingSurface=false;
+        while(node) {
+          if((node as unknown as {isTransformControls?:boolean}).isTransformControls || node.userData.signalWire)return false;
+          if(typeof node.userData.sceneItemId==='string')sceneItem=node.userData.sceneItemId;
+          if(node.userData.buildingSurface===true)buildingSurface=true;
+          node=node.parent;
+        }
+        return (buildingSurface || (!!sceneItem && !selected.has(sceneItem))) && (!floorHit || entry.distance < raycaster.ray.origin.distanceTo(floorPoint));
+      });
+      const point=hit?.point.clone() ?? (floorHit ? floorPoint : null); if(!point)return;
+      if(snap) {
+        const normal=hit?.face?.normal.clone().transformDirection(hit.object.matrixWorld) ?? new THREE.Vector3(0,1,0);
+        const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,point);
+        point.set(Math.round(point.x*4)/4,Math.round(point.y*4)/4,Math.round(point.z*4)/4);plane.projectPoint(point,point);
+      }
+      anchor.position.copy(point);
+      const clamp=(v:number)=>Math.max(-200,Math.min(200,Math.round(v*1000)/1000));
+      if(state.items.length>1) {
+        const delta=point.clone().sub(state.origin);
+        onUpdateItems(state.items.map(entry=>({id:entry.id,changes:{position:new THREE.Vector3(...entry.position).add(delta).toArray().map(clamp) as Vec3}})));
+      } else onUpdateItem(item.id,{position:point.toArray().map(clamp) as Vec3},false);
+    };
+    window.addEventListener('pointermove',move);
+    return()=>window.removeEventListener('pointermove',move);
+  },[scene,camera,gl,tool,snap,onUpdateItem,onUpdateItems,item.id,anchor]);
   useEffect(() => {
     if (active.current) return;
     anchor.position.set(...item.position);
@@ -493,13 +582,17 @@ function PointGizmo({ item, index, snap, onBeginEdit, onUpdateItem, onActive }: 
   const active = useRef(false);
   const wasPhysical = useRef(false);
   const control = useRef<TransformControlsImpl>(null);
-  const point = item.points?.[index];
+  useWideGizmo(control);
+  const points = item.kind === 'platform' ? platformCorners(item) : item.points;
+  const point = points?.[index];
+  const pointScale = item.kind === 'platform' || item.kind === 'wall' ? item.scale : 1;
+  const pointY = item.kind === 'platform' || item.kind === 'wall' ? Number(item.props.height ?? 2) + .12 : BELT_Y + .2 + (item.pointHeights?.[index] ?? 0);
   const rotation = (base: Pick<SceneItem, 'rotationX' | 'rotation' | 'rotationZ'> = item) => new THREE.Quaternion().setFromEuler(new THREE.Euler((base.rotationX ?? 0) * Math.PI / 180, base.rotation * Math.PI / 180, (base.rotationZ ?? 0) * Math.PI / 180, 'XYZ'));
   useEffect(() => {
     if (active.current || !point) return;
-    anchor.position.set(point[0], BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), point[1]).applyQuaternion(rotation()).add(new THREE.Vector3(...item.position));
+    anchor.position.set(point[0]*pointScale,pointY*pointScale,point[1]*pointScale).applyQuaternion(rotation()).add(new THREE.Vector3(...item.position));
     anchor.updateMatrixWorld(true);
-  }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ, item.points, item.pointHeights, index]);
+  }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ, item.points, item.pointHeights, item.props.height, item.scale, index]);
   useEffect(() => () => { if (active.current) onActive(false); }, [onActive]);
   useFrame(() => {
     const pose = sim.getPhysicsPose(item.id);
@@ -508,7 +601,7 @@ function PointGizmo({ item, index, snap, onBeginEdit, onUpdateItem, onActive }: 
     else if (!wasPhysical.current) return;
     else wasPhysical.current = false;
     const base = pose ?? item;
-    anchor.position.set(point[0], BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), point[1]).applyQuaternion(rotation(base)).add(new THREE.Vector3(...base.position));
+    anchor.position.set(point[0]*pointScale,pointY*pointScale,point[1]*pointScale).applyQuaternion(rotation(base)).add(new THREE.Vector3(...base.position));
   });
   if (!point) return null;
   const clamp = (value: number) => Math.max(-200, Math.min(200, Math.round(value * 1000) / 1000));
@@ -519,13 +612,20 @@ function PointGizmo({ item, index, snap, onBeginEdit, onUpdateItem, onActive }: 
       onMouseDown={() => { active.current = true; onActive(true); onBeginEdit(); }}
       onMouseUp={() => { active.current = false; onActive(false); }}
       onObjectChange={() => {
-        if (!active.current || !item.points) return;
+        if (!active.current || !points) return;
         const base = sim.getPhysicsPose(item.id) ?? item;
-        const local = anchor.position.clone().sub(new THREE.Vector3(...base.position)).applyQuaternion(rotation(base).invert());
+        const local = anchor.position.clone().sub(new THREE.Vector3(...base.position)).applyQuaternion(rotation(base).invert()).divideScalar(pointScale);
         const snapLocal = (value: number) => clamp(snap ? Math.round(value * 4) / 4 : value);
-        const points = item.points.map((p, i) => i === index ? [snapLocal(local.x), snapLocal(local.z)] as [number, number] : p);
-        const pointHeights = item.points.map((_, i) => i === index ? snapLocal(local.y - BELT_Y - 0.2) : item.pointHeights?.[i] ?? 0);
-        onUpdateItem(item.id, { points, pointHeights }, false);
+        const next = points.map((p, i) => i === index ? [snapLocal(local.x), snapLocal(local.z)] as [number, number] : p);
+        if(item.kind === 'platform' && !validPlatformCorners(next))return;
+        if(item.kind === 'platform' || item.kind === 'wall') {
+          const raw=Math.max(0,Math.min(20,local.y-.12));
+          const height=item.kind === 'platform' ? (Math.abs(local.y-pointY) < .05 ? Number(item.props.height ?? 2) : Math.round(raw)) : snapLocal(raw);
+          onUpdateItem(item.id,{points:next,props:{...item.props,height}},false);
+        } else {
+          const pointHeights=points.map((_,i)=>i===index?snapLocal(local.y-BELT_Y-.2):item.pointHeights?.[i] ?? 0);
+          onUpdateItem(item.id,{points:next,pointHeights},false);
+        }
       }} />
   </>;
 }
@@ -566,6 +666,7 @@ function PhysicalItemGroup({ item, onPointerDown, onClick, onDuplicate, children
 interface SceneContentProps {
   items: SceneItem[];
   productItems?: SceneItem[];
+  onProjectedWorkpiecesChange: (active: boolean) => void;
   selectedId: string | null;
   selectedIds: string[];
   onSelect: ViewportProps["onSelect"];
@@ -585,6 +686,7 @@ interface SceneContentProps {
 function SceneContent({
   items,
   productItems = items,
+  onProjectedWorkpiecesChange,
   selectedId,
   selectedIds,
   onSelect,
@@ -683,10 +785,10 @@ function SceneContent({
       const current = drag.current;
       const item = current?.type === "point" ? itemsRef.current.find((i) => i.id === current.id) : null;
       if (item) {
-        const height = item.kind === "fence" ? Number(item.props.height ?? 2) + 0.12 : BELT_Y + 0.2 + (item.pointHeights?.[current?.type === "point" ? current.index : 0] ?? 0);
+        const height = ["fence","wall","platform"].includes(item.kind) ? Number(item.props.height ?? 2) + .12 : BELT_Y + .2 + (item.pointHeights?.[current?.type === "point" ? current.index : 0] ?? 0);
         const rotation = new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
         const q = new THREE.Quaternion().setFromEuler(rotation);
-        const origin = new THREE.Vector3(0, height, 0).applyQuaternion(q).add(new THREE.Vector3(...item.position));
+        const origin = new THREE.Vector3(0, height * (item.kind === 'platform' || item.kind === 'wall' ? item.scale : 1), 0).applyQuaternion(q).add(new THREE.Vector3(...item.position));
         plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0).applyQuaternion(q), origin);
       } else plane.set(new THREE.Vector3(0, 1, 0), current?.type === 'item' ? -current.startPosition[1] : 0);
       return raycaster.ray.intersectPlane(plane, hit) ? hit : null;
@@ -699,17 +801,19 @@ function SceneContent({
       if (!point) return;
       if (state.type === "point") {
         const item = itemsRef.current.find((candidate) => candidate.id === state.id);
-        if (!item || !item.points) return;
+        if (!item) return;
+        const points = item.kind === 'platform' ? platformCorners(item) : item.points;
+        if (!points) return;
         const rotation = new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
-        const local = point.clone().sub(new THREE.Vector3(...item.position)).applyQuaternion(new THREE.Quaternion().setFromEuler(rotation).invert());
+        const local = point.clone().sub(new THREE.Vector3(...item.position)).applyQuaternion(new THREE.Quaternion().setFromEuler(rotation).invert()).divideScalar(item.kind === 'platform' || item.kind === 'wall' ? item.scale : 1);
         let lx = local.x;
         let lz = local.z;
         if (snap) {
           lx = Math.round(lx * 4) / 4;
           lz = Math.round(lz * 4) / 4;
         }
-        const next = item.points.map((p, i) => (i === state.index ? ([Math.round(lx * 100) / 100, Math.round(lz * 100) / 100] as [number, number]) : p));
-        onUpdateItem(state.id, { points: next }, false);
+        const next = points.map((p, i) => (i === state.index ? ([Math.round(lx * 100) / 100, Math.round(lz * 100) / 100] as [number, number]) : p));
+        if(item.kind !== 'platform' || validPlatformCorners(next))onUpdateItem(state.id, { points: next }, false);
         return;
       }
       if (tool === "move") {
@@ -756,7 +860,7 @@ function SceneContent({
         if (item.visible === false) return null;
         const selected = selectedIdSet.has(item.id);
         const primary = item.id === selectedId;
-        const isConveyor = item.kind === "conveyor" || item.kind === "roller" || item.kind === "fence";
+        const isConveyor = item.kind === "conveyor" || item.kind === "roller" || item.kind === "fence" || item.kind === "platform" || (item.kind === "wall" && !!item.points);
         return (
           <PhysicalItemGroup key={item.id} item={item} onPointerDown={startDrag} onDuplicate={onDuplicateItem} onClick={(event, clicked) => {
             if (event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && !suppressClick.current && tool === "select" && clicked.kind === "button") { event.stopPropagation(); sim.pressButton(clicked.id); }
@@ -772,12 +876,12 @@ function SceneContent({
       {(() => {
         const selected = items.find((item) => item.id === selectedId && item.visible !== false && !item.locked);
         if (!selected || tool === 'select') return null;
-        if (tool === 'move' && selectedPoint !== null && ['conveyor', 'roller'].includes(selected.kind) && selected.points?.[selectedPoint]) {
+        if (tool === 'move' && selectedPoint !== null && ['conveyor', 'roller', 'platform', 'wall'].includes(selected.kind) && (selected.points?.[selectedPoint] || (selected.kind === 'platform' && platformCorners(selected)[selectedPoint]))) {
           return <PointGizmo item={selected} index={selectedPoint} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} />;
         }
         return <ObjectGizmo item={selected} group={items.filter(item => selectedIdSet.has(item.id) && !item.locked)} tool={tool} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onUpdateItems={onUpdateItems} onActive={setGizmoActive} />;
       })()}
-      <BoxesLayer items={productItems} />
+      <BoxesLayer items={productItems} onProjectedWorkpiecesChange={onProjectedWorkpiecesChange} />
       <WireLayer items={items} />
     </>
   );
@@ -943,12 +1047,18 @@ function FloorMap({ items, selectedId, onSelect, onExpand }: { items: SceneItem[
 }
 
 type SelectionScene = {scene: THREE.Scene; camera: THREE.Camera; canvas: HTMLCanvasElement};
-function SelectionSceneBridge({ target }: { target: RefObject<SelectionScene | null> }) {
+function SelectionSceneBridge({ target, onViewCenterReady }: { target: RefObject<SelectionScene | null>; onViewCenterReady: (getCenter: () => Vec3) => void }) {
   const { scene, camera, gl } = useThree();
   useEffect(() => {
     const state = {scene, camera, canvas:gl.domElement}; target.current = state;
+    const ray = new THREE.Raycaster(), hit = new THREE.Vector3(), center = new THREE.Vector2(0, 0);
+    onViewCenterReady(() => {
+      camera.updateMatrixWorld(); ray.setFromCamera(center, camera);
+      if (ray.ray.intersectPlane(GROUND, hit)) return [hit.x, 0, hit.z];
+      return [camera.position.x, 0, camera.position.z];
+    });
     return () => { if (target.current === state) target.current = null; };
-  }, [scene, camera, gl, target]);
+  }, [scene, camera, gl, target, onViewCenterReady]);
   return null;
 }
 
@@ -977,6 +1087,8 @@ export const Viewport = memo(function Viewport({
   onAddCatalogAt,
   onImportFiles,
   loadingPosition,
+  onMoveLoading,
+  onViewCenterReady,
   onUpdateItem,
   onUpdateItems,
   onBeginEdit,
@@ -1053,7 +1165,15 @@ export const Viewport = memo(function Viewport({
   const cornellRoom = useCornellRoom();
   const benchmark = cornellRoom;
   const [giError, setGiError] = useState<string | null>(null);
-  const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed && !giError;
+  // World projection uses the WebGL material shader. Switching the canvas to
+  // WebGL while it is active is preferable to silently showing unprojected
+  // UVs in Max/VXGI; returning to VXGI is automatic when projection is off.
+  const [projectedWorkpieces, setProjectedWorkpieces] = useState(false);
+  const projectedMaterials = !benchmark && (projectedWorkpieces || items.some(item => item.visible !== false && (
+    item.imported?.materials.some(material => material.worldProjection === true) ||
+    (item.worker?.appearance === "custom" && item.worker.model?.materials.some(material => material.worldProjection === true))
+  )));
+  const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed && !giError && !projectedMaterials;
   // VXGI falls back to the approximation whenever WebGPU is missing, the renderer failed
   // to start, or the pipeline itself could not be created on this driver.
   const effectiveGi = gfx.gi === "vxgi" && !gpuMode ? "approx" : gfx.gi;
@@ -1062,8 +1182,8 @@ export const Viewport = memo(function Viewport({
   // Leaving the Max preset retries VXGI next time it is selected.
   useEffect(() => { if (gfx.gi !== "vxgi") setGiError(null); }, [gfx.gi]);
   useEffect(() => {
-    if (effectiveGi !== "vxgi") setGraphicsStatus({ gi: effectiveGi, giDetail: gfx.gi === "vxgi" ? (giError ?? "WebGPU unavailable") : "" });
-  }, [effectiveGi, gfx.gi, giError]);
+    if (effectiveGi !== "vxgi") setGraphicsStatus({ gi: effectiveGi, giDetail: gfx.gi === "vxgi" ? (projectedMaterials ? "World projection uses WebGL; approximate GI active" : giError ?? "WebGPU unavailable") : "" });
+  }, [effectiveGi, gfx.gi, giError, projectedMaterials]);
   useEffect(() => {
     let alive = true;
     void probeWebGPU().then((ok) => { if (alive) setGpuSupported(ok); });
@@ -1081,30 +1201,24 @@ export const Viewport = memo(function Viewport({
   building.width = Math.max(building.width, Math.max(...xs, 8) - Math.min(...xs, -8) + 8);
   building.depth = Math.max(building.depth, Math.max(...zs, 6) - Math.min(...zs, -6) + 8);
   const [signalMode, setSignalMode] = useState(false);
-  const [signalSource, setSignalSource] = useState<string | null>(null);
-  const sourceItem = items.find(item => item.id === signalSource && canSignalOutput(item));
-  const selectSignalTarget = (id: string) => {
-    const target = items.find(item => item.id === id);
-    if (!sourceItem || !target || !canSignalInput(target, sourceItem.id)) return;
-    const targets = signalTargets(sourceItem);
-    onUpdateItem(sourceItem.id, signalTargetsPatch(sourceItem, targets.includes(target.id) ? targets.filter((entry) => entry !== target.id) : [...targets, target.id]));
-    setSignalSource(null);
+  const [signalSource, setSignalSource] = useState<OutputPort | null>(null);
+  const sourceItem = items.find(item => item.id === signalSource?.id && canSignalOutput(item));
+  const connections = sourceItem && signalSource ? signalOutputConnections(sourceItem,signalSource.port) : [];
+  const connectSignal = (source:OutputPort,target:{id:string;port:number}, connect = true) => {
+    const item=items.find(i=>i.id===source.id), destination=items.find(i=>i.id===target.id);
+    if(!item||!destination||!canSignalOutput(item)||!canSignalInput(destination,item.id))return;
+    onUpdateItem(item.id,signalPortConnectionPatch(item,source.port,target.id,target.port,connect)); setSignalSource(null);
   };
-  const connectSignal = (sourceId: string, targetId: string) => {
-    const source = items.find(item => item.id === sourceId), target = items.find(item => item.id === targetId);
-    if (!source || !target || !canSignalOutput(source) || !canSignalInput(target, sourceId)) return;
-    const targets = signalTargets(source);
-    if (!targets.includes(targetId)) onUpdateItem(sourceId, signalTargetsPatch(source, [...targets, targetId]));
-    setSignalSource(null);
+  const selectSignalTarget = (target:{id:string;port:number}) => {
+    if(!signalSource)return;
+    connectSignal(signalSource,target,!connections.some(c=>c.targetId===target.id&&c.input===target.port));
   };
-  const rerouteSignal = (sourceId: string, oldTarget: string, newTarget: string | null) => {
-    const source = items.find(item => item.id === sourceId);
-    if (!source || !canSignalOutput(source)) return;
-    const target = items.find(item => item.id === newTarget);
-    const targets = signalTargets(source).filter(id => id !== oldTarget);
-    if (target && canSignalInput(target, sourceId)) targets.push(target.id);
-    onUpdateItem(sourceId, signalTargetsPatch(source, targets));
-    setSignalSource(null);
+  const rerouteSignal = (source:OutputPort,oldTarget:{id:string;port:number},newTarget:{id:string;port:number}|null) => {
+    const item=items.find(i=>i.id===source.id); if(!item||!canSignalOutput(item))return;
+    let patch=signalPortConnectionPatch(item,source.port,oldTarget.id,oldTarget.port,false);
+    const destination=items.find(i=>i.id===newTarget?.id);
+    if(newTarget&&destination&&canSignalInput(destination,item.id)) patch=signalPortConnectionPatch({...item,...patch},source.port,newTarget.id,newTarget.port,true);
+    onUpdateItem(item.id,patch);setSignalSource(null);
   };
   const [gridVisible, setGridVisible] = useState(true);
   const [hudVisible, setHudVisible] = useState(true);
@@ -1138,7 +1252,7 @@ export const Viewport = memo(function Viewport({
     const n = parseInt(scheme.viewportBg.slice(1), 16);
     return (((n >> 16) & 255) * 0.299 + ((n >> 8) & 255) * 0.587 + (n & 255) * 0.114) / 255 < 0.5;
   })();
-  const dark = skin === "rpro" || schemeDark;
+  const dark = schemeDark;
   const sceneBg = gfx.useSkinBackground ? (skin === "custom" ? scheme.viewportBg : dark ? "#29262a" : skin === "vc" ? "#f1f2f3" : "#e3e6e9") : gfx.background;
   // Below 1 renders fewer pixels than the screen has (faster, softer).
   const renderDpr = gfx.adaptive && low ? Math.min(1, gfx.pixelRatio) : gfx.pixelRatio;
@@ -1257,7 +1371,7 @@ export const Viewport = memo(function Viewport({
             supports the WebGL renderer, which is why the Max preset lost its IBL). */}
         {!benchmark && <StudioEnvironment intensity={gfx.env} resolution={quality === "low" ? 32 : quality === "standard" ? 64 : 128} dark={dark} />}
         <RendererSettings gfx={gfx} />
-        <SelectionSceneBridge target={selectionScene} />
+        <SelectionSceneBridge target={selectionScene} onViewCenterReady={onViewCenterReady} />
         <ambientLight intensity={benchmark ? 0 : gfx.ambient} color={dark ? "#ffd9d9" : "#ffffff"} />
         {gfx.adaptive && <PerformanceMonitor onDecline={() => setLow(true)} onIncline={() => setLow(false)} flipflops={4} />}
         <color attach="background" args={[sceneBg]} />
@@ -1282,15 +1396,18 @@ export const Viewport = memo(function Viewport({
           running={running}
           resolution={gfx.vxgiResolution}
           refreshSeconds={gfx.vxgiRefresh}
+          bloomEnabled={gfx.bloom}
+          bloomStrength={gfx.bloomStrength}
           onUnavailable={onGiUnavailable}
         />}
         {benchmark ? <CornellBenchmark /> : <>
           <DropTarget onAddAt={onAddAt} onAddCatalogAt={onAddCatalogAt} onImportFiles={onImportFiles} />
-        {loadingPosition && <LoadingGhost position={loadingPosition} />}
+        {loadingPosition && <LoadingGhost position={loadingPosition} onMove={onMoveLoading} controlsRef={controlsRef} onDragStart={() => { selectionGesture.current = null; setMarquee(null); }} />}
           <SimDriver items={items} shell={shell} low={low || gfx.shadowSize === 1024} />
           <SceneContent
             items={items}
             productItems={productItems}
+            onProjectedWorkpiecesChange={setProjectedWorkpieces}
             selectedId={selectedId}
             selectedIds={selectedIds}
             onSelect={onSelect}
@@ -1308,7 +1425,7 @@ export const Viewport = memo(function Viewport({
             onDuplicateItem={onDuplicateItem}
           />
           {signalMode && items.filter(item => item.visible !== false && item.kind === "sensor").map(item => <ProximityRing key={`radius-${item.id}`} item={item}/>)}
-          {signalMode && <SignalPortLayer items={items} sourceId={sourceItem?.id ?? null} targets={sourceItem ? signalTargets(sourceItem) : []} onSource={setSignalSource} onTarget={selectSignalTarget} onConnect={connectSignal} onReroute={rerouteSignal} />}
+          {signalMode && <SignalPortLayer items={items} source={sourceItem ? signalSource : null} onSource={setSignalSource} onTarget={selectSignalTarget} onConnect={connectSignal} onReroute={rerouteSignal} />}
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[Math.max(80, Math.ceil(Math.max(building.width, building.depth) * 1.4)), 40, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
         {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows
@@ -1369,15 +1486,15 @@ export const Viewport = memo(function Viewport({
 
       {signalMode && <div className="absolute bottom-16 left-3 z-20 max-w-[280px] rounded border border-white/20 bg-[#20272c]/95 p-2 text-[11px] text-white shadow-lg" role="status">
         <p>{sourceItem ? `${t("Choose an IN port for")}: ${sourceItem.name}` : t("Choose an OUT port on a sensor, button, laser, PLC or robot.")}</p>
-        {sourceItem && <label className="mt-2 flex items-center gap-2 text-white/70">{t("Wire colour")}
-          <input type="color" aria-label={t("Wire colour")} value={signalWireColor(sourceItem.props.wireColor)} onChange={(event) => onUpdateItem(sourceItem.id, {props: {...sourceItem.props, wireColor: event.target.value}})} className="h-7 w-10 cursor-pointer rounded border border-white/20 bg-transparent" />
+        {sourceItem && signalSource && <label className="mt-2 flex items-center gap-2 text-white/70">{t("Wire colour")}
+          <input type="color" aria-label={t("Wire colour")} value={signalWireColor((signalSource.port ? sourceItem.signalChannels?.find(c=>c.port===signalSource.port)?.color : undefined) ?? sourceItem.props.wireColor)} onChange={event => signalSource.port ? onUpdateItem(sourceItem.id,{signalChannels:sourceItem.signalChannels?.map(c=>c.port===signalSource.port?{...c,color:event.target.value}:c)}) : onUpdateItem(sourceItem.id,{props:{...sourceItem.props,wireColor:event.target.value}})} className="h-7 w-10 cursor-pointer rounded border border-white/20 bg-transparent" />
         </label>}
-        {sourceItem && signalTargets(sourceItem).length > 0 && <div className="mt-2 space-y-1">
-          {signalTargets(sourceItem).map((id) => <div key={id} className="flex items-center justify-between gap-2 text-white/70"><span className="truncate">→ {items.find((item) => item.id === id)?.name ?? id}</span><button type="button" aria-label={`${t("Remove connection")}: ${items.find((item) => item.id === id)?.name ?? id}`} onClick={() => onUpdateItem(sourceItem.id, signalTargetsPatch(sourceItem, signalTargets(sourceItem).filter((target) => target !== id)))} className="rounded px-1.5 text-white/60 hover:bg-white/10">×</button></div>)}
+        {sourceItem && signalSource && connections.length > 0 && <div className="mt-2 space-y-1">
+          {connections.map(({targetId,input}) => <div key={`${targetId}-${input}`} className="flex items-center justify-between gap-2 text-white/70"><span className="truncate">→ {items.find(i=>i.id===targetId)?.name ?? targetId}{input!==1 ? ` IN ${input}` : ''}</span><button type="button" aria-label={`${t("Remove connection")}: ${items.find(i=>i.id===targetId)?.name ?? targetId}`} onClick={() => connectSignal(signalSource,{id:targetId,port:input},false)} className="rounded px-1.5 text-white/60 hover:bg-white/10">×</button></div>)}
         </div>}
-        {sourceItem && <div className="mt-2 flex gap-2">
+        {sourceItem && signalSource && <div className="mt-2 flex gap-2">
           <button type="button" onClick={() => setSignalSource(null)} className="rounded border border-white/20 px-2 py-1">{t("Cancel")}</button>
-          {signalTargets(sourceItem).length > 0 && <button type="button" onClick={() => { onUpdateItem(sourceItem.id, signalTargetsPatch(sourceItem, [])); setSignalSource(null); }} className="rounded border border-white/20 px-2 py-1">{t("Disconnect signal")}</button>}
+          {connections.length > 0 && <button type="button" onClick={() => {let item=sourceItem;for(const connection of connections)item={...item,...signalPortConnectionPatch(item,signalSource.port,connection.targetId,connection.input,false)};onUpdateItem(item.id,item);setSignalSource(null);}} className="rounded border border-white/20 px-2 py-1">{t("Disconnect signal")}</button>}
         </div>}
         <p className="mt-1 text-white/50">{t("Drag OUT to IN. Drag a connected IN away to disconnect or reroute; for a shared IN, select its source first. You can also click ports. Material flow is separate.")}</p>
       </div>}

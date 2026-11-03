@@ -35,6 +35,18 @@ try {
     await page.keyboard.press('Control+z');await page.waitForFunction(({id,index})=>window.__larpProject.getItems().find(i=>i.id===id).position[index]===0,{id,index});
   }
 
+  // The center handle follows the actual top surface under the cursor,
+  // not merely the horizontal plane at its old elevation.
+  await page.evaluate(async()=>{const {makeItem}=await import('/src/data/library.ts');const deck=makeItem('platform',[3,0,0],0,{props:{width:4,depth:4,height:2}});window.__larpProject.setItems([...window.__larpProject.getItems(),deck])});
+  const drag=await page.evaluate(async id=>{const T=await import('/node_modules/three/build/three.module.js');let c,a;window.__larpRenderer.scene.traverse(o=>{if(o.isTransformControls)c=o;if(o.name===`transform-anchor-${id}`)a=o});const r=window.__larpRenderer.gl.domElement.getBoundingClientRect(),screen=p=>{p.project(window.__larpRenderer.camera);return{x:r.left+(p.x+1)*r.width/2,y:r.top+(1-p.y)*r.height/2}};const pos=new T.Vector3();a.getWorldPosition(pos);const center=screen(pos);let hit;for(let dx=-12;dx<=12&&!hit;dx+=2)for(let dy=-12;dy<=12;dy+=2){const x=center.x+dx,y=center.y+dy;c.pointerHover({x:(x-r.left)/r.width*2-1,y:1-(y-r.top)/r.height*2,button:0});if(c.axis==='XYZ'){hit={x,y};break}}return{hit,target:screen(new T.Vector3(3,2,0)),wide:c.gizmo.gizmo.translate.children.filter(o=>o.isMesh&&['X','Y','Z'].includes(o.name)).every(o=>o.userData.larpWide)}},id);
+  assert.ok(drag.hit&&drag.wide,'wide center and arrows are present');
+  await page.mouse.move(drag.hit.x,drag.hit.y);await page.mouse.down();await page.mouse.move(drag.target.x,drag.target.y,{steps:20});await page.mouse.up();
+  await page.waitForFunction(id=>Math.abs(window.__larpProject.getItems().find(i=>i.id===id).position[1]-2)<.05,id);
+  const onDeck=await page.evaluate(id=>window.__larpProject.getItems().find(i=>i.id===id).position,id);
+  assert.ok(Math.abs(onDeck[0]-3)<.3 && Math.abs(onDeck[2])<.3,'center lands on deck under cursor');
+  await page.keyboard.press('Control+z');await page.waitForFunction(id=>window.__larpProject.getItems().find(i=>i.id===id).position[1]===0,id);
+  await page.evaluate(id=>window.__larpProject.setItems(window.__larpProject.getItems().filter(i=>i.id===id)),id);
+
   await page.getByTitle('Rotate (R)').click();
   await page.waitForFunction(()=>{let c;window.__larpRenderer.scene.traverse(o=>{if(o.isTransformControls)c=o});return c?.mode==='rotate'});
   const middle=await projectAnchor();
@@ -80,5 +92,5 @@ try {
   await page.mouse.click(empty.x,empty.y);
   await page.waitForFunction(()=>{let found=false;window.__larpRenderer.scene.traverse(o=>{if(o.isTransformControls)found=true});return !found;});
   assert.deepEqual(errors,[]);
-  await page.close();console.log('3D gizmos: XYZ move/rotation, snapping, undo, orbit, deselection, save and elevated spline handles PASS');
+  await page.close();console.log('3D gizmos: wide arrows, surface-following center, XYZ move/rotation, snapping, undo, orbit, save and elevated spline handles PASS');
 } finally {await browser.close();}

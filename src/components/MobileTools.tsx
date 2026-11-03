@@ -13,7 +13,7 @@ interface Props {
 
 /** Touch access to actions that otherwise live in the desktop ribbon. */
 export function MobileTools(props: Props) {
-  const isPath = !!props.selected && ['conveyor', 'roller', 'fence'].includes(props.selected.kind);
+  const isPath = !!props.selected && ['conveyor', 'roller', 'fence', 'wall'].includes(props.selected.kind);
   const action = (label: string, Icon: ComponentType<{size?: number}>, fn: () => void, disabled = false, detail?: string) =>
     <button type="button" onClick={fn} disabled={disabled} className="flex min-h-[53px] items-center gap-3 rounded border border-white/10 bg-white/[0.035] px-3 py-2 text-left text-[12px] text-white/80 hover:bg-white/10 disabled:opacity-30">
       <span className="text-[var(--app-accent-bright)]"><Icon size={17} /></span><span className="min-w-0 flex-1">{t(label)}{detail && <span className="mt-0.5 block text-[10px] text-white/40">{detail}</span>}</span>

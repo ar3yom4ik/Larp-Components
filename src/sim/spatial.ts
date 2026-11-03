@@ -15,6 +15,9 @@ let queryGeneration = 0;
 
 export class SpatialHash<T extends object> {
   private buckets = new Map<number, T[]>();
+  // Reuse per-cell arrays when the moving-product index is rebuilt each step.
+  // This avoids a burst of short-lived arrays and GC pauses in crowded scenes.
+  private bucketPool: T[][] = [];
   private minX = Infinity;
   private minZ = Infinity;
   private maxX = -Infinity;
@@ -23,6 +26,10 @@ export class SpatialHash<T extends object> {
   constructor(private cellSize = 2) {}
 
   clear() {
+    for (const bucket of this.buckets.values()) {
+      bucket.length = 0;
+      if (this.bucketPool.length < 4096) this.bucketPool.push(bucket);
+    }
     this.buckets.clear();
     this.minX = this.minZ = Infinity;
     this.maxX = this.maxZ = -Infinity;
@@ -40,7 +47,7 @@ export class SpatialHash<T extends object> {
         // Bucket ids stay small and unique for the coordinate ranges a factory can occupy.
         const key = (cx + 4096) * 8192 + (cz + 4096);
         let list = this.buckets.get(key);
-        if (!list) { list = []; this.buckets.set(key, list); }
+        if (!list) { list = this.bucketPool.pop() ?? []; this.buckets.set(key, list); }
         list.push(value);
       }
     }

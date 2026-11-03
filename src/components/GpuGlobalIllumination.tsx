@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { builtinGIContext, mrt, normalView, packNormalToRGB, pass, sample, screenUV, unpackRGBToNormal, velocity } from 'three/tsl';
 import { RenderPipeline, UnsignedByteType, type WebGPURenderer } from 'three/webgpu';
 import { vxgi } from 'three/addons/lighting/vxgi/VXGINode.js';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { isWebGPURenderer } from '../utils/gpu';
 import { setGraphicsStatus } from '../graphicsStatus';
@@ -35,11 +36,12 @@ declare global {
  *   refreshed on a timer while the simulation runs (voxelisation is too expensive per frame);
  * - `resolution` and `refreshSeconds` are exposed to the settings panel.
  */
-export function GlobalIlluminationPipeline({ voxelKey, running, resolution = GI_VOXEL_RESOLUTION, refreshSeconds = GI_REFRESH_SECONDS, onUnavailable }: {
+export function GlobalIlluminationPipeline({ voxelKey, running, resolution = GI_VOXEL_RESOLUTION, refreshSeconds = GI_REFRESH_SECONDS, bloomEnabled = true, bloomStrength = .65, onUnavailable }: {
   voxelKey: unknown;
   running: boolean;
   resolution?: number;
   refreshSeconds?: number;
+  bloomEnabled?: boolean; bloomStrength?: number;
   onUnavailable?: (message: string) => void;
 }) {
   const gl = useThree((state) => state.gl);
@@ -85,7 +87,8 @@ export function GlobalIlluminationPipeline({ voxelKey, running, resolution = GI_
       const traaPass = traa(scenePass, prePassDepth, prePassVelocity, camera);
 
       const pipeline = new RenderPipeline(renderer);
-      pipeline.outputNode = gi.useTemporalFiltering ? traaPass : scenePass;
+      const output = gi.useTemporalFiltering ? traaPass : scenePass;
+      pipeline.outputNode = bloomEnabled ? output.add(bloom(scenePass.getTextureNode('output'), bloomStrength, .4, 1.0)) : output;
       pipeline.needsUpdate = true;
 
       created = { pipeline, gi };
@@ -115,7 +118,7 @@ export function GlobalIlluminationPipeline({ voxelKey, running, resolution = GI_
         console.warn('VXGI cleanup failed', error);
       }
     };
-  }, [gl, scene, camera, invalidate, resolution, onUnavailable]);
+  }, [gl, scene, camera, invalidate, resolution, bloomEnabled, bloomStrength, onUnavailable]);
 
   useEffect(() => {
     if (!active.current) return;

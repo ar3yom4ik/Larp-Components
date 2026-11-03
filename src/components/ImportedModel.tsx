@@ -4,13 +4,14 @@ import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedModelData, ModelUnits } from "../types";
 import { extension, getCachedModel, materialsOf, removeModelMeshes, TEXTURE_SLOTS } from "../utils/modelImport";
+import { applyWorldProjection } from "../utils/worldProjection";
 import { modelAxisRotation } from "../utils/modelAxis";
 import { buildImportedCollision, importedCollision, registerImportedCollision } from "../utils/modelCollision";
 
 type Pbr = THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
 type SourceMaterial = THREE.Material & { color?: THREE.Color; emissive?: THREE.Color; map?: THREE.Texture | null; normalMap?: THREE.Texture | null; roughnessMap?: THREE.Texture | null; metalnessMap?: THREE.Texture | null; aoMap?: THREE.Texture | null; emissiveMap?: THREE.Texture | null; alphaMap?: THREE.Texture | null; bumpMap?: THREE.Texture | null; displacementMap?: THREE.Texture | null; vertexColors?: boolean };
 type MapName = "mapStrength" | "roughnessStrength" | "metalnessStrength" | "emissiveMapStrength" | "alphaStrength";
-type Uniforms = Record<MapName, {value: number}>;
+type Uniforms = Record<MapName, {value: number}> & {worldScale:{value:number}};
 
 function makePbr(src: THREE.Material): Pbr {
   const s = src as SourceMaterial;
@@ -21,7 +22,7 @@ function makePbr(src: THREE.Material): Pbr {
     out.name = src.name;
     for (const slot of TEXTURE_SLOTS) (out as unknown as Record<string, unknown>)[slot] = s[slot] || null;
   }
-  const uniforms: Uniforms = {mapStrength: {value:1}, roughnessStrength: {value:1}, metalnessStrength: {value:1}, emissiveMapStrength: {value:1}, alphaStrength: {value:1}};
+  const uniforms: Uniforms = {mapStrength: {value:1}, roughnessStrength: {value:1}, metalnessStrength: {value:1}, emissiveMapStrength: {value:1}, alphaStrength: {value:1}, worldScale:{value:1}};
   out.userData.larpUniforms = uniforms;
   // Three.js exposes no generic per-map mix for these PBR maps. Keep physical scalar
   // parameters independent, and mix the texture modulation with white at strength 0.
@@ -59,8 +60,12 @@ function makePbr(src: THREE.Material): Pbr {
     shader.fragmentShader = shader.fragmentShader.replace("#include <alphamap_fragment>", `#ifdef USE_ALPHAMAP
       diffuseColor.a *= mix( 1.0, texture2D( alphaMap, vAlphaMapUv ).g, larpAlphaStrength );
     #endif`);
+    if (out.userData.larpWorldProjection === true) {
+      shader.uniforms.larpWorldScale = uniforms.worldScale;
+      applyWorldProjection(shader);
+    }
   };
-  out.customProgramCacheKey = () => "larp-v2-pbr-map-strength-v1";
+  out.customProgramCacheKey = () => `larp-v2-pbr-map-strength-wpo-${out.userData.larpWorldProjection === true ? 1 : 0}`;
   return out;
 }
 
@@ -88,6 +93,7 @@ export function useImportedModelInstance(model: ImportedModelData) {
   const [loaded, setLoaded] = useState<ReturnType<typeof cloneModel> | null>(null);
   const [error, setError] = useState("");
   const overrideMaps = useRef(new Map<string, {data: string; texture: THREE.Texture}>());
+  const projectedMaps = useRef(new Map<string, {source:THREE.Texture; texture:THREE.Texture}>());
   const asset = model.asset;
   useEffect(() => {
     let alive = true;
@@ -101,8 +107,8 @@ export function useImportedModelInstance(model: ImportedModelData) {
       }
       instance = cloneModel(root, clips, model.hiddenMeshes); setLoaded(instance); gl.shadowMap.needsUpdate = true; invalidate();
     }).catch((cause: unknown) => { if (alive) { setError(cause instanceof Error ? cause.message : String(cause)); invalidate(); } });
-    const cache = overrideMaps.current;
-    return () => { alive = false; if (instance) instance.pbrMaterials.forEach((m) => m.dispose()); cache.forEach((v) => v.texture.dispose()); cache.clear(); };
+    const cache = overrideMaps.current, projected = projectedMaps.current;
+    return () => { alive = false; if (instance) instance.pbrMaterials.forEach((m) => m.dispose()); cache.forEach((v) => v.texture.dispose()); cache.clear(); projected.forEach((v) => v.texture.dispose()); projected.clear(); };
   }, [asset, gl, invalidate, JSON.stringify(model.hiddenMeshes ?? [])]);
 
   useEffect(() => {
@@ -119,7 +125,10 @@ export function useImportedModelInstance(model: ImportedModelData) {
       mat.bumpScale = config.bumpStrength; mat.displacementScale = config.displacementStrength;
       const uniforms = mat.userData.larpUniforms as Uniforms;
       for (const key of ["mapStrength", "roughnessStrength", "metalnessStrength", "emissiveMapStrength", "alphaStrength"] as MapName[]) uniforms[key].value = config[key];
-      let changed = false;
+      const projection = config.worldProjection === true;
+      let changed = mat.userData.larpWorldProjection !== projection;
+      mat.userData.larpWorldProjection = projection;
+      uniforms.worldScale.value = Math.max(.01,Math.min(100,config.worldProjectionScale ?? 1));
       for (const slot of TEXTURE_SLOTS) {
         const key = `${index}:${slot}`, override = config.textures[slot];
         let texture = original[slot] || null;
@@ -137,6 +146,15 @@ export function useImportedModelInstance(model: ImportedModelData) {
           }
           texture = cache.get(key)!.texture;
         } else if (cache.has(key)) { cache.get(key)!.texture.dispose(); cache.delete(key); }
+        if (projection && texture) {
+          const projected = projectedMaps.current.get(key);
+          if (!projected || projected.source !== texture) {
+            projected?.texture.dispose();
+            const copy = texture.clone(); copy.wrapS = copy.wrapT = THREE.RepeatWrapping; copy.needsUpdate = true;
+            projectedMaps.current.set(key,{source:texture,texture:copy});
+          }
+          texture = projectedMaps.current.get(key)!.texture;
+        }
         if (mat[slot] !== texture) { mat[slot] = texture; changed = true; }
       }
       const transparent = config.opacity < 1 || !!mat.alphaMap || original.transparent;

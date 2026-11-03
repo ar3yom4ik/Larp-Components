@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { GraphicsSettings, ToneMapping } from '../theme';
@@ -80,10 +81,11 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
   const webgpu = isWebGPURenderer(gl);
   const fxaa = gfx.antialias === 'fxaa' && !webgpu;
   const ao = aoActive && !webgpu;
-  const effects = useRef<{ composer: EffectComposer; ao: GTAOPass | null; fxaa: FXAAPass | null; output: OutputPass } | null>(null);
+  const bloom = gfx.bloom && !webgpu;
+  const effects = useRef<{ composer: EffectComposer; ao: GTAOPass | null; fxaa: FXAAPass | null; bloom: UnrealBloomPass | null; output: OutputPass } | null>(null);
 
   useEffect(() => {
-    if (!fxaa && !ao) return undefined;
+    if (!fxaa && !ao && !bloom) return undefined;
     const composer = new EffectComposer(gl);
     composer.addPass(new RenderPass(scene, camera));
     let aoPass: GTAOPass | null = null;
@@ -95,6 +97,11 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
       aoPass.blendIntensity = gfx.aoIntensity;
       composer.addPass(aoPass);
     }
+    let bloomPass: UnrealBloomPass | null = null;
+    if (bloom) {
+      bloomPass = new UnrealBloomPass(new THREE.Vector2(size.width, size.height), gfx.bloomStrength, .4, 1.0);
+      composer.addPass(bloomPass);
+    }
     let fxaaPass: FXAAPass | null = null;
     if (fxaa) {
       fxaaPass = new FXAAPass();
@@ -104,19 +111,24 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
     composer.addPass(output);
     composer.setPixelRatio(gl.getPixelRatio());
     composer.setSize(size.width, size.height);
-    effects.current = { composer, ao: aoPass, fxaa: fxaaPass, output };
+    effects.current = { composer, ao: aoPass, fxaa: fxaaPass, bloom: bloomPass, output };
     invalidate();
     return () => {
       effects.current = null;
       aoPass?.dispose();
       fxaaPass?.dispose();
+      bloomPass?.dispose();
       output.dispose();
       composer.dispose();
       invalidate();
     };
     // `gfx.aoRadius` / `gfx.aoIntensity` are applied by the effect below without a rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gl, scene, camera, fxaa, ao]);
+  }, [gl, scene, camera, fxaa, ao, bloom]);
+
+  useEffect(() => {
+    if (effects.current?.bloom) { effects.current.bloom.strength = gfx.bloomStrength; invalidate(); }
+  }, [gfx.bloomStrength, bloom, invalidate]);
 
   useEffect(() => {
     const fx = effects.current;

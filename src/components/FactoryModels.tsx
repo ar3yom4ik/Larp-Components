@@ -1,7 +1,8 @@
-import { upperFloorDimensions } from "../utils/upperFloor";
+import { upperFloorDimensions, platformCorners } from "../utils/upperFloor";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { ComponentKind, GripperKind, SceneItem } from "../types";
 import { sim, ROBOT_SPECS } from "../sim/engine";
 import { conveyorWidth } from "../utils/conveyor";
@@ -22,6 +23,7 @@ import {
   getMaterial,
   P,
   type Part,
+  type Mat,
 } from "./ModelKit";
 
 export const MODEL_HEIGHTS: Partial<Record<ComponentKind, number>> = {
@@ -43,7 +45,7 @@ export const MODEL_HEIGHTS: Partial<Record<ComponentKind, number>> = {
   cabinet: 2.1,
   wall: 4,
   operator: 1.85, kuka: 2.9, fanuc: 2.7, "mobile-robot": 2.2, collector: 0.8,
-  button: 1.2, laser: 1.5, sensor: 1.3, plc: 1.7, light: 3.2,
+  button: 1.2, laser: 1.5, "color-sensor": 1.5, sensor: 1.3, plc: 1.7, light: 3.2,
   paint: 2.8, cutter: 2.4, inspection: 2.4, assembly: 2.2, kiln: 3.0, lathe: 2.5, grinder: 2.3, "light-panel": 4.5, "light-flood": 5.0,
 };
 
@@ -512,22 +514,44 @@ function CylinderSpin({ ref: r }: { ref: React.RefObject<THREE.Mesh | null> }) {
 
 /** Parametric mezzanine pieces. Their deck/treads use the same dimensions as
  * the simulator's support surfaces and rigid-body collision shapes. */
+const buildingMaterial = (item:SceneItem):Mat => {
+  const value=String(item.props.surfaceMaterial ?? 'steel');
+  return (['steel','mid','wood','rubber','white','card'].includes(value) ? value : 'steel') as Mat;
+};
 function ElevatedPlatform({ item }: { item: SceneItem }) {
-  const {width, depth, height} = upperFloorDimensions(item);
+  const {height}=upperFloorDimensions(item), corners=platformCorners(item);
+  const deck=useMemo(()=>{
+    const shape=new THREE.Shape();corners.forEach(([x,z],i)=>i ? shape.lineTo(x,z) : shape.moveTo(x,z));shape.closePath();
+    const geometry=new THREE.ExtrudeGeometry(shape,{depth:.2,bevelEnabled:false});geometry.rotateX(Math.PI/2);return geometry;
+  },[item.points,item.props.width,item.props.depth]);
+  useEffect(()=>()=>deck.dispose(),[deck]);
   return <group>
-    <mesh position={[0, height - 0.1, 0]} material={getMaterial("mid")} castShadow receiveShadow><boxGeometry args={[width, 0.2, depth]} /></mesh>
-    <mesh position={[0, height + 0.008, 0]} material={getMaterial("steel")} receiveShadow><boxGeometry args={[width - 0.04, 0.016, depth - 0.04]} /></mesh>
-    {[-1, 1].flatMap((x) => [-1, 1].map((z) => <mesh key={`${x}-${z}`} position={[x * (width / 2 - 0.12), (height - 0.2) / 2, z * (depth / 2 - 0.12)]} material={getMaterial("dark")} castShadow><boxGeometry args={[0.18, Math.max(0.05, height - 0.2), 0.18]} /></mesh>))}
+    <mesh position={[0,height,0]} geometry={deck} material={getMaterial(buildingMaterial(item))} castShadow receiveShadow />
+    {height>.2 && corners.map(([x,z],i)=><mesh key={i} position={[x,(height-.2)/2,z]} material={getMaterial('dark')} castShadow><boxGeometry args={[.18,Math.max(.05,height-.2),.18]} /></mesh>)}
   </group>;
 }
-
 function IndustrialStairs({ item }: { item: SceneItem }) {
-  const {width, length, height, steps} = upperFloorDimensions(item);
-  const run = length / steps, rise = height / steps;
+  const {width,length,height,steps}=upperFloorDimensions(item),run=length/steps,rise=height/steps;
   return <group>
-    {Array.from({length: steps}, (_, i) => <mesh key={i} position={[-length / 2 + (i + 0.5) * run, (i + 1) * rise / 2, 0]} material={getMaterial("steel")} castShadow receiveShadow><boxGeometry args={[run + 0.005, (i + 1) * rise, width]} /></mesh>)}
-    {[-1, 1].map((side) => <mesh key={side} position={[0, height / 2 + 0.9, side * (width / 2 + 0.035)]} rotation={[0, 0, Math.atan2(height, length)]} material={getMaterial("yellow")}><boxGeometry args={[Math.hypot(length, height), 0.05, 0.05]} /></mesh>)}
+    {Array.from({length:steps},(_,i)=><mesh key={i} position={[-length/2+(i+.5)*run,(i+1)*rise-.04,0]} material={getMaterial(buildingMaterial(item))} castShadow receiveShadow><boxGeometry args={[run+.005,.08,width]} /></mesh>)}
+    {[-1,1].map(side=><group key={side}>
+      <mesh position={[0,height/2-.09,side*(width/2-.06)]} rotation={[0,0,Math.atan2(height,length)]} material={getMaterial('dark')} castShadow><boxGeometry args={[Math.hypot(length,height),.18,.12]} /></mesh>
+      <mesh position={[0,height/2+.9,side*(width/2+.035)]} rotation={[0,0,Math.atan2(height,length)]} material={getMaterial('yellow')}><boxGeometry args={[Math.hypot(length,height),.05,.05]} /></mesh>
+    </group>)}
   </group>;
+}
+/** Wall follows the same sampled spline in the viewport, collisions and navigation. */
+function SplineWall({item}:{item:SceneItem}) {
+  const path=useMemo(()=>samplePath(item.points ?? [[-3,0],[3,0]],.2),[item.points]);
+  const height=Math.max(.2,Math.min(20,Number(item.props.height ?? 4)));
+  const geometry=useMemo(()=>{
+    const segments:THREE.BufferGeometry[]=[];
+    for(let i=0;i<path.x.length-1;i++) {const dx=path.x[i+1]-path.x[i],dz=path.z[i+1]-path.z[i];
+      const g=new THREE.BoxGeometry(Math.hypot(dx,dz)+.01,height,.2);g.rotateY(Math.atan2(-dz,dx));g.translate((path.x[i]+path.x[i+1])/2,height/2,(path.z[i]+path.z[i+1])/2);segments.push(g);}
+    const result=segments.length ? mergeGeometries(segments) : new THREE.BufferGeometry();segments.forEach(g=>g.dispose());return result;
+  },[path,height]);
+  useEffect(()=>()=>geometry.dispose(),[geometry]);
+  return <mesh geometry={geometry} material={getMaterial(buildingMaterial(item))} castShadow receiveShadow/>;
 }
 
 function FactoryModelBase({ item, productItems = [] }: { item: SceneItem; productItems?: readonly SceneItem[] }) {
@@ -547,6 +571,7 @@ function FactoryModelBase({ item, productItems = [] }: { item: SceneItem; produc
       return <CollectorModel item={item} />;
     case "button":
     case "laser":
+    case "color-sensor":
     case "sensor":
     case "plc":
       return <LogicModel item={item} />;
@@ -595,7 +620,7 @@ function FactoryModelBase({ item, productItems = [] }: { item: SceneItem; produc
     case "cabinet":
       return <Static id="cabinet" accent={accent} make={cabinetParts} />;
     case "wall":
-      return <Static id="wall" accent={accent} make={wallParts} />;
+      return item.points ? <SplineWall item={item} /> : <Static id="wall" accent={accent} make={wallParts} />;
     case "operator":
       return <HumanModel item={item} />;
     default:
@@ -669,7 +694,7 @@ function BuildingShell({ style }: { style: BuildingStyle }) {
     }
     return parts;
   }), [width, depth, height, style.walls, style.roof, style.lights, style.wallColor]);
-  return <group>
+  return <group userData={{buildingSurface:true}}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.003, 0]} receiveShadow raycast={() => null}><planeGeometry args={[width, depth]} /><meshStandardMaterial color={style.floorColor} roughness={0.94} /></mesh>
     <primitive object={objects} />
     {style.lights && [-1, 1].map((s) => <pointLight key={s} position={[s * width * 0.26, height - 1.2, s * depth * 0.26]} intensity={26} distance={Math.max(width, depth) * 0.7} decay={2} color="#fff5e2" />)}

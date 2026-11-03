@@ -38,6 +38,7 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
   const [limits, setLimits] = useState(initialLimits);
   const [attempt, setAttempt] = useState(0);
   const [resolution, setResolution] = useState<PolyResolution>('1k');
+  const [iconSize, setIconSize] = useState(48);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState('');
   const importAbort = useRef<AbortController | null>(null);
@@ -92,16 +93,16 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
   };
   const changeQuery = (value:string) => { setQuery(value); setLimits(initialLimits()); };
   const retry = () => { setErrors({}); setAttempt(value => value + 1); };
-  const cards = (provider: Provider, entries: (PolyAsset | WebAsset)[]) => <div className="grid grid-cols-1 gap-1.5 pb-2 sm:grid-cols-2">
+  const cards = (provider: Provider, entries: (PolyAsset | WebAsset)[]) => <div className="grid gap-1.5 pb-2" style={{gridTemplateColumns:`repeat(auto-fit, minmax(${Math.max(140, iconSize + 100)}px, 1fr))`}}>
     {entries.map(asset => {
       const key = `${provider}:${asset.id}`;
       const card:Card = provider === 'poly' ? {provider:'poly', asset:asset as PolyAsset} : {provider, asset:asset as WebAsset};
       return <button key={key} type="button" disabled={!!busy} onClick={() => void importAsset(card)} title={`${asset.name} · ${asset.categories.join(', ')}`} className="group flex items-center gap-2 rounded border border-white/[0.07] bg-[#262629] p-1.5 text-left transition hover:border-[var(--app-accent)]/40 hover:bg-white/[0.05] disabled:opacity-50">
-        <span className="relative flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-[#1b1b1d]">
+        <span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-medium text-[#e6e6e6]">{asset.name}</span><span className="block truncate font-mono text-[7.5px] uppercase tracking-wide text-white/30">{asset.categories[0] ?? 'model'} · {provider === 'poly' ? (asset as PolyAsset).maxResolution : 'GLB'}</span></span>
+        <span style={{width:iconSize,height:iconSize}} className="relative flex shrink-0 items-center justify-center overflow-hidden rounded bg-[#1b1b1d]">
           <WebThumbnail src={asset.thumbnail} />
           <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100">{busy === key ? <Loader2 size={12} className="animate-spin text-white" /> : <Download size={12} className="text-white" />}</span>
         </span>
-        <span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-medium text-[#e6e6e6]">{asset.name}</span><span className="block truncate font-mono text-[7.5px] uppercase tracking-wide text-white/30">{asset.categories[0] ?? 'model'} · {provider === 'poly' ? (asset as PolyAsset).maxResolution : 'GLB'}</span></span>
       </button>;
     })}
   </div>;
@@ -129,6 +130,7 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
       <p className="mt-1 text-white/35">{t('Direct provider APIs may require an account or API key; no credentials are stored here.')}</p>
     </details>
     <div className="group mb-2 flex items-center gap-2 rounded-md border border-white/[0.08] bg-[#1e1e1e] px-2 py-1.5 focus-within:border-[var(--app-accent)]/40"><Search size={12} className="shrink-0 text-white/25"/><input value={query} onChange={event => changeQuery(event.target.value)} placeholder={t('Search web models...')} className="w-full bg-transparent text-[10.5px] text-white/75 outline-none placeholder:text-white/25"/>{query && <button type="button" aria-label={t('Clear search')} onClick={() => changeQuery('')} className="text-white/30 hover:text-white/70"><X size={11}/></button>}</div>
+    <label className="mb-2 flex items-center gap-2 text-[10px] text-white/55"><span className="shrink-0">{t('Icon size')}</span><input aria-label={t('Web catalog icon size')} type="range" min={24} max={120} step={4} value={iconSize} onChange={event => setIconSize(Number(event.target.value))} className="accent-range min-w-0 flex-1"/><span className="font-mono">{iconSize}px</span></label>
     {errorPanel('import')}
     {busy && <div role="status" className="mb-2 flex items-center gap-2 rounded border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[9.5px] text-white/60"><Loader2 size={11} className="animate-spin"/><span className="min-w-0 flex-1 truncate">{progress || t('Downloading…')}</span><button type="button" onClick={() => importAbort.current?.abort()} className="text-white/40 hover:text-white">{t('Cancel')}</button></div>}
     {active('poly') && section('poly',poly,matchesPoly)}

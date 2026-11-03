@@ -64,6 +64,8 @@ jobs:
         run: npm run test:factory-browser && npm run test:factory-signal-browser && npm run test:signals-browser
       - name: Selection, physics and web catalog regressions
         run: npm run test:selection-browser && npm run test:web-catalog-browser && npm run test:gizmos-browser
+      - name: Alpha.7 sensor, layout, placement and rendering regressions
+        run: npm run test:alpha7-browser
 
   catalog-diagnostic:
     runs-on: ubuntu-latest

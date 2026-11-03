@@ -8,7 +8,7 @@ import { getMaterial } from './ModelKit';
 export function LogicModel({ item }: { item: SceneItem }) {
   const signal = sim.signalState.get(item.id) ?? false;
   const accent = signal ? '#b6ff8a' : item.color || '#8fa9c2';
-  if (item.kind === 'laser') {
+  if (item.kind === 'laser' || item.kind === 'color-sensor') {
     const range = Math.max(.2, Number(item.props.range ?? 3));
     const beamHeight = item.props.mountedTo ? .1 : .85;
     return <group>

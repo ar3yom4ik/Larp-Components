@@ -152,7 +152,7 @@ try {
   graph = await getGraph();
   const proximity = graph.nodes.find(node=>node.type==='part.sensor');
   assert.ok(proximity.params.automaticPickup);
-  assert.ok(graph.links.some(link=>link.from.node===ids.b && link.to.node===proximity.id && link.to.port==='signal-in-1'));
+  assert.ok(graph.links.some(link=>link.from.node===ids.b && link.to.node===proximity.id && link.to.port==='mount'));
   assert.ok(graph.links.some(link=>link.from.node===proximity.id && link.to.node===ids.r && link.from.port==='signal-out-1'));
   await dialog.getByText('Valid graph',{exact:true}).waitFor();
   await dialog.getByRole('button',{name:'Build factory',exact:true}).click();

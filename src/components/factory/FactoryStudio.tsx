@@ -1,3 +1,4 @@
+import { nodeColor } from '../../gen/graph/nodeColors';
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, Factory, Plus, RotateCcw, Upload, Wand2 } from "lucide-react";
 import { GraphCanvas, type GraphSelection } from "./GraphCanvas";
@@ -168,7 +169,7 @@ export function FactoryStudio({
               <div key={group.category} className="mb-2.5">
                 <div className="mb-1 px-1 font-mono text-[8px] uppercase tracking-widest text-white/30">{t(group.category)}</div>
                 {group.defs.filter((def) => def.type.startsWith('part.') && `${def.title} ${def.description} ${def.type}`.toLowerCase().includes(search.trim().toLowerCase())).map((def) => (
-                  <button key={def.type} type="button" onClick={() => addNode(def.type)} title={t(def.description)} className="mb-0.5 block w-full rounded px-1.5 py-1 text-left text-[10.5px] text-white/70 hover:bg-white/10 hover:text-white">
+                  <button key={def.type} type="button" onClick={() => addNode(def.type)} title={t(def.description)} style={{color:nodeColor(def),backgroundColor:`${nodeColor(def)}18`,borderLeft:`3px solid ${nodeColor(def)}`}} className="mb-0.5 block w-full rounded px-1.5 py-1 text-left text-[10.5px] hover:brightness-125">
                     {t(def.title)}
                   </button>
                 ))}

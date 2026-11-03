@@ -41,7 +41,7 @@ function OutputPanel() {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [version]);
   return (
-    <div ref={ref} className="thin-scroll min-h-0 flex-1 select-text overflow-y-auto bg-[#1e1e1e] px-2.5 py-1.5 font-mono text-[11.5px] leading-[1.55]">
+    <div ref={ref} className="dock-output thin-scroll min-h-0 flex-1 select-text overflow-y-auto bg-[#1e1e1e] px-2.5 py-1.5 font-mono text-[11.5px] leading-[1.55]">
       {sim.logs.map((line) => (
         <div key={line.id} className={cn("whitespace-pre-wrap break-words", LEVEL_STYLE[line.level])}>
           {t(line.text)}
@@ -295,10 +295,10 @@ function StatsPanel({ onSelect }: { onSelect: (id: string | null) => void }) {
 
 function SignalsPanel({ items, onSelect }: { items: SceneItem[]; onSelect: (id: string) => void }) {
   useSimSnapshot(250);
-  const nodes = items.filter((item) => ["button", "laser", "sensor", "plc", "robot", "cobot", "kuka", "fanuc", "conveyor", "roller", "paint", "assembly"].includes(item.kind));
+  const nodes = items.filter((item) => ["button", "laser", "color-sensor", "sensor", "plc", "robot", "cobot", "kuka", "fanuc", "conveyor", "roller", "paint", "assembly"].includes(item.kind));
   return <div className="thin-scroll min-h-0 flex-1 overflow-auto bg-[#1e1e1e] p-2.5 font-mono text-[10.5px]">
     <div className="mb-2 grid grid-cols-[1fr_100px_1fr_70px] gap-2 border-b border-white/10 pb-1 text-[9px] uppercase tracking-wider text-white/35"><span>Source</span><span>Address</span><span>Connected to</span><span>Signal</span></div>
-    {nodes.filter((n) => signalTargets(n).length || ["button", "laser", "sensor", "plc"].includes(n.kind)).map((item) => {
+    {nodes.filter((n) => signalTargets(n).length || ["button", "laser", "color-sensor", "sensor", "plc"].includes(n.kind)).map((item) => {
       const targets = signalTargets(item).map((id) => items.find((i) => i.id === id)?.name ?? id).join(", ");
       const active = sim.signalState.get(item.id) === true;
       return <div key={item.id} className="grid grid-cols-[1fr_100px_1fr_70px] items-center gap-2 border-b border-white/[0.05] py-1.5">
@@ -348,7 +348,7 @@ export function BottomDock(props: DockProps) {
       )}
       {tab === "stats" && <StatsPanel onSelect={props.onSelect} />}
       {tab === "signals" && <SignalsPanel items={props.items} onSelect={props.onSelect} />}
-      <div className="flex h-[26px] shrink-0 items-end border-t border-white/10 bg-[#1c1c1e]">
+      <div className="dock-tabs flex h-[26px] shrink-0 items-end border-t border-white/10 bg-[#1c1c1e]">
         {tabs.map((entry) => (
           <button
             key={entry.id}

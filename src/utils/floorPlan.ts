@@ -2,6 +2,7 @@ import type { ComponentKind, SceneItem } from '../types';
 import { samplePath } from '../sim/spline';
 import { conveyorWidth } from './conveyor';
 import { isRobotKind } from '../utils/kinds';
+import { platformCorners } from './upperFloor';
 
 /**
  * One shared plan-view description of a factory, used by the AI Factory preview,
@@ -42,9 +43,10 @@ export function worldPath(item: SceneItem, step = 0.4): [number, number][] {
   const points = item.points && item.points.length >= 2 ? item.points : ([[-1, 0], [1, 0]] as [number, number][]);
   const rotation = (item.rotation * Math.PI) / 180;
   const path = samplePath(points, step);
+  const scale=item.kind === 'wall' ? item.scale : 1;
   return path.x.map((lx, index) => [
-    item.position[0] + lx * Math.cos(rotation) + path.z[index] * Math.sin(rotation),
-    item.position[2] - lx * Math.sin(rotation) + path.z[index] * Math.cos(rotation),
+    item.position[0] + (lx * Math.cos(rotation) + path.z[index] * Math.sin(rotation))*scale,
+    item.position[2] + (-lx * Math.sin(rotation) + path.z[index] * Math.cos(rotation))*scale,
   ] as [number, number]);
 }
 
@@ -67,13 +69,18 @@ export function buildFloorPlan(items: SceneItem[], options: { padding?: number; 
       paths.push({ id: item.id, points, color: CONVEYOR_COLOR, width: conveyorWidth(item) });
       continue;
     }
-    if (item.kind === 'fence') {
+    if (item.kind === 'fence' || (item.kind === 'wall' && item.points)) {
       const points = worldPath(item, 1.5);
       points.forEach(([x, z]) => add(x, z));
-      paths.push({ id: item.id, points, color: FENCE_COLOR, width: 0.12, dashed: true });
+      paths.push({ id: item.id, points, color: item.kind === 'wall' ? '#9faeb8' : FENCE_COLOR, width: item.kind === 'wall' ? .2*item.scale : .12, dashed: item.kind === 'fence' });
       continue;
     }
 
+    if(item.kind === 'platform') {
+      const rotation=item.rotation*Math.PI/180,c=Math.cos(rotation),s=Math.sin(rotation);
+      const points=platformCorners(item).map(([x,z])=>[item.position[0]+(x*c+z*s)*item.scale,item.position[2]+(-x*s+z*c)*item.scale] as [number,number]);
+      points.push(points[0]);points.forEach(([x,z])=>add(x,z));paths.push({id:item.id,points,color:accent || '#8298aa',width:.14});continue;
+    }
     const [w, h] = FOOTPRINT[item.kind] ?? [1.1, 1.1];
     const scale = Math.max(0.2, Math.min(3, item.scale || 1));
     add(item.position[0] - (w * scale) / 2, item.position[2] - (h * scale) / 2);

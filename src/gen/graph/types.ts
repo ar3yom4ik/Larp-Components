@@ -18,6 +18,7 @@ import type { SceneItem } from '../../types';
 export type PortType =
   | 'signal'   // runtime control signal; may form feedback loops
   | 'flow'     // material handoff between physical modules
+  | 'mount'    // physical placement only, never a runtime signal
   | 'machine'  // machine attachment to a robot
   | 'intent'   // tagged meaning extracted from a prompt
   | 'config'   // partial GenOptions patch
@@ -100,7 +101,7 @@ export interface GraphNode {
   /** Collapsed nodes hide parameters but keep their connection ports. */
   collapsed?: boolean;
   /** Settings for independent, numbered signal I/O pairs. */
-  io?: Record<string, { mode?: string; color?: string }>;
+  io?: Record<string, { mode?: string; color?: string; material?: string; programSource?: string; programTarget?: string; programMode?: string }>;
 }
 
 export interface PortRef { node: string; port: string }
@@ -122,7 +123,7 @@ export interface GraphGroup {
 export interface NodeGraph {
   version: 1;
   /** Existing version-1 graphs without this marker are upgraded to explicit pickup sensors. */
-  signalSchema?: 1;
+  signalSchema?: 1 | 2;
   nodes: GraphNode[];
   links: GraphLink[];
   /** Optional editor-only frames; old version-1 graphs need not contain them. */

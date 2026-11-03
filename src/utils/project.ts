@@ -100,6 +100,7 @@ function cleanMaterial(input: ImportedMaterial, index: number): ImportedMaterial
     name: typeof input.name === "string" ? input.name.slice(0, 120) : `Material ${index + 1}`,
     color: color(input.color, "#cccccc"), roughness: clamp(input.roughness, .75, 0, 1), metalness: clamp(input.metalness, 0, 0, 1),
     opacity: clamp(input.opacity, 1, 0, 1), emissive: color(input.emissive, "#000000"), emissiveIntensity: clamp(input.emissiveIntensity, 1, 0, 5), doubleSided: input.doubleSided === true,
+    worldProjection: input.worldProjection === true, worldProjectionScale: clamp(input.worldProjectionScale, 1, .01, 100),
     mapStrength: clamp(input.mapStrength, 1, 0, 1), normalStrength: clamp(input.normalStrength, 1, 0, 4), roughnessStrength: clamp(input.roughnessStrength, 1, 0, 1), metalnessStrength: clamp(input.metalnessStrength, 1, 0, 1),
     aoStrength: clamp(input.aoStrength, 1, 0, 2), emissiveMapStrength: clamp(input.emissiveMapStrength, 1, 0, 1), alphaStrength: clamp(input.alphaStrength, 1, 0, 1), bumpStrength: clamp(input.bumpStrength, 1, -2, 2), displacementStrength: clamp(input.displacementStrength, 0, -2, 2),
     present: Array.isArray(input.present) ? input.present.filter((s): s is TextureSlot => slots.includes(s)) : [], textures,
@@ -171,11 +172,19 @@ export function parseProject(text: string): ProjectFile {
         if (!points || !Array.isArray(item.pointHeights) || item.pointHeights.length !== points.length || !item.pointHeights.every(finite)) throw new Error("Invalid path heights");
         pointHeights = item.pointHeights.map((height) => Math.max(-200, Math.min(200, height)));
       }
-      let program: RobotProgram | undefined;
-      if (item.program) {
-        const p = item.program;
-        if (!["palletize", "transfer", "tend", "paint", "assemble"].includes(p.mode) || typeof p.sourceId !== "string" || typeof p.targetId !== "string") throw new Error("Invalid program");
-        program = { mode: p.mode, sourceId: p.sourceId, targetId: p.targetId, machineId: typeof p.machineId === "string" ? p.machineId : undefined, repeat: p.repeat !== false, delay: Math.max(0, Math.min(60, Number(p.delay) || 0)), clearance: Math.max(0.05, Math.min(0.6, Number(p.clearance) || 0.3)), pickupBack: finite(p.pickupBack) ? Math.max(0, Math.min(200, p.pickupBack)) : undefined, paintColor: /^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
+      const cleanProgram = (p:RobotProgram):RobotProgram => {
+        if (!p || !["palletize", "transfer", "tend", "paint", "assemble"].includes(p.mode) || typeof p.sourceId !== "string" || typeof p.targetId !== "string") throw new Error("Invalid program");
+        return { mode:p.mode, sourceId:p.sourceId, targetId:p.targetId, machineId:typeof p.machineId === "string" ? p.machineId : undefined, repeat:p.repeat !== false, delay:Math.max(0,Math.min(60,Number(p.delay)||0)), clearance:Math.max(.05,Math.min(.6,Number(p.clearance)||.3)), pickupBack:finite(p.pickupBack) ? Math.max(0,Math.min(200,p.pickupBack)) : undefined, paintColor:/^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
+      };
+      const program = item.program ? cleanProgram(item.program) : undefined;
+      let programs:Record<string,RobotProgram> | undefined;
+      if (item.programs !== undefined) {
+        if (!item.programs || typeof item.programs !== 'object' || Array.isArray(item.programs)) throw new Error('Invalid robot input programs');
+        programs = {};
+        for (const [key,value] of Object.entries(item.programs)) {
+          if (!validSignalPort(Number(key)) || String(Number(key)) !== key) throw new Error('Invalid robot program input');
+          programs[key] = cleanProgram(value);
+        }
       }
       let imported: ImportedModelData | undefined;
       if (item.kind === "imported-model") {
@@ -191,14 +200,15 @@ export function parseProject(text: string): ProjectFile {
         channelPorts.add(channel.port);
         const mode = signalFunction(item.kind,channel.mode)?.value;
         if (!mode || (channel.color !== undefined && !/^#[0-9a-f]{6}$/i.test(channel.color))) throw new Error("Invalid signal channel settings");
-        return {port:channel.port,mode,...(channel.color ? {color:channel.color} : {})};
+        if (channel.material !== undefined && !/^#[0-9a-f]{6}$/i.test(channel.material)) throw new Error("Invalid material color");
+        return {port:channel.port,mode,...(channel.color ? {color:channel.color} : {}),...(channel.material ? {material:channel.material.toLowerCase()} : {})};
       });
       if (item.signalRoutes !== undefined && !Array.isArray(item.signalRoutes)) throw new Error("Invalid signal routes");
       const signalRoutes = item.signalRoutes?.map(route => {
         if (!route || !validSignalPort(route.output) || !validSignalPort(route.input) || typeof route.targetId !== "string" || !route.targetId || route.targetId.length > 1024 || route.targetId === item.id) throw new Error("Invalid signal route");
         return {output:route.output,targetId:route.targetId,input:route.input};
       });
-      return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, signalChannels, signalRoutes, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, imported, worker };
+      return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, signalChannels, signalRoutes, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, programs, imported, worker };
     });
   };
   const items = parseItems(data.items);

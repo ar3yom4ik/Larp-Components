@@ -22,7 +22,7 @@ export function defaultComponentGraph(): NodeGraph {
   const robot2 = makeNode('part.robot', 1600, 80);
   const pallet = makeNode('part.pallet', 1860, 80);
   const wire = (from: GraphNode, out: string, to: GraphNode, input: string): GraphLink => ({id:uid('l'),from:{node:from.id,port:out},to:{node:to.id,port:input}});
-  const graph: NodeGraph = {version:1,signalSchema:1,nodes:[feeder,belt,robot,machine,belt2,robot2,pallet],links:[wire(feeder,'out',belt,'in'),wire(belt,'out',robot,'in'),wire(machine,'machine',robot,'machine'),wire(robot,'out',belt2,'in'),wire(belt2,'out',robot2,'in'),wire(robot2,'out',pallet,'in')]};
+  const graph: NodeGraph = {version:1,signalSchema:2,nodes:[feeder,belt,robot,machine,belt2,robot2,pallet],links:[wire(feeder,'out',belt,'in'),wire(belt,'out',robot,'in'),wire(machine,'machine',robot,'machine'),wire(robot,'out',belt2,'in'),wire(belt2,'out',robot2,'in'),wire(robot2,'out',pallet,'in')]};
   return ensurePickupSensor(ensurePickupSensor(graph,belt.id,robot.id),belt2.id,robot2.id);
 }
 
@@ -35,23 +35,25 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   graph = upgradePickupSensors(graph);
   const start = performance.now();
   const connectedIds = new Set(graph.links.flatMap((link) => [link.from.node, link.to.node]));
-  const activeGraph = { ...graph, nodes: graph.nodes.filter((node) => connectedIds.has(node.id)) };
+  const structure = (node:GraphNode) => ['part.platform','part.stairs','part.wall'].includes(node.type);
+  // Layout parts are standalone scene objects, not material-flow modules.
+  const activeGraph = { ...graph, nodes: graph.nodes.filter((node) => connectedIds.has(node.id) || structure(node)) };
   const diagnostics = validateGraph(activeGraph);
-  for (const node of graph.nodes) if (!connectedIds.has(node.id)) diagnostics.push({id:`inactive:${node.id}`,severity:'info',nodeId:node.id,message:'Disconnected part is inactive.'});
+  for (const node of graph.nodes) if (!connectedIds.has(node.id) && !structure(node)) diagnostics.push({id:`inactive:${node.id}`,severity:'info',nodeId:node.id,message:'Disconnected part is inactive.'});
   const error = (message: string, nodeId?: string) => diagnostics.push({id:`component:${diagnostics.length}`,severity:'error',message,nodeId});
   const { byId, incoming, outgoing } = indexGraph(activeGraph);
   const { order } = topoSort(activeGraph);
   const inFlow = (id: string) => (incoming.get(id) ?? []).filter((link) => link.to.port === 'in' && link.from.port === 'out');
   const outFlow = (id: string) => (outgoing.get(id) ?? []).filter((link) => link.from.port === 'out' && link.to.port === 'in');
   const machineIn = (id: string) => (incoming.get(id) ?? []).filter((link) => link.to.port === 'machine');
-  const automation = (node: GraphNode) => ['part.laser','part.sensor','part.button','part.plc'].includes(node.type);
+  const automation = (node: GraphNode) => ['part.laser','part.color-sensor','part.sensor','part.button','part.plc'].includes(node.type);
   if (graph.nodes.some((node) => !node.type.startsWith('part.'))) error('Physical modules cannot be mixed with legacy settings nodes.');
   const feeders = activeGraph.nodes.filter((node) => node.type === 'part.feeder');
   if (!feeders.length) error('Add a feeder to start a production line.');
 
   const reachable = new Set(feeders.map((node) => node.id));
   for (const node of order) {
-    if (automation(node)) continue;
+    if (automation(node) || structure(node)) continue;
     const ins = inFlow(node.id), outs = outFlow(node.id);
     const predecessors = ins.map((link) => byId.get(link.from.node));
     const nextTypes = outs.map(link => byId.get(link.to.node)?.type);
@@ -81,7 +83,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const machineIds = new Set<string>();
   for (const node of activeGraph.nodes) {
     if (node.type === 'part.robot' || node.type === 'part.human') for (const link of machineIn(node.id)) machineIds.add(link.from.node);
-    if (node.type !== 'part.machine' && !automation(node) && !reachable.has(node.id)) error('This part is not connected to a production line.', node.id);
+    if (node.type !== 'part.machine' && !automation(node) && !structure(node) && !reachable.has(node.id)) error('This part is not connected to a production line.', node.id);
   }
   for (const node of activeGraph.nodes.filter((entry) => entry.type === 'part.machine')) {
     if (!machineIds.has(node.id)) error('This part is not connected to a production line.', node.id);
@@ -113,7 +115,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const mergeConnectors = new Map<string, SceneItem>();
   const ends = new Map<string, FlowEnd>();
   for (const part of order) {
-    if (part.type === 'part.machine' || automation(part)) continue;
+    if (part.type === 'part.machine' || automation(part) || structure(part)) continue;
     const ins = inFlow(part.id);
     const parents = ins.map((link) => ({ node: byId.get(link.from.node)!, end: ends.get(link.from.node)! }));
     let item: SceneItem;
@@ -192,6 +194,17 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     items.push(item);
   }
 
+  for (const part of activeGraph.nodes.filter(structure)) {
+    const kind=part.type.slice(5) as 'platform'|'stairs'|'wall';
+    const material=String(value(part,'surfaceMaterial',kind==='wall'?'mid':'steel'));
+    const props:SceneItem['props']={height:kind==='platform' ? Math.round(number(part,'height',2,0,10)) : number(part,'height',kind==='wall'?4:2,kind==='wall'?.2:0,kind==='wall'?20:10),surfaceMaterial:material};
+    if(kind!=='wall')props.width=number(part,'width',kind==='stairs'?1.2:4,.4,20);
+    if(kind==='platform')props.depth=number(part,'depth',4,.4,20);
+    else props.length=number(part,'length',kind==='wall'?6:4,.4,kind==='wall'?100:20);
+    const item=makeItem(kind,[number(part,'x',0,-200,200),0,number(part,'z',6,-200,200)],number(part,'rotation',0,-360,360),{name:part.title || (kind==='platform'?'Elevated platform':kind==='stairs'?'Industrial stairs':'Spline wall'),props});
+    instances.set(part.id,item);items.push(item);
+  }
+
   for (const part of order) {
     if (part.type !== 'part.robot' && part.type !== 'part.human') continue;
     const robot = instances.get(part.id)!;
@@ -219,7 +232,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   // Automation nodes are real scene objects, not implicit compiler side effects.
   // Their signal wires and material flow are independent graphs.
   for (const part of activeGraph.nodes.filter(automation)) {
-    const kind = part.type.slice(5) as 'laser' | 'sensor' | 'button' | 'plc';
+    const kind = part.type.slice(5) as 'laser' | 'color-sensor' | 'sensor' | 'button' | 'plc';
     const signalIn = (incoming.get(part.id) ?? []).filter(link => signalPortNumber(link.to.port,'in') !== null);
     const signalOut = (outgoing.get(part.id) ?? []).filter(link => signalPortNumber(link.from.port,'out') !== null);
     const robotNode = signalOut.map(link => byId.get(link.to.node)).find(node => node?.type === 'part.robot');
@@ -228,7 +241,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     let beltNode: GraphNode | undefined;
     if (mountChoice !== 'none' && mountChoice !== 'auto') beltNode = byId.get(mountChoice);
     if (mountChoice === 'auto') {
-      beltNode = signalIn.map(link => byId.get(link.from.node)).find(node => node?.type === 'part.conveyor');
+      beltNode = (incoming.get(part.id) ?? []).filter(link => link.to.port === 'mount').map(link => byId.get(link.from.node)).find(node => node?.type === 'part.conveyor');
       if (!beltNode && robotNode) beltNode = byId.get(inFlow(robotNode.id)[0]?.from.node ?? '');
     }
     const belt = beltNode?.type === 'part.conveyor' ? instances.get(beltNode.id) : undefined;
@@ -240,16 +253,16 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       wireColor: signalWireColor(value(part,'wireColor','#4da9d8')),
     };
     if (kind === 'button') props.activeDuration = number(part,'activeDuration',0,0,300);
-    if (kind === 'laser') { props.range = number(part,'range',3,.1,100); props.autoRange = value(part,'autoRange',true) !== false; props.normallyClosed = value(part,'normallyClosed',false) === true; }
+    if (kind === 'laser' || kind === 'color-sensor') { props.range = number(part,'range',3,.1,100); props.autoRange = value(part,'autoRange',true) !== false; props.normallyClosed = value(part,'normallyClosed',false) === true; }
     if (kind === 'sensor') props.radius = number(part,'radius',.8,.2,100);
-    if ((kind === 'laser' || kind === 'sensor') && belt) {
+    if ((kind === 'laser' || kind === 'color-sensor' || kind === 'sensor' || kind === 'button') && belt) {
       const length = samplePath(belt.points ?? [[-2,0],[2,0]],.1,belt.pointHeights).length;
       const authored = number(part,'mountPosition',-1,-1,1);
       const pickupBack = robot?.program?.sourceId === belt.id ? (robot.program.pickupBack ?? .3) : length*.15;
       props.mountedTo = belt.id;
       props.mountPosition = authored >= 0 ? authored : Math.max(0,Math.min(1,(length-pickupBack)/Math.max(length,.001)));
     }
-    const title = part.title || (kind === 'laser' ? 'Laser trigger' : kind === 'sensor' ? 'Proximity sensor' : kind === 'button' ? 'Push button' : 'PLC control');
+    const title = part.title || (kind === 'laser' ? 'Laser trigger' : kind === 'color-sensor' ? 'Color sensor' : kind === 'sensor' ? 'Proximity sensor' : kind === 'button' ? 'Push button' : 'PLC control');
     const item = makeItem(kind,position,0,{name:`${title} ${items.length+1}`,props});
     instances.set(part.id,item); items.push(item);
   }
@@ -268,10 +281,24 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     }
     for (const key of Object.keys(part.io ?? {})) { const port=Number(key); if (Number.isSafeInteger(port) && port>0) relevant.add(port); }
     item.signalChannels = signalRows(graph,part).filter(port => relevant.has(port)).map(port => ({
-      port, mode:channelMode(part,port), ...(part.io?.[String(port)]?.color ? {color:signalWireColor(part.io[String(port)].color)} : {}),
+      port, mode:channelMode(part,port), ...(part.io?.[String(port)]?.color ? {color:signalWireColor(part.io[String(port)].color)} : {}), ...(part.type === 'part.color-sensor' && part.io?.[String(port)]?.material ? {material:part.io[String(port)].material} : {}),
     }));
-    // The legacy single robot OUT and numbered OUT 1 describe the same mode.
-    if (part.type === 'part.robot') item.props.outputMode = channelMode(part,1);
+    // Per-input overrides reference graph nodes; resolve them to scene IDs only
+    // after all physical instances have been created.
+    if (part.type === 'part.robot') {
+      item.props.outputMode = channelMode(part,1);
+      if (item.program) for (const [key,settings] of Object.entries(part.io ?? {})) {
+        if (!settings.programSource && !settings.programTarget && !settings.programMode) continue;
+        const source = settings.programSource ? instances.get(settings.programSource) : undefined;
+        const target = settings.programTarget ? instances.get(settings.programTarget) : undefined;
+        if ((settings.programSource && !source) || (settings.programTarget && !target)) {
+          diagnostics.push({id:`program:${part.id}:${key}`,severity:'warning',nodeId:part.id,message:`Input ${key} workflow refers to a component that is not in this factory.`});
+          continue;
+        }
+        (item.programs ??= {})[key] = {...item.program,sourceId:source?.id ?? item.program.sourceId,targetId:target?.id ?? item.program.targetId,
+          mode:(settings.programMode as typeof item.program.mode | undefined) ?? item.program.mode,repeat:true};
+      }
+    }
   }
   for (const link of graph.links) {
     const output = signalPortNumber(link.from.port,'out'), input = signalPortNumber(link.to.port,'in');

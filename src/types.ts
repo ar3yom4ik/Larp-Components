@@ -35,6 +35,7 @@ export type ComponentKind =
   | "collector"
   | "button"
   | "laser"
+  | "color-sensor"
   | "sensor"
   | "plc"
   | "light"
@@ -95,6 +96,8 @@ export interface TextureOverride { name: string; dataUrl: string }
 export interface ImportedMaterial {
   name: string; color: string; roughness: number; metalness: number; opacity: number;
   emissive: string; emissiveIntensity: number; doubleSided: boolean;
+  /** Optional world-space triplanar projection, default off for old models. */
+  worldProjection?: boolean; worldProjectionScale?: number;
   mapStrength: number; normalStrength: number; roughnessStrength: number; metalnessStrength: number;
   aoStrength: number; emissiveMapStrength: number; alphaStrength: number; bumpStrength: number; displacementStrength: number;
   present: TextureSlot[];
@@ -161,6 +164,8 @@ export interface SceneItem {
   /** Robot program (JavaScript using the Larp robot API). */
   script?: string;
   program?: RobotProgram;
+  /** Optional visual workflow overrides keyed by numbered robot input. */
+  programs?: Record<string, RobotProgram>;
   /** Present only for imported-model components. */
   imported?: ImportedModelData;
   /** Rig, appearance and optional per-role animation assets for human operators. */

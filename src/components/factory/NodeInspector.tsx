@@ -1,7 +1,8 @@
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { getNodeDef } from '../../gen/graph/registry';
 import { channelColor, channelMode, signalRows } from '../../gen/graph/signal';
-import { signalFunction, signalFunctions } from '../../utils/signalChannels';
+import { signalAcceptsInput, signalFunction, signalFunctions } from '../../utils/signalChannels';
+import { MaterialChoice } from '../MaterialChoice';
 import { ProductPicker } from '../ProductPicker';
 import type { SceneItem } from '../../types';
 import type { GraphNode, NodeGraph, ParamDef } from '../../gen/graph/types';
@@ -26,7 +27,7 @@ export function NodeInspector({
 }: {
   node: GraphNode | null;
   graph: NodeGraph;
-  onChannelChange: (port: number, patch: {mode?: string; color?: string}) => void;
+  onChannelChange: (port: number, patch: {mode?: string; color?: string; material?: string; programSource?:string; programTarget?:string; programMode?:string}) => void;
   items?: readonly SceneItem[];
   onChange: (key: string, value: unknown) => void;
   onReset: (key: string) => void;
@@ -131,6 +132,7 @@ export function NodeInspector({
 
               {param.kind === 'select' && (
                 <select
+                  aria-label={t(param.label)}
                   value={String(value(param))}
                   onChange={(event) => onChange(param.key, event.target.value)}
                   className="w-full rounded border border-white/12 bg-[#1e1e20] px-2 py-1.5 text-[11px] text-white/85"
@@ -148,13 +150,20 @@ export function NodeInspector({
 
         {signalRows(graph,node).length > 0 && <div className="mt-4 space-y-2 border-t border-white/10 pt-3" data-node-signal-settings>
           <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60">{t('Signal I/O')}</div>
-          <p className="text-[9px] leading-relaxed text-white/40">{t('Each numbered pair has its own function and output colour. A new pair appears when a port is connected.')}</p>
+          <p className="text-[9px] leading-relaxed text-white/40">{t(signalAcceptsInput(node.type) ? 'Each numbered pair has its own function and output colour. A new pair appears when a port is connected.' : 'Each output has its own function and wire colour. Sensors and buttons have no signal inputs.')}</p>
           {signalRows(graph,node).map(port => <div key={port} className="rounded border border-white/10 bg-black/10 p-2">
-            <div className="mb-1 text-[10px] text-white/65">IN {port} → OUT {port}</div>
+            <div className="mb-1 text-[10px] text-white/65">{signalAcceptsInput(node.type) ? `IN ${port} → OUT ${port}` : `OUT ${port}`}</div>
             <select aria-label={`${t('Signal function')} ${port}`} value={channelMode(node,port)} onChange={event => onChannelChange(port,{mode:event.target.value})} className="w-full rounded border border-white/12 bg-[#1e1e20] px-1.5 py-1 text-[10px] text-white/85">
-              {signalFunctions(node.type).map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
+              {signalFunctions(node.type).filter(option => signalAcceptsInput(node.type) || option.value === channelMode(node,port) || !['relay','invert'].includes(option.value)).map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
             </select>
             <p className="mt-1 text-[9px] leading-relaxed text-white/40">{t(signalFunction(node.type,channelMode(node,port))?.help ?? '')}</p>
+            {node.type === 'part.color-sensor' && <div className="mt-2"><MaterialChoice label={`${t('Material')} ${port}`} value={node.io?.[String(port)]?.material} items={items} onChange={material => onChannelChange(port,{material:material || undefined})} /></div>}
+            {node.type === 'part.robot' && <div className="mt-2 space-y-1.5 rounded border border-white/10 p-1.5">
+              <div className="text-[9px] text-white/55">{t('Visual workflow for input')} {port}</div>
+              <select aria-label={`${t('Input source')} ${port}`} value={node.io?.[String(port)]?.programSource ?? ''} onChange={event => onChannelChange(port,{programSource:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default source')}</option>{graph.nodes.filter(candidate=>['part.conveyor','part.machine'].includes(candidate.type)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title ?? getNodeDef(candidate.type)?.title} · {candidate.id.slice(-6)}</option>)}</select>
+              <select aria-label={`${t('Input destination')} ${port}`} value={node.io?.[String(port)]?.programTarget ?? ''} onChange={event => onChannelChange(port,{programTarget:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default destination')}</option>{graph.nodes.filter(candidate=>['part.conveyor','part.machine','part.pallet'].includes(candidate.type)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title ?? getNodeDef(candidate.type)?.title} · {candidate.id.slice(-6)}</option>)}</select>
+              <select aria-label={`${t('Input workflow')} ${port}`} value={node.io?.[String(port)]?.programMode ?? ''} onChange={event => onChannelChange(port,{programMode:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default workflow')}</option>{['transfer','palletize','tend','paint','assemble'].map(mode=><option key={mode} value={mode}>{t(mode)}</option>)}</select>
+            </div>}
             <label className="mt-2 flex items-center justify-between gap-2 text-[9px] text-white/55"><span>{t('Output colour')} {port}</span>
               <input type="color" aria-label={`${t('Output colour')} ${port}`} value={channelColor(node,port)} onChange={event => onChannelChange(port,{color:event.target.value})} className="h-7 w-10 cursor-pointer rounded border border-white/15 bg-transparent" />
             </label>

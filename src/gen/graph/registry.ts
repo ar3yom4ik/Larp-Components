@@ -38,6 +38,7 @@ export function nodesByCategory(): { category: NodeCategory; defs: NodeDef[] }[]
 export const PORT_COLORS: Record<string, string> = {
   signal: '#4da9d8',
   flow: '#fbbf24',
+  mount: '#cf9bff',
   machine: '#34d399',
   intent: '#c084fc',
   config: '#7dd3fc',

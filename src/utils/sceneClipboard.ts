@@ -13,6 +13,7 @@ export function snapshotSceneItems(items: readonly SceneItem[]): SceneItem[] {
     points: item.points?.map(point => [...point] as [number, number]),
     pointHeights: item.pointHeights ? [...item.pointHeights] : undefined,
     program: item.program ? { ...item.program } : undefined,
+    programs: item.programs ? Object.fromEntries(Object.entries(item.programs).map(([key,program]) => [key,{...program}])) : undefined,
   }));
 }
 
@@ -37,7 +38,9 @@ export function copySceneItems(items: readonly SceneItem[], offset: Vec3): Scene
     }
     if (item.signalTargets) item.signalTargets = item.signalTargets.map(remap);
     if (item.signalRoutes) item.signalRoutes = item.signalRoutes.map(route => ({ ...route, targetId: remap(route.targetId) }));
-    if (item.program) item.program = { ...item.program, sourceId: remap(item.program.sourceId), targetId: remap(item.program.targetId), machineId: item.program.machineId ? remap(item.program.machineId) : undefined };
+    const remapProgram = (program:NonNullable<SceneItem['program']>) => ({ ...program, sourceId: remap(program.sourceId), targetId: remap(program.targetId), machineId: program.machineId ? remap(program.machineId) : undefined });
+    if (item.program) item.program = remapProgram(item.program);
+    if (item.programs) item.programs = Object.fromEntries(Object.entries(item.programs).map(([key,program]) => [key,remapProgram(program)]));
   }
   return copies;
 }

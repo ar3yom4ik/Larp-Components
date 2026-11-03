@@ -20,7 +20,7 @@ const ACCENT: Partial<Record<ComponentKind, string>> = {
   wall: "#9FB3C8",
   operator: "#F2B8A0",
   kuka: "#F07B30", fanuc: "#F2C230", "mobile-robot": "#4BC1B8", collector: "#D0A263",
-  button: "#DE5C52", laser: "#F05C5C", sensor: "#63C5F0", plc: "#8FA9C2", light: "#FFE5A6",
+  button: "#DE5C52", laser: "#F05C5C", "color-sensor": "#C084FC", sensor: "#63C5F0", plc: "#8FA9C2", light: "#FFE5A6",
   paint: "#EBCB76", cutter: "#F5A555", assembly: "#96B7D1", kiln: "#DC8154",
 };
 

@@ -1,3 +1,5 @@
+import { platformCorners, validPlatformCorners } from "../utils/upperFloor";
+import { MaterialChoice } from './MaterialChoice';
 import { useMemo, useState, type ReactNode } from "react";
 import {
   ArrowLeftRight,
@@ -18,7 +20,7 @@ import {
   Unlock,
   X,
 } from "lucide-react";
-import type { Category, SceneItem } from "../types";
+import type { Category, SceneItem, RobotProgram } from "../types";
 import { CATEGORIES, getDef } from "../data/library";
 import { samplePath } from "../sim/spline";
 import { sim } from "../sim/engine";
@@ -33,7 +35,7 @@ import { PalletPattern } from "./PalletPattern";
 import { importedProductId, MACHINE_KINDS } from "../data/products";
 import { t, useLanguage } from "../i18n";
 import { canSignalInput, isSignalSource, signalTargets, signalTargetsPatch, signalWireColor } from "../utils/signalPorts";
-import { signalFunction, signalFunctions } from "../utils/signalChannels";
+import { signalAcceptsInput, signalFunction, signalFunctions } from "../utils/signalChannels";
 
 interface PropertiesPanelProps {
   selected: SceneItem | null;
@@ -114,7 +116,7 @@ export function PropertiesPanel(props: PropertiesPanelProps) {
         <span className="text-[15px] text-[#ececec]">{t("Properties")}</span>
         <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-white/30">{t("Parametric")}</span>
       </div>
-      <div className="grid shrink-0 grid-cols-2 border-b border-white/10 bg-[#252526]">
+      <div className="properties-tabs grid shrink-0 grid-cols-2 border-b border-white/10 bg-[#252526]">
         {(["properties", "scene"] as InspectorTab[]).map((id) => (
           <button
             key={id}
@@ -238,10 +240,10 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
 
   const def = getDef(selected.kind);
   const accent = selected.color || partAccent(selected.kind);
-  const isConveyor = selected.kind === "conveyor" || selected.kind === "roller" || selected.kind === "fence";
-  const isFence = selected.kind === "fence";
+  const isConveyor = selected.kind === "conveyor" || selected.kind === "roller" || selected.kind === "fence" || (selected.kind === "wall" && !!selected.points);
+  const isFence = selected.kind === "fence" || selected.kind === "wall";
   const isRobot = isRobotKind(selected.kind);
-  const isLogic = ["button", "laser", "sensor", "plc"].includes(selected.kind) || isRobot;
+  const isLogic = ["button", "laser", "color-sensor", "sensor", "plc"].includes(selected.kind) || isRobot;
   const isWorker = selected.kind === "operator" || selected.kind === "mobile-robot";
   const feederSources = selected.kind === "feeder" ? items.filter((item) => isSignalSource(item) && signalTargets(item).includes(selected.id)) : [];
   const connectedTargets = isLogic ? signalTargets(selected) : [];
@@ -372,6 +374,14 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
                 onChange={(event) => onUpdate(selected.id, { props: { ...selected.props, physicsMass: Math.max(0.01, Math.min(1000000, Number(event.target.value) || 0.01)) } }, false)} className={cn(inputCls, "mt-1")} />
             </label>
           </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <label className="text-[10px] text-white/50">{t("Restitution / bounce")}
+              <input aria-label={t("Restitution / bounce")} type="number" min={0} max={1} step={.05} disabled={selected.locked} value={Number(selected.props.physicsRestitution ?? .03)} onFocus={onBeginEdit} onChange={event => onUpdate(selected.id,{props:{...selected.props,physicsRestitution:Math.max(0,Math.min(1,Number(event.target.value) || 0))}},false)} className={cn(inputCls,"mt-1")} />
+            </label>
+            <label className="text-[10px] text-white/50">{t("Friction")}
+              <input aria-label={t("Friction")} type="number" min={0} max={1} step={.05} disabled={selected.locked} value={Number(selected.props.physicsFriction ?? .6)} onFocus={onBeginEdit} onChange={event => onUpdate(selected.id,{props:{...selected.props,physicsFriction:Math.max(0,Math.min(1,Number(event.target.value) || 0))}},false)} className={cn(inputCls,"mt-1")} />
+            </label>
+          </div>
           <label className="mt-2 block text-[10px] text-white/50">{t("Collision shape")}
             <select aria-label={t("Collision shape")} disabled={selected.locked} value={selected.props.collisionShape === "box" ? "box" : "accurate"} onChange={(event) => onUpdate(selected.id, {props: {...selected.props, collisionShape: event.target.value}})} className={cn(inputCls, "mt-1")}>
               <option value="accurate">{t("Accurate (compound)")}</option><option value="box">{t("Box (fast)")}</option>
@@ -379,6 +389,24 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
           </label>
           <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("Dynamic components fall and collide during simulation. Kinematic components stay at their edited pose. Choose a mode to enable physics for legacy components. Reset restores the layout; colliders are simplified.")}</p>
         </Section>
+
+        {['platform','stairs','wall'].includes(selected.kind) && <Section title={t("Building geometry and material")}>
+          <div className="space-y-2">
+            <label className="block text-[10px] text-white/50">{t("Surface material")}<select aria-label={t("Surface material")} disabled={selected.locked} value={String(selected.props.surfaceMaterial ?? (selected.kind === 'wall' ? 'mid' : 'steel'))} onChange={event=>onUpdate(selected.id,{props:{...selected.props,surfaceMaterial:event.target.value}})} className={cn(inputCls,"mt-1")}><option value="steel">{t("Steel")}</option><option value="mid">{t("Concrete")}</option><option value="wood">{t("Wood")}</option><option value="rubber">{t("Rubber")}</option><option value="white">{t("White")}</option></select></label>
+            {(selected.kind === 'platform' ? ['width','depth','height'] : selected.kind === 'stairs' ? ['width','length','height'] : ['height']).map(key=>{
+              const value=Number(selected.props[key] ?? (key === 'height' ? 2 : 4));
+              return <label key={key} className="block text-[10px] text-white/50">{t(key === 'height' ? 'Height (m)' : key === 'width' ? 'Width (m)' : key === 'depth' ? 'Depth (m)' : 'Length (m)')}<input type="number" aria-label={`${t(key === 'height' ? 'Height' : key === 'width' ? 'Width' : key === 'depth' ? 'Depth' : 'Length')} (m)`} disabled={selected.locked} min={key==='height'?0:.4} max={20} step={key==='height'&&selected.kind==='platform'?1:.1} value={value} onFocus={onBeginEdit} onChange={event=>{
+                const number=Number(event.target.value); if(!Number.isFinite(number))return;
+                const next=Math.max(key==='height'?0:.4,Math.min(20,key==='height'&&selected.kind==='platform'?Math.round(number):number));
+                let corners: [number,number][] | undefined;
+                if(selected.kind==='platform'&&(key==='width'||key==='depth')) {const old=platformCorners(selected),axis=key==='width'?0:1;const min=Math.min(...old.map(p=>p[axis])),max=Math.max(...old.map(p=>p[axis])),center=(min+max)/2,ratio=next/Math.max(.01,max-min);corners=old.map(p=>axis===0?[center+(p[0]-center)*ratio,p[1]]:[p[0],center+(p[1]-center)*ratio]);}
+                onUpdate(selected.id,{props:{...selected.props,[key]:next},...(corners?{points:corners}:{})},false);
+              }} className={cn(inputCls,"mt-1")} /></label>;
+            })}
+            {selected.kind==='wall'&&!selected.points && <button type="button" onClick={()=>onUpdate(selected.id,{points:[[-Number(selected.props.length ?? 6)/2,0],[Number(selected.props.length ?? 6)/2,0]]})} className="rounded border border-white/15 px-2 py-1 text-[10px]">{t("Convert to spline wall")}</button>}
+            {selected.kind==='platform' && <><p className="text-[10px] text-white/40">{t("Drag any corner handle in Move mode. Corners remain a convex outline; height snaps in one metre steps from zero.")}</p>{platformCorners(selected).map((point,index)=><div key={index} className="grid grid-cols-[1rem_1fr_1fr] gap-1"><span className="text-[10px] text-white/50">{index+1}</span>{([0,1] as const).map(axis=><input key={axis} type="number" aria-label={`${t("Corner")} ${index+1} ${axis===0?'X':'Z'}`} disabled={selected.locked} step={.25} value={Number(point[axis].toFixed(2))} onFocus={()=>{onSelectPoint(index);onBeginEdit();}} onChange={event=>{const value=Number(event.target.value);if(!Number.isFinite(value))return;const next=platformCorners(selected).map((p,i)=>i===index?(axis===0?[value,p[1]]:[p[0],value]) as [number,number]:p);if(validPlatformCorners(next))onUpdate(selected.id,{points:next},false);}} className={inputCls}/>)}</div>)}</>}
+          </div>
+        </Section>}
 
         {isConveyor && !isFence && <Section title={t("Conveyor settings")}>
           <div className="space-y-2">
@@ -398,7 +426,7 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
         </Section>}
         {isConveyor && (
           <Section
-            title={t(isFence ? "Fence path" : "Spline")}
+            title={t(selected.kind === "wall" ? "Wall spline" : isFence ? "Fence path" : "Spline")}
             action={
               <span className="font-mono text-[9px] text-white/40">
                 {points.length} {t("pts ·")} {length.toFixed(1)} {t("m")} </span>
@@ -449,16 +477,18 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
                 <ArrowLeftRight size={11} /> {t(isFence ? "Reverse" : "Reverse flow")}
               </button>
             </div>
-            <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t(isFence ? "Drag the posts to draw a sharp-cornered guard fence. Panels and corner posts are generated automatically." : "Drag the handles to bend the belt. Select a point and use the move gizmo or Y field to change its height. Reverse flow swaps the entry and exit.")}</p>
+            <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t(selected.kind === "wall" ? "Drag the handles to shape the wall. Height and material are set above." : isFence ? "Drag the posts to draw a sharp-cornered guard fence. Panels and corner posts are generated automatically." : "Drag the handles to bend the belt. Select a point and use the move gizmo or Y field to change its height. Reverse flow swaps the entry and exit.")}</p>
           </Section>
         )}
 
         {isRobot && (
           <Section title={t("Program")}>
-            <button type="button" onClick={onEditProgram} className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#1f6aa5] py-1.5 text-[11px] font-medium text-white transition hover:bg-[var(--file-hover)]">
+            <button type="button" onClick={onEditProgram} className="edit-robot-program flex w-full items-center justify-center gap-2 rounded-sm bg-[#1f6aa5] py-1.5 text-[11px] font-medium text-white transition hover:bg-[var(--file-hover)]">
               <Braces size={13} /> {t("Edit robot program")} </button>
             <p className="mt-2 text-[9.5px] leading-relaxed text-white/35">{t("Robots are programmed in JavaScript with the Larp robot API (pick, place, waitForPart, machine and pallet helpers).")}</p>
             {rt?.error && <p className="mt-1.5 rounded-sm bg-[#ff6b5e]/10 px-2 py-1 font-mono text-[9.5px] text-[#ff9a8f]">{rt.error}</p>}
+            <button type="button" disabled={selected.locked} onClick={() => {const channels=selected.signalChannels ?? [];const port=Math.max(0,...channels.map(c=>c.port))+1;onUpdate(selected.id,{signalChannels:[...channels,{port,mode:'operation-end'}]});}} className="mt-2 w-full rounded border border-white/15 px-2 py-1 text-[10px] text-white/70 disabled:opacity-40">{t("Add robot input")}</button>
+            <p className="mt-1 text-[9px] text-white/40">{t("Configure a separate visual workflow for each numbered input below. Script programs continue to use their explicit signal waits.")}</p>
           </Section>
         )}
 
@@ -539,20 +569,38 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
           </label>
           <label className="block text-[10px] text-white/45">{t("Address")}<input value={String(selected.props.address || "DI-01")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, address: e.target.value } })} className={cn(inputCls, "mt-1")} /></label>
           {selected.kind === "button" && <button type="button" onClick={() => sim.pressButton(selected.id)} className="primary-action w-full">{sim.signalState.get(selected.id) ? t("Release button") : t("Press button")}</button>}
-          {(selected.kind === "laser" || selected.kind === "sensor") && <>
+          {(selected.kind === "laser" || selected.kind === "color-sensor" || selected.kind === "sensor" || selected.kind === "button") && <>
             <label className="block text-[10px] text-white/45">{t("Attach to conveyor")}<select aria-label={t("Attach to conveyor")} disabled={selected.locked} value={String(selected.props.mountedTo || "")} onChange={event => onUpdate(selected.id, {props:{...selected.props,mountedTo:event.target.value,mountPosition:Number(selected.props.mountPosition ?? .85)}})} className={cn(inputCls,"mt-1")}><option value="">{t("Free standing")}</option>{items.filter(item => item.kind === "conveyor" || item.kind === "roller").map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             {!!selected.props.mountedTo && <label className="block text-[10px] text-white/45">{t("Position along conveyor")}<input aria-label={t("Position along conveyor")} type="range" disabled={selected.locked} min={0} max={1} step={.01} value={Number(selected.props.mountPosition ?? .85)} onFocus={onBeginEdit} onChange={event => onUpdate(selected.id,{props:{...selected.props,mountPosition:Number(event.target.value)}},false)} className="accent-range mt-1 w-full" /></label>}
           </>}
-          {selected.kind === "laser" && !!selected.props.mountedTo && <label className="flex items-center justify-between text-[11px] text-white/65">{t("Auto-fit beam to conveyor")}<Toggle label={t("Auto-fit beam to conveyor")} checked={selected.props.autoRange !== false} onChange={v => onUpdate(selected.id,{props:{...selected.props,autoRange:v}})} /></label>}
+          {(selected.kind === "laser" || selected.kind === "color-sensor") && !!selected.props.mountedTo && <label className="flex items-center justify-between text-[11px] text-white/65">{t("Auto-fit beam to conveyor")}<Toggle label={t("Auto-fit beam to conveyor")} checked={selected.props.autoRange !== false} onChange={v => onUpdate(selected.id,{props:{...selected.props,autoRange:v}})} /></label>}
           {selected.kind === "laser" && <label className="flex items-center justify-between text-[11px] text-white/65">{t("Normally closed")}<Toggle label={t("Normally closed")} checked={selected.props.normallyClosed === true} onChange={(v) => onUpdate(selected.id, { props: { ...selected.props, normallyClosed: v } })} /></label>}
           <div className="flex items-center justify-between rounded bg-white/[0.03] px-2 py-1.5 text-[10px] text-white/55"><span>{t("Live signal")}</span><span className={cn("flex items-center gap-1 font-mono", sim.signalState.get(selected.id) ? "text-[#76e08b]" : "text-white/35")}><i className={cn("h-1.5 w-1.5 rounded-full", sim.signalState.get(selected.id) ? "bg-[#76e08b]" : "bg-white/30")} />{sim.signalState.get(selected.id) ? "TRUE" : "FALSE"}</span></div>
         </div></Section>}
-        {!!selected.signalChannels?.length && <Section title={t("Signal I/O")}><div className="space-y-2" data-scene-signal-settings>
+        {selected.kind === "color-sensor" && <Section title={t("Material outputs")}><div className="space-y-2" data-color-sensor-outputs>
+          <p className="text-[10px] text-white/45">{t("Matches base material colors, not texture pixels. Choosing a material adds another output.")}</p>
+          {(() => {
+            const existing = selected.signalChannels ?? [];
+            const nextPort = Math.max(0,...existing.map(channel => channel.port)) + 1;
+            const rows = [...existing, {port:nextPort, mode:'match'}];
+            const change = (port:number, patch:{material?:string;color?:string}) => {
+              const current = existing.find(channel => channel.port === port) ?? {port,mode:'match'};
+              const next = {...current,...patch};
+              onUpdate(selected.id,{signalChannels:[...existing.filter(channel => channel.port !== port),next].sort((a,b) => a.port-b.port)});
+            };
+            return rows.map(channel => <div key={channel.port} className="rounded border border-white/10 bg-white/[0.03] p-2">
+              <div className="mb-1 text-[10px] text-white/60">OUT {channel.port}</div>
+              <MaterialChoice label={`${t("Material")} ${channel.port}`} value={channel.material} items={productItems} disabled={selected.locked} onChange={material => change(channel.port,{material:material || undefined})} />
+              <label className="mt-2 flex items-center justify-between text-[10px] text-white/50">{t("Output colour")} {channel.port}<input type="color" aria-label={`${t("Output colour")} ${channel.port}`} disabled={selected.locked} value={signalWireColor(channel.color ?? selected.props.wireColor)} onChange={event => change(channel.port,{color:event.target.value})} className="h-7 w-10" /></label>
+            </div>);
+          })()}
+        </div></Section>}
+        {selected.kind !== "color-sensor" && !!selected.signalChannels?.length && <Section title={t("Signal I/O")}><div className="space-y-2" data-scene-signal-settings>
           {selected.signalChannels.map(channel => <div key={channel.port} className="rounded border border-white/10 bg-white/[0.03] p-2">
-            <div className="mb-1 text-[10px] text-white/60">IN {channel.port} → OUT {channel.port}</div>
+            <div className="mb-1 text-[10px] text-white/60">{signalAcceptsInput(selected.kind) ? `IN ${channel.port} → OUT ${channel.port}` : `OUT ${channel.port}`}</div>
             <select aria-label={`${t("Signal function")} ${channel.port}`} disabled={selected.locked} value={signalFunction(selected.kind,channel.mode)?.value ?? channel.mode}
               onChange={event => onUpdate(selected.id,{signalChannels:selected.signalChannels?.map(entry => entry.port === channel.port ? {...entry,mode:event.target.value} : entry), ...(isRobot && channel.port === 1 ? {props:{...selected.props,outputMode:event.target.value}} : {})})} className={inputCls}>
-              {signalFunctions(selected.kind).map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
+              {signalFunctions(selected.kind).filter(option => signalAcceptsInput(selected.kind) || !['relay','invert'].includes(option.value)).map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
             </select>
             <p className="mt-1 text-[9px] leading-relaxed text-white/40">{t(signalFunction(selected.kind,channel.mode)?.help ?? '')}</p>
             <label className="mt-2 flex items-center justify-between gap-2 text-[10px] text-white/50"><span>{t("Output colour")} {channel.port}</span>
@@ -560,6 +608,15 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
                 onChange={event => onUpdate(selected.id,{signalChannels:selected.signalChannels?.map(entry => entry.port === channel.port ? {...entry,color:event.target.value} : entry)})} className="h-7 w-10 cursor-pointer rounded border border-white/15 bg-transparent" />
             </label>
             {channel.color && <button type="button" disabled={selected.locked} onClick={() => onUpdate(selected.id,{signalChannels:selected.signalChannels?.map(entry => entry.port === channel.port ? {...entry,color:undefined} : entry)})} className="mt-1 text-[9px] text-white/45 underline hover:text-white">{t("Use component wire colour")}</button>}
+            {isRobot && (selected.program ? (() => {
+              const program = selected.programs?.[String(channel.port)] ?? selected.program!;
+              const change = (patch:Partial<RobotProgram>) => onUpdate(selected.id,{programs:{...selected.programs,[String(channel.port)]:{...program,...patch}}});
+              return <div className="mt-2 space-y-1.5 rounded border border-white/10 p-1.5"><div className="text-[9px] text-white/55">{t("Visual workflow for input")} {channel.port}</div>
+                <label className="block text-[9px] text-white/45">{t("Source")}<select aria-label={`${t("Input source")} ${channel.port}`} disabled={selected.locked} value={program.sourceId} onChange={event=>change({sourceId:event.target.value,pickupBack:undefined})} className={inputCls}>{items.filter(item=>['conveyor','roller','cnc','press','weld','packaging','paint','cutter','inspection','assembly','kiln','lathe','grinder'].includes(item.kind)).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="block text-[9px] text-white/45">{t("Destination")}<select aria-label={`${t("Input destination")} ${channel.port}`} disabled={selected.locked} value={program.targetId} onChange={event=>change({targetId:event.target.value})} className={inputCls}>{items.filter(item=>['conveyor','roller','crates','cnc','press','weld','packaging','paint','cutter','inspection','assembly','kiln','lathe','grinder'].includes(item.kind)).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="block text-[9px] text-white/45">{t("Workflow")}<select aria-label={`${t("Input workflow")} ${channel.port}`} disabled={selected.locked} value={program.mode} onChange={event=>change({mode:event.target.value as RobotProgram['mode']})} className={inputCls}>{['transfer','palletize','tend','paint','assemble'].map(mode=><option key={mode} value={mode}>{t(mode)}</option>)}</select></label>
+              </div>;
+            })() : <p className="mt-2 text-[9px] text-white/40">{t("Create a visual program before assigning input workflows.")}</p>)}
           </div>)}
         </div></Section>}
         {selected.kind === "light" && <Section title={t("Light")}><div className="space-y-3"><label className="block text-[10px] text-white/45">{t("Type")}<select aria-label={t("Light type")} value={String(selected.props.lightType || "spot")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, lightType: e.target.value } })} className={cn(inputCls, "mt-1")}><option value="spot">{t("Spot")}</option><option value="point">{t("Point")}</option></select></label><label className="block text-[10px] text-white/45">{t("Colour")}<input aria-label={t("Light colour")} type="color" value={String(selected.props.color || "#fff1d0")} onChange={(e) => onUpdate(selected.id, { props: { ...selected.props, color: e.target.value } })} className="mt-1 h-8 w-full bg-transparent" /></label><label className="flex items-center justify-between text-[11px] text-white/65">{t("Cast shadows")}<Toggle label={t("Cast shadows")} checked={selected.props.castShadow === true} onChange={(v) => onUpdate(selected.id, { props: { ...selected.props, castShadow: v } })} /></label><p className="text-[10px] text-white/35">{t("Lights also respond to the enhanced and global-illumination graphics modes.")}</p></div></Section>}
@@ -583,15 +640,15 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
 
         {selected.kind !== "imported-model" && <Section title={t("Behaviour")}>
           <div className="space-y-3">
-            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "activeDuration", "mode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", "physicsMode", "physicsMass", "collisionShape", "catalogBaseId", "mountedTo", "mountPosition", "autoRange", ...(["conveyor", "roller"].includes(selected.kind) ? ["speed", "width"] : []), ...(selected.kind === "crates" ? ["cols", "rows", "layers", "retainFull"] : [])].includes(key)).map(([key, value]) => (
-              <PropControl key={key} kind={selected.kind} propKey={key} value={value} onChange={(next) => onUpdate(selected.id, { props: { ...selected.props, [key]: next, ...(selected.kind === "laser" && key === "range" ? {autoRange:false} : {}) } }, false)} />
+            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "activeDuration", "mode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", "physicsMode", "physicsMass", "physicsRestitution", "physicsFriction", "collisionShape", "catalogBaseId", "surfaceMaterial", ...(['platform','stairs','wall'].includes(selected.kind) ? ['height','width','depth','length'] : []), "mountedTo", "mountPosition", "autoRange", ...(["conveyor", "roller"].includes(selected.kind) ? ["speed", "width"] : []), ...(selected.kind === "crates" ? ["cols", "rows", "layers", "retainFull"] : [])].includes(key)).map(([key, value]) => (
+              <PropControl key={key} kind={selected.kind} propKey={key} value={value} onChange={(next) => onUpdate(selected.id, { props: { ...selected.props, [key]: next, ...((selected.kind === "laser" || selected.kind === "color-sensor") && key === "range" ? {autoRange:false} : {}) } }, false)} />
             ))}
             {Object.keys(selected.props).length === 0 && <p className="text-[10px] text-white/35">{t("No parameters.")}</p>}
           </div>
         </Section>}
       </div>
 
-      <div className="grid shrink-0 grid-cols-2 gap-1.5 border-t border-white/10 bg-[#2d2d30] p-2.5">
+      <div className="properties-actions grid shrink-0 grid-cols-2 gap-1.5 border-t border-white/10 bg-[#2d2d30] p-2.5">
         <button type="button" onClick={() => onDuplicate(selected.id)} className="flex items-center justify-center gap-1.5 rounded-sm border border-white/15 py-1.5 text-[10.5px] text-[#d4d4d4] transition hover:bg-white/10">
           <Copy size={12} /> {t("Duplicate")} </button>
         <button type="button" onClick={() => onDelete(selected.id)} className="flex items-center justify-center gap-1.5 rounded-sm border border-[#ff6b5e]/30 bg-[#ff6b5e]/10 py-1.5 text-[10.5px] text-[#ff9a8f] transition hover:bg-[#ff6b5e]/20">

@@ -8,7 +8,7 @@ import { signalChannelKey, signalFunction, validSignalPort } from "../utils/sign
 import { itemLocalToWorld, rotateVector, rotationMatrix, unrotateVector } from "../utils/transform";
 import { RigidBodyWorld, makeBeamBlocker } from "./rigidBodies";
 import type { SweepStart } from "./continuous";
-import { upperFloorDimensions } from "../utils/upperFloor";
+import { upperFloorDimensions, platformCorners, containsPlatformPoint } from "../utils/upperFloor";
 import { conveyorWidth } from "../utils/conveyor";
 import { resolveMountedSensors } from "../utils/sensorMount";
 import { importedCollision, importedCollisionBoxes } from "../utils/modelCollision";
@@ -113,6 +113,8 @@ export interface Box {
   convS: number;
   convLat: number;
   productId: string;
+  /** Rendering normal of the supporting belt (physics keeps its stable legacy integrator). */
+  beltNormal?: [number, number, number];
   inspected?: boolean;
   lastMachine?: string;
   counted?: boolean;
@@ -126,6 +128,7 @@ interface Query {
   /** World-space support height and horizontal fraction of 3D belt speed. */
   y: number;
   speedFactor: number;
+  normal?: [number,number,number];
   tx: number;
   tz: number;
 }
@@ -263,7 +266,11 @@ export class ConveyorRT {
     // On a flat segment retain exactly the legacy horizontal belt speed;
     // sampled chord length is slightly shorter than the arc on curves.
     const speedFactor = Math.abs(verticalLength) < 1e-12 ? 1 : horizontalLength / (Math.hypot(horizontalLength, verticalLength) || 1);
-    return { s, lat, inside, y: centerY + lat * sideSlope, speedFactor, tx: ntx, tz: ntz };
+    const slope = verticalLength / Math.max(horizontalLength, 1e-9);
+    // Height gradient in world XZ: along the path plus across its bank.
+    const gx = slope * ntx - sideSlope * ntz, gz = slope * ntz + sideSlope * ntx;
+    const invNormal = 1 / Math.hypot(gx, 1, gz);
+    return { s, lat, inside, y: centerY + lat * sideSlope, speedFactor, normal: invNormal < .999999 ? [-gx * invNormal, invNormal, -gz * invNormal] : undefined, tx: ntx, tz: ntz };
   }
 
   pointAt(d: number) {
@@ -294,6 +301,7 @@ interface Rect {
   /** Oriented surface basis; used by vertical ray/support tests on tilted equipment. */
   surface?: { center: V3; axisX: V3; axisZ: V3; normal: V3 };
   walkable?: boolean;
+  polygon?: [number,number][];
 }
 
 function surfaceRect(item: SceneItem, localCenter: V3, hw: number, hd: number, palletId: string | null = null, collectorId: string | null = null, walkable = false): Rect {
@@ -311,7 +319,8 @@ function surfaceHeight(rect: Rect, x: number, z: number): number | null {
   const surface = rect.surface;
   if (!surface) {
     const dx = x - rect.cx, dz = z - rect.cz, c = Math.cos(rect.yaw), s = Math.sin(rect.yaw);
-    return Math.abs(dx * c - dz * s) <= rect.hw + 1e-7 && Math.abs(dx * s + dz * c) <= rect.hd + 1e-7 ? rect.top : null;
+    const lx=dx*c-dz*s,lz=dx*s+dz*c;
+    return Math.abs(lx)<=rect.hw+1e-7 && Math.abs(lz)<=rect.hd+1e-7 && (!rect.polygon || containsPlatformPoint(rect.polygon,lx,lz)) ? rect.top : null;
   }
   const { center, axisX, axisZ, normal } = surface;
   if (normal[1] < 0.05) return null;
@@ -319,7 +328,7 @@ function surfaceHeight(rect: Rect, x: number, z: number): number | null {
   const dy = -(normal[0] * dx + normal[2] * dz) / normal[1];
   const lx = dx * axisX[0] + dy * axisX[1] + dz * axisX[2];
   const lz = dx * axisZ[0] + dy * axisZ[1] + dz * axisZ[2];
-  return Math.abs(lx) <= rect.hw + 1e-7 && Math.abs(lz) <= rect.hd + 1e-7 ? center[1] + dy : null;
+  return Math.abs(lx) <= rect.hw + 1e-7 && Math.abs(lz) <= rect.hd + 1e-7 && (!rect.polygon || containsPlatformPoint(rect.polygon,lx,lz)) ? center[1] + dy : null;
 }
 
 export class PalletRT {
@@ -533,6 +542,11 @@ export class RobotRT {
   error: string | null = null;
   warned = false;
   program?: RobotProgram;
+  programs?: Record<string,RobotProgram>;
+  activeProgram?: RobotProgram;
+  activeProgramPort: number | null = null;
+  outputPulsePort: number | null = null;
+  get currentProgram() { return this.activeProgram ?? this.program; }
   gripper: GripperKind = "vacuum";
   payload = 12;
   outputMode: "moving" | "operation-end" = "operation-end";
@@ -545,6 +559,7 @@ export class RobotRT {
     this.gripper = (item.props.gripper as GripperKind) || "vacuum";
     this.payload = num(item.props.payload, 12);
     this.program = item.program;
+    this.programs = item.programs;
     this.kind = item.kind === "cobot" ? "cobot" : "robot";
     this.spec = ROBOT_SPECS[this.kind];
     this.applyItem(item, true);
@@ -566,6 +581,7 @@ export class RobotRT {
     this.gripper = (item.props.gripper as GripperKind) || "vacuum";
     this.payload = num(item.props.payload, 12);
     this.program = item.program;
+    this.programs = item.programs;
     const outputMode = item.props.outputMode === "moving" ? "moving" : "operation-end";
     if (outputMode !== this.outputMode) this.outputPulse = 0;
     this.outputMode = outputMode;
@@ -809,10 +825,13 @@ export class Engine {
   signalActivations = new Map<string, number>();
   private feederSignals = new Map<string, FeederSignalState>();
   private robotSignals = new Map<string, FeederSignalState>();
+  private robotInputs = new Map<string, {source:SceneItem; input:number; key:string}[]>();
   /** Runtime signal-channel proxies are not scene objects. A signal feedback
    * loop advances one simulation substep at a time rather than recursing. */
   private channelSpecs: {item: SceneItem; port: number; key: string; mode: string}[] = [];
   private channelInputs = new Map<string, SceneItem[]>();
+  private channelOutputScratch: boolean[] = [];
+  private readonly noChannelInputs: SceneItem[] = [];
   private componentPulses = new Map<string, number>();
   barriers: Barrier[] = [];
   walkBarriers: Barrier[] = [];
@@ -848,7 +867,8 @@ export class Engine {
   lastStepMs = 0;
   private itemById = new Map<string, SceneItem>();
   private logicItems: SceneItem[] = [];
-  private beamBlockers: {id:string; test:(a:V3,b:V3)=>boolean}[] = [];
+  private beamBlockers: {id:string; item:SceneItem; test:(a:V3,b:V3)=>boolean}[] = [];
+  private detectedColors = new Map<string, Set<string>>();
   private triggers = new Map<string, SceneItem[]>();
   private walkSources: SceneItem[] = [];
   private cratesItem: SceneItem | undefined;
@@ -986,7 +1006,7 @@ export class Engine {
             rt = new RobotRT(this.nextRobot++, item);
             rt.script = item.script ?? "";
           } else {
-            const programChanged = JSON.stringify(rt.program) !== JSON.stringify(item.program);
+            const programChanged = JSON.stringify([rt.program,rt.programs]) !== JSON.stringify([item.program,item.programs]);
             rt.applyItem(item);
             if ((item.script ?? "") !== rt.script || programChanged) {
               rt.script = item.script ?? "";
@@ -1020,8 +1040,11 @@ export class Engine {
           break;
         }
         case "platform": {
-          const {width, depth, height} = upperFloorDimensions(item);
-          rects.push(surfaceRect(item, [0, height, 0], width * item.scale / 2, depth * item.scale / 2, null, null, true));
+          const {height}=upperFloorDimensions(item), corners=platformCorners(item);
+          const minX=Math.min(...corners.map(p=>p[0])),maxX=Math.max(...corners.map(p=>p[0])),minZ=Math.min(...corners.map(p=>p[1])),maxZ=Math.max(...corners.map(p=>p[1]));
+          const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
+          const rect=surfaceRect(item,[cx,height,cz],(maxX-minX)*item.scale/2,(maxZ-minZ)*item.scale/2,null,null,true);
+          rect.polygon=corners.map(([x,z])=>[(x-cx)*item.scale,(z-cz)*item.scale]); rects.push(rect);
           break;
         }
         case "stairs": {
@@ -1030,9 +1053,12 @@ export class Engine {
           for (let i = 0; i < steps; i++) rects.push(surfaceRect(item, [-length / 2 + (i + 0.5) * run, (i + 1) * rise, 0], run * item.scale / 2, width * item.scale / 2, null, null, true));
           break;
         }
+        case "wall":
         case "fence": {
           if (Math.abs(item.rotationX ?? 0) > 1e-6 || Math.abs(item.rotationZ ?? 0) > 1e-6) break;
-          const pts = item.points ?? [[-1.5, 0], [1.5, 0]];
+          const raw = item.points ?? (item.kind === 'wall' ? [[-3,0],[3,0]] : [[-1.5, 0], [1.5, 0]]);
+          const sampled=item.kind === 'wall' ? samplePath(raw as P2[],.2) : null;
+          const pts=sampled ? sampled.x.map((x,i)=>[x*item.scale,sampled.z[i]*item.scale] as P2) : raw;
           for (let i = 0; i < pts.length - 1; i += 1) {
             if (item.props.gateOpen === true && i === Number(item.props.gateSegment ?? 0)) continue;
             const a = toWorld(item.position[0], item.position[2], item.rotation * DEG, pts[i][0], pts[i][1]);
@@ -1147,6 +1173,7 @@ export class Engine {
     const triggers = new Map<string, SceneItem[]>();
     const inputs = new Map<string, SceneItem[]>();
     const ports = new Map<string, Set<number>>();
+    const robotInputs = new Map<string, {source:SceneItem; input:number; key:string}[]>();
     const addPort = (id: string, port: number) => {
       if (!validSignalPort(port)) return;
       const list = ports.get(id) ?? new Set<number>(); list.add(port); ports.set(id,list);
@@ -1158,6 +1185,12 @@ export class Engine {
       const key = signalChannelKey(target,input), row = inputs.get(key) ?? [];
       if (!row.some(entry => entry.id === source.id)) row.push(source);
       inputs.set(key,row);
+      const destination = this.itemById.get(target);
+      if (destination && ["robot","cobot","kuka","fanuc"].includes(destination.kind)) {
+        const entries = robotInputs.get(target) ?? [], bindingKey = signalChannelKey(source.id,input);
+        if (!entries.some(entry => entry.key === bindingKey)) entries.push({source,input,key:bindingKey});
+        robotInputs.set(target,entries);
+      }
     };
     for (const item of this.items) {
       if (!isSignalSource(item)) continue;
@@ -1178,6 +1211,7 @@ export class Engine {
       }
     }
     this.channelInputs = inputs;
+    this.robotInputs = robotInputs;
     this.channelSpecs = [];
     for (const item of this.items) for (const port of ports.get(item.id) ?? []) {
       const setting = item.signalChannels?.find(channel => channel.port === port);
@@ -1185,7 +1219,7 @@ export class Engine {
       if (mode) this.channelSpecs.push({item,port,key:signalChannelKey(item.id,port),mode});
     }
     this.logicItems = logic;
-    this.beamBlockers = logic.some(item => item.kind === "laser") ? this.items.filter(item => item.visible !== false && !(item.imported?.materials.length && item.imported.materials.every(material => material.opacity < .95))).map(item => ({id:item.id,test:makeBeamBlocker(item,this.items)})) : [];
+    this.beamBlockers = logic.some(item => item.kind === "laser" || item.kind === "color-sensor") ? this.items.filter(item => item.visible !== false && !(item.imported?.materials.length && item.imported.materials.every(material => material.opacity < .95))).map(item => ({id:item.id,item,test:makeBeamBlocker(item,this.items)})) : [];
     this.triggers = triggers;
     this.rebuildMergeRoutes(conveyors);
     this.rebuildSharedBeltStations(conveyors);
@@ -1390,48 +1424,44 @@ export class Engine {
   /** Each direct robot input queues rising edges, just like a signal feeder.
    * Hidden/disconnected sources never turn a wired robot into automatic mode. */
   private syncRobotSignals() {
-    const next = new Map<string, FeederSignalState>();
+    const next = new Map<string,FeederSignalState>();
     for (const robot of this.robots.values()) {
-      const sources = this.triggers.get(robot.itemId);
-      if (!sources?.length) continue;
-      const previous = this.robotSignals.get(robot.itemId);
-      const state: FeederSignalState = { observed: new Map(), pending: new Map() };
-      for (const source of sources) {
-        const revision = this.signalActivations.get(source.id) ?? 0;
-        if (previous?.observed.has(source.id)) {
-          state.observed.set(source.id, previous.observed.get(source.id)!);
-          const pending = previous.pending.get(source.id) ?? 0;
-          if (pending && source.visible !== false) state.pending.set(source.id, pending);
+      const bindings=this.robotInputs.get(robot.itemId); if(!bindings?.length)continue;
+      const previous=this.robotSignals.get(robot.itemId), state:FeederSignalState={observed:new Map(),pending:new Map()};
+      for(const {source,key} of bindings) {
+        const revision=this.signalActivations.get(source.id) ?? 0;
+        if(previous?.observed.has(key)) {
+          state.observed.set(key,previous.observed.get(key)!);
+          const pending=previous.pending.get(key) ?? 0;
+          if(pending&&source.visible!==false)state.pending.set(key,pending);
         } else {
-          state.observed.set(source.id, revision);
-          if (source.visible !== false && this.signalState.get(source.id) === true) state.pending.set(source.id, 1);
+          state.observed.set(key,revision);
+          if(source.visible!==false&&this.signalState.get(source.id)===true)state.pending.set(key,1);
         }
       }
-      next.set(robot.itemId, state);
+      next.set(robot.itemId,state);
     }
-    this.robotSignals = next;
+    this.robotSignals=next;
   }
 
   private captureRobotSignals() {
-    for (const [id, state] of this.robotSignals) for (const source of this.triggers.get(id) ?? []) {
-      const revision = this.signalActivations.get(source.id) ?? 0;
-      const previous = state.observed.get(source.id) ?? revision;
-      if (source.visible !== false && revision > previous) state.pending.set(source.id, (state.pending.get(source.id) ?? 0) + revision - previous);
-      state.observed.set(source.id, revision);
+    for(const [id,state] of this.robotSignals) for(const {source,key} of this.robotInputs.get(id) ?? []) {
+      const revision=this.signalActivations.get(source.id) ?? 0, previous=state.observed.get(key) ?? revision;
+      if(source.visible!==false&&revision>previous)state.pending.set(key,(state.pending.get(key) ?? 0)+revision-previous);
+      state.observed.set(key,revision);
     }
   }
 
-  pendingRobotSignals(id: string) {
-    const state = this.robotSignals.get(id);
-    return state ? [...state.pending.values()].reduce((sum, count) => sum + count, 0) : 0;
+  pendingRobotSignals(id:string) {
+    const state=this.robotSignals.get(id); return state ? [...state.pending.values()].reduce((sum,count)=>sum+count,0) : 0;
   }
 
-  private consumeRobotSignal(id: string): boolean {
-    const state = this.robotSignals.get(id);
-    if (!state) return false;
-    for (const source of this.triggers.get(id) ?? []) {
-      const count = state.pending.get(source.id) ?? 0;
-      if (count > 0) { if (count === 1) state.pending.delete(source.id); else state.pending.set(source.id, count - 1); return true; }
+  private consumeRobotSignal(id:string, port?:number):boolean {
+    const state=this.robotSignals.get(id); if(!state)return false;
+    for(const binding of this.robotInputs.get(id) ?? []) {
+      if(port!==undefined && binding.input!==port)continue;
+      const count=state.pending.get(binding.key) ?? 0;
+      if(count>0) { if(count===1)state.pending.delete(binding.key);else state.pending.set(binding.key,count-1);return true; }
     }
     return false;
   }
@@ -1595,7 +1625,7 @@ export class Engine {
     this.feederSignals.clear();
     this.robotSignals.clear();
     this.componentPulses.clear();
-    this.robots.forEach((robot) => { robot.outputPulse = 0; });
+    this.robots.forEach((robot) => { robot.outputPulse = 0; robot.outputPulsePort = null; robot.activeProgramPort = null; robot.activeProgram = undefined; });
     for (const spec of this.channelSpecs) this.signalState.set(spec.key,false);
     this.updateChannelOutputs();
     for (const group of this.mergeGroups.values()) group.reservation = null;
@@ -1633,6 +1663,7 @@ export class Engine {
     robot.queue = [];
     robot.vNow = 0;
     robot.error = null;
+    robot.activeProgram = undefined; robot.activeProgramPort = null; robot.outputPulsePort = null;
     if (robot.held) {
       robot.held.state = "free";
       robot.held.claim = 0;
@@ -1669,7 +1700,7 @@ export class Engine {
     robot.warned = false;
     if (robot.program) {
       robot.status = "waiting";
-      robot.job = { gen: this.visualGen(robot), resolve: () => { robot.status = "stopped"; } };
+      robot.job = { gen: robot.programs && Object.keys(robot.programs).length ? this.visualDispatcher(robot) : this.visualGen(robot), resolve: () => { robot.status = "stopped"; } };
       this.log(`${robot.name}: visual program started`, "info");
       return;
     }
@@ -1974,10 +2005,41 @@ export class Engine {
     if (machine.kind === "inspection") box.inspected = true;
   }
 
-  /** Native visual workflows share the exact same IK pick/place primitives as code. */
-  private *visualGen(robot: RobotRT): Generator<Cmd, unknown, unknown> {
-    const config = robot.program!;
+  /** Route each queued input to its own visual workflow. A busy or empty
+   * source does not starve another input that can actually run. */
+  private *visualDispatcher(robot:RobotRT):Generator<Cmd,unknown,unknown> {
     yield* this.homeGen(robot);
+    while (true) {
+      let selected:{port?:number; program:RobotProgram} | null = null;
+      yield this.waiter(() => {
+        const bindings = this.robotInputs.get(robot.itemId);
+        // Keep the default visual workflow working before wires are attached
+        // and after they are removed, without restarting a cycle in progress.
+        if (!bindings?.length && robot.program) { selected={program:robot.program}; return true; }
+        for (const {input:port} of bindings ?? []) {
+          const program=robot.programs?.[String(port)] ?? robot.program;
+          if (!program || !this.triggerGate(robot.itemId,program.sourceId,false,port)) continue;
+          const pallet=this.pallets.get(program.targetId); if(pallet && pallet.cursor>=pallet.capacity)continue;
+          const conveyor=this.conveyors.get(program.sourceId), machine=this.machines.get(program.sourceId);
+          const zone=conveyor ? {...conveyor.pointAt(Math.max(0,conveyor.length-(program.pickupBack ?? .3))),r:.65} : machine ? {...machine.table(),r:.45} : null;
+          if(!zone || !this.findPart(robot,zone,this.sharedBeltStations.has(program.sourceId) ? box=>this.sharedStationAccept(program.sourceId,robot.itemId,box) : undefined))continue;
+          selected={port,program}; return true;
+        }
+        return false;
+      });
+      // The generator resumes after the waiter has populated selected.
+      const chosen=selected as {port?:number; program:RobotProgram} | null;
+      if (!chosen) continue;
+      robot.activeProgram=chosen.program; robot.activeProgramPort=chosen.port ?? null;
+      yield* this.visualGen(robot,chosen.program,true,chosen.port);
+      robot.activeProgram=undefined; robot.activeProgramPort=null;
+      if (chosen.port === undefined && !chosen.program.repeat && !this.robotInputs.has(robot.itemId)) return;
+    }
+  }
+
+  /** Native visual workflows share the exact same IK pick/place primitives as code. */
+  private *visualGen(robot: RobotRT, config = robot.program!, once = false, inputPort?:number): Generator<Cmd, unknown, unknown> {
+    if (!once) yield* this.homeGen(robot);
     const source = () => {
       const c = this.conveyors.get(config.sourceId);
       const m = this.machines.get(config.sourceId);
@@ -1995,6 +2057,10 @@ export class Engine {
     do {
       let box: Box | null = null;
       yield this.waiter(() => {
+        // A wire attached while an automatic workflow is waiting should hand
+        // control to the per-input dispatcher rather than use the default
+        // program for the first signal. An already picked part still finishes.
+        if (once && inputPort === undefined && this.robotInputs.has(robot.itemId)) return true;
         const targetPallet = this.pallets.get(config.targetId);
         if (targetPallet && targetPallet.cursor >= targetPallet.capacity) {
           robot.error = "Pallet full: replace or clear it to continue."; return false;
@@ -2003,13 +2069,13 @@ export class Engine {
         if (!zone) { robot.error = "Choose a source in the visual program"; return false; }
         const found = this.findPart(robot, zone, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined);
         if (!found) { robot.error = null; return false; }
-        if (!this.triggerGate(robot.itemId, config.sourceId)) { robot.error = null; return false; }
+        if (!this.triggerGate(robot.itemId, config.sourceId, false, inputPort)) { robot.error = null; return false; }
         const target = config.mode === "tend" ? machineTarget()?.table() : destination(found.productId);
         if (!target || !robot.reach([target.x, target.y + found.hy * 2, target.z])) {
           robot.error = "Destination is outside robot reach. Move it closer to continue.";
           return false;
         }
-        this.triggerGate(robot.itemId, config.sourceId, true);
+        this.triggerGate(robot.itemId, config.sourceId, true, inputPort);
         robot.error = null; box = found; found.claim = robot.id;
         if (config.pickupBack !== undefined && found.support === 2 && found.convId === config.sourceId) {
           // Reserve the product at this station while the arm approaches it.
@@ -2028,7 +2094,7 @@ export class Engine {
         for (let n = 0; n < rounds; n += 1) {
           if (n > 0) {
             let extra: Box | null = null;
-            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId)) return false; extra = this.findPart(robot, z, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true); extra.claim = robot.id; } return !!extra; });
+            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId, false, inputPort)) return false; extra = this.findPart(robot, z, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true, inputPort); extra.claim = robot.id; } return !!extra; });
             if (!extra || !(yield* this.pickGen(robot, extra))) break;
           }
           if (!(yield* this.placeGen(robot, live, false))) break;
@@ -2080,7 +2146,7 @@ export class Engine {
         }
       }
       if (config.delay > 0) yield* this.waitGen(config.delay);
-    } while (config.repeat);
+    } while (config.repeat && !once);
     return true;
   }
 
@@ -2540,7 +2606,7 @@ export class Engine {
           return true;
         }
         if (!robot.reach(tg)) {
-          if (robot.program) {
+          if (robot.currentProgram) {
             robot.error = "Destination is outside robot reach. Move it closer to continue.";
             t = 0;
             return false;
@@ -2724,7 +2790,7 @@ export class Engine {
     if (!box || box.state !== "free" || !this.canGrip(robot, box)) return false;
     box.claim = robot.id;
     const alive = () => box.state === "free" && box.claim === robot.id;
-    const hover = this.servo(robot, () => (alive() ? this.approach(robot, [box.x, box.y + box.hy, box.z], robot.program?.clearance ?? 0.35) : null), 0.03);
+    const hover = this.servo(robot, () => (alive() ? this.approach(robot, [box.x, box.y + box.hy, box.z], robot.currentProgram?.clearance ?? 0.35) : null), 0.03);
     yield hover;
     if (!hover.ok) {
       if (box.claim === robot.id) { box.claim = 0; box.pickGate = undefined; }
@@ -2743,7 +2809,7 @@ export class Engine {
       t += DT;
       return t > 0.25;
     });
-    const lift = this.approach(robot, robot.tip, robot.program?.clearance ?? 0.35);
+    const lift = this.approach(robot, robot.tip, robot.currentProgram?.clearance ?? 0.35);
     yield this.servo(robot, () => lift, 0.02, 0.8);
     return true;
   }
@@ -2760,7 +2826,7 @@ export class Engine {
     }
     const h = box.hy * 2;
     if (slot.yaw !== undefined) robot.holdYaw = slot.yaw;
-    const hover = this.servo(robot, () => this.approach(robot, [slot.x, slot.y + h, slot.z], robot.program?.clearance ?? 0.35), 0.025);
+    const hover = this.servo(robot, () => this.approach(robot, [slot.x, slot.y + h, slot.z], robot.currentProgram?.clearance ?? 0.35), 0.025);
     yield hover;
     if (!hover.ok) return false;
     const down = this.servo(robot, () => [slot.x, slot.y + h + 0.004, slot.z], 0.006, 0.4);
@@ -2773,10 +2839,10 @@ export class Engine {
       t += DT;
       return t > 0.2;
     });
-    const up = this.approach(robot, robot.tip, robot.program?.clearance ?? 0.35);
+    const up = this.approach(robot, robot.tip, robot.currentProgram?.clearance ?? 0.35);
     yield this.servo(robot, () => up, 0.02, 0.8);
     robot.cycles += 1;
-    if (emitOutput) robot.outputPulse = 0.1;
+    if (emitOutput) { robot.outputPulse = 0.1; robot.outputPulsePort = robot.activeProgramPort; }
     robot.lastCycle = this.time - robot.lastCycleAt;
     robot.lastCycleAt = this.time;
     return true;
@@ -3139,23 +3205,30 @@ export class Engine {
 
   private updateChannelOutputs() {
     if (!this.channelSpecs.length) return;
-    const before = new Map(this.signalState);
-    for (const {item,port,key,mode} of this.channelSpecs) {
-      if (item.visible === false) { this.writeSignal(key,false); continue; }
-      const inputs = this.channelInputs.get(signalChannelKey(item.id,port)) ?? [];
+    // Evaluate into a reusable buffer before writing any channel. This retains
+    // the one-step feedback semantics without cloning the entire signal map on
+    // every 60 Hz substep (especially costly in large graph-built plants).
+    const outputs = this.channelOutputScratch;
+    let index = 0;
+    for (const {item,port,mode} of this.channelSpecs) {
+      if (item.visible === false) { outputs[index++] = false; continue; }
+      const inputs = this.channelInputs.get(signalChannelKey(item.id,port)) ?? this.noChannelInputs;
       const connected = inputs.length > 0;
-      const high = inputs.some(source => source.visible !== false && before.get(source.id) === true);
+      const high = inputs.some(source => source.visible !== false && this.signalState.get(source.id) === true);
       const enabled = !connected || high;
       let output = false;
       if (mode === "relay") output = high || (item.kind === "plc" && item.props.signal === true);
       else if (mode === "invert") output = connected && !high;
-      else if (item.kind === "laser" || item.kind === "sensor") {
+      else if (item.kind === "color-sensor") {
+        const material = item.signalChannels?.find(channel => channel.port === port)?.material;
+        output = !!material && (this.detectedColors.get(item.id)?.has(material.toLowerCase()) ?? false);
+      } else if (item.kind === "laser" || item.kind === "sensor") {
         const detected = this.signalState.get(item.id) === true;
         output = enabled && (mode === "clear" ? !detected : detected);
       } else if (item.kind === "button") output = enabled && this.signalState.get(item.id) === true;
       else if (["robot","cobot","kuka","fanuc"].includes(item.kind)) {
         const robot = this.robots.get(item.id);
-        output = !!robot && (mode === "moving" ? robot.status === "moving" || !!robot.held : robot.outputPulse > 0);
+        output = !!robot && (mode === "moving" ? (robot.status === "moving" || !!robot.held) && (robot.activeProgramPort === null || robot.activeProgramPort === port) : robot.outputPulse > 0 && (robot.outputPulsePort === null || robot.outputPulsePort === port));
       } else if (item.kind === "feeder") output = (this.componentPulses.get(item.id) ?? 0) > 0;
       else if (item.kind === "conveyor" || item.kind === "roller") {
         const belt = this.conveyors.get(item.id);
@@ -3170,14 +3243,36 @@ export class Engine {
         const pallet = this.pallets.get(item.id);
         output = !!pallet && enabled && (mode === "available" ? pallet.cursor < pallet.capacity : pallet.cursor >= pallet.capacity);
       }
-      this.writeSignal(key,output);
+      outputs[index++] = output;
     }
+    for (let i = 0; i < this.channelSpecs.length; i++) this.writeSignal(this.channelSpecs[i].key, outputs[i]);
+    outputs.length = index;
   }
 
   private updateLogic() {
     for (const item of this.logicItems) {
       let signal = item.kind === "button" ? this.signalState.get(item.id) === true : false;
-      if (item.kind === "laser") {
+      if (item.kind === "color-sensor") {
+        const range = Math.max(0.1, num(item.props.range, 3)) * item.scale / 2;
+        const yaw = item.rotation * DEG, c = Math.cos(yaw), sn = Math.sin(yaw);
+        const a: P2 = [item.position[0] - range * c, item.position[2] + range * sn];
+        const b: P2 = [item.position[0] + range * c, item.position[2] - range * sn];
+        const beamY = item.position[1] + (item.props.mountedTo ? .1 : .85) * item.scale;
+        const colors = this.detectedColors.get(item.id) ?? new Set<string>(); colors.clear();
+        for (const box of this.boxes) {
+          if (box.state === "dead" || box.state === "dying" || box.state === "inside" || Math.abs(box.y - beamY) > box.hy + .02 || distanceToSegment(box.x, box.z, a, b).distance >= box.r + .02) continue;
+          const source = importedProductSource(box.productId, this.items);
+          if (source?.imported?.materials.length) {
+            for (const material of source.imported.materials) if (material.opacity > 0) colors.add(material.color.toLowerCase());
+          } else colors.add(`#${box.color.toString(16).padStart(6,'0')}`.toLowerCase());
+        }
+        for (const blocker of this.beamBlockers) {
+          if (blocker.id === item.id || blocker.id === item.props.mountedTo || !blocker.test([a[0],beamY,a[1]],[b[0],beamY,b[1]])) continue;
+          if (blocker.item.imported?.materials.length) for (const material of blocker.item.imported.materials) { if (material.opacity > 0) colors.add(material.color.toLowerCase()); }
+          else if (typeof blocker.item.color === 'string' && /^#[0-9a-f]{6}$/i.test(blocker.item.color)) colors.add(blocker.item.color.toLowerCase());
+        }
+        this.detectedColors.set(item.id, colors); signal = colors.size > 0;
+      } else if (item.kind === "laser") {
         const range = Math.max(0.1, num(item.props.range, 3)) * item.scale / 2;
         const yaw = item.rotation * DEG, c = Math.cos(yaw), sn = Math.sin(yaw);
         const a: P2 = [item.position[0] - range * c, item.position[2] + range * sn];
@@ -3214,20 +3309,19 @@ export class Engine {
     this.updateConveyorSignals();
   }
 
-  private triggerGate(robotId: string, sourceId: string, consume = false) {
-    const direct = this.robotSignals.get(robotId);
-    const hasPending = !!direct && [...direct.pending.values()].some((count) => count > 0);
-    const legacy = this.triggers.get(sourceId) ?? [];
-    const legacyHigh = legacy.some((item) => item.visible !== false && this.signalState.get(item.id) === true);
-    // A detector is also a level-based presence gate: a queue of touching
-    // workpieces can hold its beam continuously high while the robot removes
-    // them one by one. Buttons and other triggers remain edge-queued, so a
-    // held button does not repeatedly launch new operations.
-    const detectorHigh = (this.triggers.get(robotId) ?? []).some((item) =>
-      item.visible !== false && (item.kind === "laser" || item.kind === "sensor") && this.signalState.get(item.id) === true);
-    if (hasPending) { if (consume) this.consumeRobotSignal(robotId); return true; }
-    if (detectorHigh || legacyHigh) return true;
-    return !direct && legacy.length === 0;
+  private triggerGate(robotId:string, sourceId:string, consume=false, port?:number) {
+    const direct=this.robotSignals.get(robotId), bindings=this.robotInputs.get(robotId) ?? [];
+    const matching=port===undefined ? bindings : bindings.filter(binding=>binding.input===port);
+    const hasPending=!!direct && matching.some(binding=>(direct.pending.get(binding.key) ?? 0)>0);
+    const detectorHigh=matching.some(({source})=>source.visible!==false && (source.kind==="laser"||source.kind==="color-sensor"||source.kind==="sensor") && this.signalState.get(source.id)===true);
+    if(hasPending) { if(consume)this.consumeRobotSignal(robotId,port);return true; }
+    if(detectorHigh)return true;
+    // Multi-input subprograms cannot be launched by an unrelated input or the
+    // legacy conveyor gate; each port has its own edge queue.
+    if(port!==undefined)return false;
+    const legacy=this.triggers.get(sourceId) ?? [];
+    const legacyHigh=legacy.some(item=>item.visible!==false&&this.signalState.get(item.id)===true);
+    return legacyHigh || (!direct && legacy.length===0);
   }
 
   /* ----- physics ----- */
@@ -3383,18 +3477,25 @@ export class Engine {
     for (let i = 0; i < stacked.length; i += 1) {
       const o = stacked[i];
       if (o === b || o.state !== "free") continue;
-      const dx = b.x - o.x, dz = b.z - o.z, c=Math.cos(o.yaw), s=Math.sin(o.yaw);
-      const lx=dx*c-dz*s,lz=dx*s+dz*c;
       const parts=o.productId.startsWith("imported:") ? this.importedProductParts(o) : null;
+      // Reject by height before doing a rotated footprint test. Most nearby
+      // products are peers on the same belt rather than potential supports.
       if (!parts) {
         const top=o.y+o.hy;
-        if (top >= out.top && bottom >= top-.14 && bottom <= top+.1 && Math.abs(lx)<o.hx*.95 && Math.abs(lz)<o.hz*.95) {
+        if (top < out.top || bottom < top-.14 || bottom > top+.1) continue;
+        const dx=b.x-o.x,dz=b.z-o.z,c=Math.cos(o.yaw),s=Math.sin(o.yaw);
+        const lx=dx*c-dz*s,lz=dx*s+dz*c;
+        if (Math.abs(lx)<o.hx*.95 && Math.abs(lz)<o.hz*.95) {
           out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;
         }
-      } else for (const part of parts) {
+      } else {
+        const dx=b.x-o.x,dz=b.z-o.z,c=Math.cos(o.yaw),s=Math.sin(o.yaw);
+        const lx=dx*c-dz*s,lz=dx*s+dz*c;
+        for (const part of parts) {
         const top=o.y-o.hy+part.center[1]+part.size[1]/2;
         if (top < out.top || bottom < top-.14 || bottom > top+.1 || Math.abs(lx-part.center[0])>=part.size[0]*.475 || Math.abs(lz-part.center[2])>=part.size[2]*.475) continue;
         out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;
+        }
       }
     }
     return out;
@@ -3512,12 +3613,17 @@ export class Engine {
       const bottom = b.y - b.hy;
       if (bottom <= sup.top + 0.004 && b.vy <= 0.05) {
         b.y = sup.top + b.hy;
-        if (prev === 0 && b.vy < -1.3) b.vy = -b.vy * 0.12;
+        if (prev === 0 && b.vy < -1.3) {
+          const authored = importedProductSource(b.productId,this.items)?.props.physicsRestitution;
+          const bounce = authored === undefined ? .12 : Math.max(0,Math.min(1,num(authored,.12)));
+          b.vy = -b.vy * bounce;
+        }
         else b.vy = 0;
         b.support = sup.kind;
         if (sup.kind === 2 && sup.conv && sup.q) {
           const conv = sup.conv;
           const q = sup.q;
+          if (q.normal || b.beltNormal) b.beltNormal = q.normal;
           b.convId = conv.id;
           b.convS = q.s;
           b.convLat = q.lat;

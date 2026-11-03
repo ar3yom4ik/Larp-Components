@@ -54,11 +54,14 @@ function ImportedWorkpiece({ box, source }: { box: Box; source: SceneItem }) {
   const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const axis = useMemo(() => new THREE.Vector3(), []);
   const tilt = useMemo(() => new THREE.Quaternion(), []);
+  const normal = useMemo(() => new THREE.Vector3(), []);
   useFrame(() => {
     if (!group.current) return;
     group.current.visible = box.state !== "inside" && box.state !== "dead";
-    group.current.position.set(box.x, box.y + Math.abs(Math.sin(box.tilt)) * box.hz * 0.9, box.z);
+    const belt = box.state === "free" && box.support === 2 ? box.beltNormal : undefined;
+    group.current.position.set(box.x, box.y + (belt ? box.hy * (1 / Math.max(.2, belt[1]) - 1) : 0) + Math.abs(Math.sin(box.tilt)) * box.hz * 0.9, box.z);
     group.current.quaternion.setFromAxisAngle(up, box.yaw);
+    if (belt) { normal.set(...belt); tilt.setFromUnitVectors(up, normal); group.current.quaternion.premultiply(tilt); }
     if (box.tilt) { axis.set(box.ax, 0, box.az).normalize(); tilt.setFromAxisAngle(axis, box.tilt); group.current.quaternion.premultiply(tilt); }
     group.current.scale.setScalar(box.state === "dying" ? Math.max(0, box.fade) : 1);
   });
@@ -71,7 +74,7 @@ function ImportedWorkpiece({ box, source }: { box: Box; source: SceneItem }) {
   </group>;
 }
 
-export function BoxesLayer({ items = [] }: { items?: readonly SceneItem[] }) {
+export function BoxesLayer({ items = [], onProjectedWorkpiecesChange }: { items?: readonly SceneItem[]; onProjectedWorkpiecesChange?: (active: boolean) => void }) {
   const { gfx } = useAppearance();
   const meshes = useRef<Partial<Record<ProductShape, THREE.InstancedMesh>>>({});
   const sources = useMemo(() => new Map(items.filter((item) => item.kind === "imported-model" && item.imported).map((item) => [importedProductId(item), item])), [items]);
@@ -79,11 +82,14 @@ export function BoxesLayer({ items = [] }: { items?: readonly SceneItem[] }) {
   // Instance buffers grow with demand instead of imposing a simulation limit.
   const [capacity, setCapacity] = useState(256);
   const importKey = useRef("");
+  const projectedWorkpieces = useRef<boolean | null>(null);
   const kit = useMemo(() => ({ m: new THREE.Matrix4(), q: new THREE.Quaternion(), q2: new THREE.Quaternion(), p: new THREE.Vector3(), scale: new THREE.Vector3(), axis: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), color: new THREE.Color() }), []);
   useFrame(() => {
     if (sim.boxes.length > capacity) setCapacity(2 ** Math.ceil(Math.log2(sim.boxes.length)));
     const counts = { box: 0, cookie: 0, cylinder: 0, bottle: 0, sphere: 0, gear: 0, board: 0, frame: 0 };
     const imported = sources.size ? sim.boxes.filter((b) => b.state !== "inside" && b.state !== "dead" && sources.has(b.productId)) : [];
+    const hasProjection = imported.some((box) => sources.get(box.productId)?.imported?.materials.some((material) => material.worldProjection === true));
+    if (hasProjection !== projectedWorkpieces.current) { projectedWorkpieces.current = hasProjection; onProjectedWorkpiecesChange?.(hasProjection); }
     const key = imported.map((b) => `${b.id}:${b.productId}`).join(",");
     if (key !== importKey.current) { importKey.current = key; setImports(imported); }
     for (const b of sim.boxes) {
@@ -95,8 +101,10 @@ export function BoxesLayer({ items = [] }: { items?: readonly SceneItem[] }) {
       if (index >= capacity) continue;
       const fade = b.state === "dying" ? Math.max(0, b.fade) : 1;
       kit.q.setFromAxisAngle(kit.up, b.yaw);
+      const belt = b.state === "free" && b.support === 2 ? b.beltNormal : undefined;
+      if (belt) { kit.axis.set(...belt); kit.q2.setFromUnitVectors(kit.up, kit.axis); kit.q.premultiply(kit.q2); }
       if (b.tilt) { kit.axis.set(b.ax, 0, b.az).normalize(); kit.q2.setFromAxisAngle(kit.axis, b.tilt); kit.q.premultiply(kit.q2); }
-      kit.p.set(b.x, b.y + Math.abs(Math.sin(b.tilt)) * b.hz * 0.9, b.z);
+      kit.p.set(b.x, b.y + (belt ? b.hy * (1 / Math.max(.2, belt[1]) - 1) : 0) + Math.abs(Math.sin(b.tilt)) * b.hz * 0.9, b.z);
       kit.scale.set(b.hx * 2 * fade, b.hy * 2 * fade, b.hz * 2 * fade);
       kit.m.compose(kit.p, kit.q, kit.scale); mesh.setMatrixAt(index, kit.m);
       kit.color.setHex(b.color).multiplyScalar(1 + gfx.productBoost * 1.5); mesh.setColorAt(index, kit.color);

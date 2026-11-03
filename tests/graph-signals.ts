@@ -21,11 +21,11 @@ const tick = (engine:Engine,n=1) => { for (let i=0;i<n;i++) engine.step(1/60); }
 // Starter sensors are graph nodes, with actual signal wires as well as the
 // independent, direct material-flow edge. They compile at robot pickup points.
 const starter = defaultComponentGraph();
-assert.equal(starter.signalSchema,1);
+assert.equal(starter.signalSchema,2);
 const graphSensors = starter.nodes.filter(node => node.type === 'part.laser');
 assert.equal(graphSensors.length,2);
 for (const sensor of graphSensors) {
-  const input = starter.links.find(link => link.to.node === sensor.id && link.to.port === 'signal-in-1');
+  const input = starter.links.find(link => link.to.node === sensor.id && link.to.port === 'mount');
   const output = starter.links.find(link => link.from.node === sensor.id && link.from.port === 'signal-out-1');
   assert.ok(input && output);
   assert.equal(starter.nodes.find(node => node.id === input.from.node)?.type,'part.conveyor');
@@ -71,7 +71,7 @@ rewired = wire(rewired,belt.id,'out',inserted.id,'in');
 rewired = wire(rewired,inserted.id,'out',robot.id,'in');
 rewired = ensurePickupSensor(rewired,inserted.id,robot.id);
 const movedSensor = rewired.nodes.find(node => node.id === graphSensors[0].id)!;
-assert.ok(rewired.links.some(link => link.from.node === inserted.id && link.to.node === movedSensor.id && link.to.port === 'signal-in-1'));
+assert.ok(rewired.links.some(link => link.from.node === inserted.id && link.to.node === movedSensor.id && link.to.port === 'mount'));
 const movedPlant = compileComponentGraph(rewired).plant!;
 const tend = movedPlant.items.find(item => item.program?.mode === 'tend')!;
 const detector = movedPlant.items.find(item => item.kind === 'laser' && signalTargets(item).includes(tend.id))!;
@@ -86,7 +86,7 @@ assert.equal(detector.props.mountedTo,tend.program!.sourceId);
   const attached = attachPickupSensorToLink(base,loose.id,material.id);
   assert.ok(attached.ok);
   assert.ok(attached.graph.links.some(link => link.id === material.id),'material wire remains intact');
-  assert.ok(attached.graph.links.some(link => link.from.node === belt.id && link.to.node === loose.id && link.to.port === 'signal-in-1'));
+  assert.ok(attached.graph.links.some(link => link.from.node === belt.id && link.to.node === loose.id && link.to.port === 'mount'));
   assert.ok(attached.graph.links.some(link => link.from.node === loose.id && link.to.node === robot.id && link.to.port === 'signal-in-2'));
   assert.equal(attached.graph.nodes.find(node => node.id === loose.id)?.params.radius,1.2);
 }

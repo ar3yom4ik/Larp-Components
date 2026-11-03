@@ -207,6 +207,7 @@ export function SettingsWindow(props: SettingsWindowProps) {
               <div className="space-y-1 px-3 py-2 text-[12px] text-white/60" data-graphics-status onMouseEnter={() => sectionHelp("What the renderer is doing right now. These values are measured, not copied from the settings, so a fallback becomes visible.")}>
                 <div>{t("Renderer")}: <span className="font-mono text-white/85">{status.renderer === "webgpu" ? "WebGPU" : status.renderer === "webgl" ? "WebGL" : status.renderer === "failed" ? t("failed") : t("starting")}{status.rendererDetail ? ` (${status.rendererDetail})` : ""}</span></div>
                 <div>{t("Global illumination")}: <span className={cn("font-mono", gfx.gi === "vxgi" && status.gi !== "vxgi" ? "text-[#f5c26b]" : "text-white/85")}>{t(describeGi(status, gfx.gi))}</span></div>
+                {status.giDetail && <div data-gi-detail className="text-[11px] text-white/50">{t(status.giDetail)}</div>}
                 <div>{t("Shadow map")}: <span className="font-mono text-white/85">{status.shadowSize ? `${status.shadowSize}² · ${status.shadowExtent * 2} m · ${status.shadowTexelCm} cm/texel` : t("no sun shadows")}</span></div>
                 <div>{t("Frame time")}: <span className="font-mono text-white/85">{status.frameMs > 0 ? `${status.frameMs} ms (${Math.round(1000 / Math.max(1, status.frameMs))} FPS)` : t("idle")}</span></div>
                 <div>{t("3D pixel ratio")}: <span className="font-mono text-white/85">{status.pixelRatio.toFixed(2)}×</span></div>
@@ -247,6 +248,8 @@ export function SettingsWindow(props: SettingsWindowProps) {
               <StepRow label="View distance" help="Distance at which fog hides geometry. Only applies while distance fog is enabled." steps={VIEW_STEPS.map((step) => step.label)} value={nearest(VIEW_STEPS.map((step) => step.value), gfx.fogFar)} onChange={(index) => setGfx({ fogFar: VIEW_STEPS[index].value })} onHelp={sectionHelp} />
             </Section>
             <Section title="Post processing">
+              <ToggleRowUi label="Emissive bloom" help="Adds a halo around bright emissive surfaces. Disable for slower graphics hardware." checked={gfx.bloom} onChange={value => setGfx({bloom:value})} onHelp={sectionHelp} />
+              {gfx.bloom && <SliderRow label="Bloom strength" help="Strength of the halo around bright surfaces." min={0} max={2} step={.05} value={gfx.bloomStrength} onChange={value => setGfx({bloomStrength:value})} onHelp={sectionHelp} />}
               <label className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-center gap-3 rounded px-3 py-2 hover:bg-white/[0.04]" onMouseEnter={() => sectionHelp("Maps high dynamic range lighting to the screen. ACES, AgX and Neutral keep colours closer to the reference; Linear and None do no tone compression.")}>
                 <span className="text-[12px] text-white/75">{t("Tone mapping")}</span>
                 <select aria-label={t("Tone mapping")} value={gfx.toneMapping} onChange={(event) => setGfx({ toneMapping: event.target.value as ToneMapping })} className="rounded border border-white/10 bg-[#1e1e20] px-2 py-1.5 text-[12px] text-white/85">

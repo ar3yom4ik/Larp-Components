@@ -133,7 +133,10 @@ export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneI
         <Slider label="Emissive intensity" value={material.emissiveIntensity} min={0} max={5} step={.05} disabled={item.locked} onBegin={onBeginEdit} onChange={(emissiveIntensity) => updateMaterial({emissiveIntensity},false)} />
       </div>
       <label className="mt-3 flex items-center gap-2 text-[10px] text-white/65"><input type="checkbox" checked={material.doubleSided} disabled={item.locked} onChange={(e) => updateMaterial({doubleSided:e.target.checked})}/>{t("Double-sided")}</label>
-      <p className="mt-3 text-[10px] leading-relaxed text-white/40">{t("Select a texture to replace a source map. Roughness uses green, metalness uses blue, and AO uses red (standard glTF/PBR packing). Models need UV coordinates.")}</p>
+      <label className="mt-3 flex items-center gap-2 text-[10px] text-white/65"><input type="checkbox" aria-label={t("WPO world projection")} checked={material.worldProjection === true} disabled={item.locked} onChange={event => updateMaterial({worldProjection:event.target.checked})}/>{t("WPO: world-projected textures")}</label>
+      {material.worldProjection && <div className="mt-2"><Slider label="World projection tiles per metre" value={material.worldProjectionScale ?? 1} min={.1} max={10} step={.1} disabled={item.locked} onBegin={onBeginEdit} onChange={worldProjectionScale => updateMaterial({worldProjectionScale},false)} /></div>}
+      <p className="mt-3 text-[10px] leading-relaxed text-white/40">{t("World projection tiles textures in world space on meshes without UVs. While enabled, Max graphics temporarily uses WebGL and approximate global illumination.")}</p>
+      <p className="mt-2 text-[10px] leading-relaxed text-white/40">{t("Select a texture to replace a source map. Roughness uses green, metalness uses blue, and AO uses red (standard glTF/PBR packing).")}</p>
       {error && <div role="alert" className="mt-2 rounded border border-red-400/30 bg-red-500/10 p-2 text-[10px] text-red-200">{error}</div>}
       <div className="mt-3 space-y-2">{maps.map(({slot,title,strength,min,max,step}) => {
         const override = material.textures[slot];

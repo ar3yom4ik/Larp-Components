@@ -52,6 +52,10 @@ export function pasteGraphSelection(graph: NodeGraph, clipboard: GraphClipboard,
   for (const node of nodes) {
     const mounted = node.params.mountedTo;
     if (typeof mounted === 'string' && idMap.has(mounted)) node.params.mountedTo = idMap.get(mounted)!;
+    for (const setting of Object.values(node.io ?? {})) {
+      if (setting.programSource && idMap.has(setting.programSource)) setting.programSource = idMap.get(setting.programSource)!;
+      if (setting.programTarget && idMap.has(setting.programTarget)) setting.programTarget = idMap.get(setting.programTarget)!;
+    }
   }
   const links = clipboard.links.flatMap(link => {
     const from = idMap.get(link.from.node), to = idMap.get(link.to.node);
@@ -96,8 +100,13 @@ export function arrangeGraphNodes(graph: NodeGraph, ids: Iterable<string>, heigh
     let y = top;
     column.sort((a,b) => a.y-b.y || a.x-b.x);
     for (const node of column) {
-      positions.set(node.id,{x:left+rank*(NODE_WIDTH+100),y});
-      y += (heights.get(node.id) ?? estimatedNodeHeight(node, graph)) + 48;
+      const x=left+rank*(NODE_WIDTH+100), height=heights.get(node.id) ?? estimatedNodeHeight(node,graph);
+      // A partial rearrangement must also leave stationary nodes unobstructed.
+      const stationary=graph.nodes.filter(other=>!selected.has(other.id) && x<other.x+NODE_WIDTH+32 && x+NODE_WIDTH+32>other.x);
+      let moved=true;
+      while(moved) { moved=false; for(const other of stationary) { const bottom=other.y+(heights.get(other.id) ?? estimatedNodeHeight(other,graph)); if(y<bottom+48 && y+height+48>other.y) {y=bottom+48;moved=true;} } }
+      positions.set(node.id,{x,y});
+      y += height + 48;
     }
   }
   return {...graph,nodes:graph.nodes.map(node => positions.has(node.id) ? {...node,...positions.get(node.id)!} : node)};

@@ -34,6 +34,7 @@ export interface GraphicsSettings {
   pixelRatio: number; adaptive: boolean; fog: boolean; fogFar: number; grid: boolean;
   productBoost: number; background: string; useSkinBackground: boolean;
   contactShadows: boolean; contactOpacity: number;
+  bloom: boolean; bloomStrength: number;
   gi: GiMode; aoIntensity: number; aoRadius: number; bounce: number;
   /** Voxel grid resolution per axis for VXGI (64 / 96 / 128). */
   vxgiResolution: 64 | 96 | 128;
@@ -76,8 +77,8 @@ export interface Appearance {
 
 export const SKINS: Record<SkinId, { name: string; appName: string; accent: string; note: string }> = {
   larp: { name: 'Larp UI', appName: 'Larp Components 5.1', accent: '#2a8be0', note: 'Default balanced studio layout' },
-  vc: { name: 'Visual Components', appName: 'Visual Components-inspired 5.1', accent: '#f5a623', note: 'Industrial ribbon layout, independently developed' },
-  rpro: { name: 'R-pro', appName: 'R-pro 5.1', accent: '#d83a45', note: 'Dark graphite layout with robot-programming accents' },
+  vc: { name: 'Classic yellow', appName: 'Larp Components 5.1', accent: '#f5a623', note: 'Classic yellow industrial ribbon' },
+  rpro: { name: 'Classic red', appName: 'Larp Components 5.1', accent: '#d83a45', note: 'Light red and white industrial ribbon' },
   custom: { name: 'Custom', appName: 'Larp Components 5.1', accent: DEFAULT_SCHEME.accent, note: 'Fully customizable colour scheme' },
 };
 
@@ -89,11 +90,11 @@ export const defaultGfx = (preset: GraphicsQuality): GraphicsSettings => {
     sunAzimuth: 230, sunElevation: 45, toneMapping: 'neutral',
     pixelRatio: 1.25, adaptive: false, fog: true, fogFar: 160, grid: true,
     productBoost: 0.15, background: '#e3e6e9', useSkinBackground: true,
-    contactShadows: true, contactOpacity: 0.50,
+    contactShadows: true, contactOpacity: 0.50, bloom: true, bloomStrength: .65,
     gi: 'off', aoIntensity: 1.0, aoRadius: 0.55, bounce: 0, vxgiResolution: 96, vxgiRefresh: 2,
     showFps: false, antialias: 'msaa',
   };
-  if (preset === 'low') return { ...common, shadowSize: 1024, softShadows: false, shadowRadius: 1, shadowExtent: 20, contactShadows: false, pixelRatio: 1, fog: false, toneMapping: 'linear', adaptive: true, antialias: 'fxaa' };
+  if (preset === 'low') return { ...common, shadowSize: 1024, softShadows: false, shadowRadius: 1, shadowExtent: 20, contactShadows: false, bloom: false, pixelRatio: 1, fog: false, toneMapping: 'linear', adaptive: true, antialias: 'fxaa' };
   if (preset === 'enhanced') return { ...common, exposure: 1.02, shadowSize: 2048, shadowRadius: 4, shadowExtent: 30, pixelRatio: 1.25, env: 0.55, gi: 'approx', bounce: 0.3, contactOpacity: 0.55, aoIntensity: 0.8, aoRadius: 0.42, vxgiResolution: 96, vxgiRefresh: 2 };
   // Max: WebGPU voxel cone-traced GI (r187 VXGI) with TRAA. The WebGL fallback is an
   // explicit approximation (bounce lights + screen-space GTAO + contact shadows), not path tracing.
@@ -147,6 +148,8 @@ export function sanitizeGfx(quality: GraphicsQuality, saved: Partial<Record<stri
   raw.fill = clampNumber(raw.fill, 0, 8, base.fill);
   raw.env = clampNumber(raw.env, 0, 4, base.env);
   raw.bounce = clampNumber(raw.bounce, 0, 4, base.bounce);
+  raw.bloomStrength = clampNumber(raw.bloomStrength, 0, 3, base.bloomStrength);
+  if (typeof raw.bloom !== 'boolean') raw.bloom = base.bloom;
   raw.aoIntensity = clampNumber(raw.aoIntensity, 0, 4, base.aoIntensity);
   raw.aoRadius = clampNumber(raw.aoRadius, 0.05, 4, base.aoRadius);
   raw.contactOpacity = clampNumber(raw.contactOpacity, 0, 1, base.contactOpacity);

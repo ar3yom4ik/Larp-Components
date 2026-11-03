@@ -35,6 +35,17 @@ export function LibraryPanel({ onAdd, catalog = [], onAddCatalog, onEditCatalog,
   const [category, setCategory] = useState<"All" | Category>("All");
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const catalogRef = useRef<HTMLElement>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [treeHeight, setTreeHeight] = useState<number>();
+  const resizeTree = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    const initial = treeRef.current?.getBoundingClientRect().height ?? 160, start = event.clientY;
+    const move = (next:PointerEvent) => setTreeHeight(Math.max(56,Math.min((catalogRef.current?.clientHeight ?? 500)-150,initial + next.clientY-start)));
+    const end = () => {window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',end);window.removeEventListener('pointercancel',end);};
+    window.addEventListener('pointermove',move);window.addEventListener('pointerup',end);window.addEventListener('pointercancel',end);
+  };
 
   useEffect(() => {
     if (layoutsSignal > 0) setTab("layouts");
@@ -73,7 +84,7 @@ export function LibraryPanel({ onAdd, catalog = [], onAddCatalog, onEditCatalog,
   const machines = filtered.filter((item) => item.category === "Machines").length;
 
   return (
-    <aside className={cn("app-panel app-catalog flex min-h-0 min-w-0 flex-col border-r border-white/[0.12] bg-[#2d2d30]", fullscreen ? "fixed inset-2 z-[100] w-auto rounded-lg border shadow-2xl" : "w-full flex-1")}>
+    <aside ref={catalogRef} className={cn("app-panel app-catalog flex min-h-0 min-w-0 flex-col border-r border-white/[0.12] bg-[#2d2d30]", fullscreen ? "fixed inset-2 z-[100] w-auto rounded-lg border shadow-2xl" : "w-full flex-1")}>
       <div className="flex h-[42px] shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
         <div className="flex items-center gap-2">
           <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
@@ -87,10 +98,11 @@ export function LibraryPanel({ onAdd, catalog = [], onAddCatalog, onEditCatalog,
         </div>
       </div>
 
-      <div className="collections-tree shrink-0 border-b border-white/[0.06] px-2 py-2">
+      <div ref={treeRef} style={{height:treeHeight,overflowY:"auto"}} className="collections-tree shrink-0 border-b border-white/[0.06] px-2 py-2">
         <button type="button" onClick={() => setCategory("All")} className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[10px] text-white/65 hover:bg-white/5"><ChevronDown size={11} />{t("Collections")}</button>
         <div className="mt-0.5 space-y-px pl-2">{[["All", "All Models"], ["Robots", "Robots"], ["Conveyors", "Conveyors"], ["Machines", "Machines"], ["Automation", "Automation"], ["Lighting", "Lighting"]].map(([id, label]) => <button key={id} type="button" onClick={() => { setTab("components"); setCategory(id as typeof category); }} className={cn("flex w-full items-center gap-1.5 rounded px-1 py-[3px] text-left text-[9.5px]", category === id ? "bg-[var(--app-accent)]/20 text-white" : "text-white/40 hover:text-white/75")}><Folder size={10} className={category === id ? "text-[var(--app-accent-bright)]" : "text-[#d4a742]/80"} />{t(label)}</button>)}</div>
       </div>
+      <div role="separator" tabIndex={0} aria-label={t("Resize catalog sections")} aria-orientation="horizontal" title={t("Resize catalog sections")} onPointerDown={resizeTree} onKeyDown={event => {if(event.key === 'ArrowDown' || event.key === 'ArrowUp') {event.preventDefault();setTreeHeight(Math.max(56,Math.min((catalogRef.current?.clientHeight ?? 500)-150,(treeRef.current?.clientHeight ?? 160)+(event.key === 'ArrowDown' ? 16 : -16))));}}} className="flex h-2 shrink-0 cursor-row-resize touch-none items-center justify-center bg-white/[0.03] hover:bg-white/10"><span className="h-0.5 w-10 rounded bg-white/30" /></div>
       <div className="grid shrink-0 grid-cols-3 border-b border-white/[0.06]">
         <button
           type="button"

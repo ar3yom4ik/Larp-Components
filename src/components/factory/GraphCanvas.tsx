@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Info, Maximize2 } from 'lucide-react';
 import { getNodeDef, PORT_COLORS } from '../../gen/graph/registry';
+import { nodeColor } from '../../gen/graph/nodeColors';
+import { graphWirePath } from '../../gen/graph/wireRouting';
 import { connect, insertNodeInLink, setParam, updateNode } from '../../gen/graph/graph';
 import { channelColor, channelMode, nodePort, setChannel, signalPort, signalPortNumber, signalRows } from '../../gen/graph/signal';
-import { signalFunction, signalFunctions } from '../../utils/signalChannels';
+import { signalAcceptsInput, signalFunction, signalFunctions } from '../../utils/signalChannels';
 import { attachPickupSensorToLink, ensurePickupSensor } from '../../gen/graph/pickupSensors';
 import { arrangeGraphNodes, copyGraphSelection, estimatedNodeHeight, groupNodes, NODE_HEADER, NODE_WIDTH, pasteGraphSelection, PORT_PAD, PORT_ROW, removeGraphNodes } from '../../gen/graph/layout';
 import type { GraphClipboard } from '../../gen/graph/layout';
@@ -17,11 +19,6 @@ const MIN_ZOOM = 0.01;
 const MAX_ZOOM = 1.8;
 const GROUP_FADE_START = 0.38;
 const GROUP_FADE_END = 0.22;
-const NODE_COLORS: Record<string,string> = {
-  'part.feeder':'#dd9a4c', 'part.conveyor':'#4da5d0', 'part.robot':'#a880db',
-  'part.machine':'#61b995', 'part.pallet':'#d8839b', 'part.human':'#d7bf63',
-  'part.laser':'#d86262', 'part.sensor':'#63bfe6', 'part.button':'#dd8d5f', 'part.plc':'#819cba',
-};
 const portY = (index: number) => NODE_HEADER + PORT_PAD + index * PORT_ROW + PORT_ROW / 2;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -415,6 +412,12 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
     if (!proxy) return point;
     return {x:proxy.x+(point.x-proxy.x)*groupFade,y:proxy.y+(point.y-proxy.y)*groupFade};
   };
+  const wireObstacles = useMemo(() => {
+    // A loose node being dragged onto a wire must not make that wire flee the
+    // pointer before the drop-to-insert gesture can be recognized.
+    const loose = nodePreview?.ids.length === 1 && !graph.links.some(link=>link.from.node===nodePreview.ids[0] || link.to.node===nodePreview.ids[0]) ? nodePreview.ids[0] : null;
+    return displayGraph.nodes.filter(node=>node.id!==loose).map(node=>({id:node.id,x:node.x,y:node.y,width:NODE_WIDTH,height:heights.get(node.id) ?? estimatedNodeHeight(node,displayGraph)}));
+  },[displayGraph,heights,nodePreview,graph.links]);
   const pathBetween = (a:{x:number;y:number},b:{x:number;y:number}) => {
     const bend = Math.max(36,Math.abs(b.x-a.x)*0.45);
     return `M ${a.x} ${a.y} C ${a.x+bend} ${a.y}, ${b.x-bend} ${b.y}, ${b.x} ${b.y}`;
@@ -447,7 +450,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
             const fromGroup = groups.owners.get(fromNode.id), toGroup = groups.owners.get(toNode.id);
             const internal = !!fromGroup && fromGroup.id === toGroup?.id;
             const from = endpoint(fromNode,link.from.port,'out',link.id), to = endpoint(toNode,link.to.port,'in',link.id);
-            const path = pathBetween(from,to);
+            const path = overview ? pathBetween(from,to) : graphWirePath(from,to,wireObstacles,fromNode.id,toNode.id);
             const type = nodePort(fromNode,link.from.port,'out')?.type ?? 'config';
             const number = signalPortNumber(link.from.port,'out');
             const color = number === null ? (PORT_COLORS[type] ?? '#94a3b8') : channelColor(fromNode,number);
@@ -474,7 +477,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
           const error = issues.some(entry => entry.severity === 'error');
           const warning = !error && issues.some(entry => entry.severity === 'warning');
           const collapsed = node.collapsed === true;
-          const color = NODE_COLORS[node.type] ?? PORT_COLORS[def.outputs[0]?.type ?? 'config'] ?? '#7da7ca';
+          const color = nodeColor(def);
           const grouped = groups.owners.has(node.id);
           return <div key={node.id} data-node={node.id} data-node-type={node.type} data-node-color={color} data-selected={selected.has(node.id) ? 'true' : 'false'}
             className={cn('absolute z-[2] select-none rounded-md border bg-[#2a2a2e] shadow-lg transition-[opacity,border-color]',selected.has(node.id) ? 'border-[var(--app-accent)] ring-1 ring-[var(--app-accent)]/60' : error ? 'border-red-400/60' : warning ? 'border-amber-400/50' : 'border-white/15')}
@@ -515,14 +518,14 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
                 const input = signalPort('in',number), output = signalPort('out',number);
                 const color = channelColor(node,number), option = signalFunction(node.type,channelMode(node,number));
                 return <div key={number} data-signal-row={number} className="relative flex h-[18px] items-center gap-1">
-                  <button type="button" data-no-drag data-input-node={node.id} data-input-port={input} aria-label={`${def.title} signal IN ${number}`}
+                  {signalAcceptsInput(node.type) && <button type="button" data-no-drag data-input-node={node.id} data-input-port={input} aria-label={`${def.title} signal IN ${number}`}
                     onPointerDown={event => beginInputDrag(event,node,input)} onPointerEnter={() => setHoverPort(`${node.id}:in:${input}`)} onPointerLeave={() => setHoverPort(null)}
-                    className="absolute -left-[13px] h-[9px] w-[9px] rounded-full border border-[#1c1c1f]" style={{background:'#4da9d8',boxShadow:hoverPort === `${node.id}:in:${input}` ? '0 0 0 3px rgba(255,255,255,.25)' : undefined}} title={`${t('Signal input')} ${number}`} />
-                  {!collapsed && <><span className="shrink-0 font-mono text-[8px] text-sky-200/70">IN {number}</span>
+                    className="absolute -left-[13px] h-[9px] w-[9px] rounded-full border border-[#1c1c1f]" style={{background:'#4da9d8',boxShadow:hoverPort === `${node.id}:in:${input}` ? '0 0 0 3px rgba(255,255,255,.25)' : undefined}} title={`${t('Signal input')} ${number}`} />}
+                  {!collapsed && <>{signalAcceptsInput(node.type) && <span className="shrink-0 font-mono text-[8px] text-sky-200/70">IN {number}</span>}
                     <select data-no-drag aria-label={`${t('Signal function')} ${number}`} title={option?.help ? t(option.help) : undefined} value={channelMode(node,number)}
                       onPointerDown={event => event.stopPropagation()} onChange={event => onChange(setChannel(graph,node.id,number,{mode:event.target.value}))}
                       className="h-[16px] min-w-0 flex-1 rounded bg-[#19191b] px-0.5 text-[8px] text-white/85">
-                      {signalFunctions(node.type).map(entry => <option key={entry.value} value={entry.value}>{t(entry.label)}</option>)}
+                      {signalFunctions(node.type).filter(entry => signalAcceptsInput(node.type) || entry.value === channelMode(node,number) || !['relay','invert'].includes(entry.value)).map(entry => <option key={entry.value} value={entry.value}>{t(entry.label)}</option>)}
                     </select>
                     <span className="shrink-0 font-mono text-[8px] text-sky-200/70">OUT {number}</span></>}
                   <button type="button" data-no-drag data-output-node={node.id} data-output-port={output} aria-label={`${def.title} signal OUT ${number}`}

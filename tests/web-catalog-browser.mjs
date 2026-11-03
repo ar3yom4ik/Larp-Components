@@ -6,7 +6,7 @@ const glb = await readFile(new URL('./fixtures/plane.glb', import.meta.url));
 const png = await readFile(new URL('./fixtures/red.png', import.meta.url));
 const cors = { 'access-control-allow-origin': '*' };
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
-let releaseSlow;
+let releaseSlow, releaseSlowThumb;
 try {
   const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
   const errors = [];
@@ -15,6 +15,7 @@ try {
   const requests = [];
   let allowGobkit = false;
   const slow = new Promise(resolve => { releaseSlow = resolve; });
+  const slowThumb = new Promise(resolve => { releaseSlowThumb = resolve; });
   await page.route(url => ['api.polyhaven.com', 'cdn.polyhaven.com', 'gobkit.com', 'hidencod.github.io'].includes(url.hostname), async route => {
     const url = new URL(route.request().url()); requests.push(url.href);
     if (url.hostname === 'api.polyhaven.com' && url.pathname === '/assets') return route.fulfill({ json: { poly_test: { name:'Poly fixture', categories:['Furniture'], tags:['table'] } }, headers:cors });
@@ -28,6 +29,7 @@ try {
       const models = [asset('chair','Kenney Chair'),asset('slow','Slow model'),...Array.from({length:23},(_,i)=>asset(`filler-${i}`,`Filler ${i}`)),asset('desk','Kenney Desk')];
       return route.fulfill({json:{packs:[{id:'furniture',name:'Furniture',author:'Kenney',license:'CC0-1.0',url:'https://kenney.nl/assets/furniture-kit',models}]},headers:cors});
     }
+    if (url.hostname === 'hidencod.github.io' && url.pathname.endsWith('/thumbs/chair.webp')) { await slowThumb; try { await route.fulfill({body:png,contentType:'image/png',headers:cors}); } catch { /* navigation may cancel */ } return; }
     if (url.hostname === 'hidencod.github.io' && url.pathname.endsWith('/slow.glb')) { await slow; try { await route.fulfill({body:glb,contentType:'model/gltf-binary',headers:cors}); } catch { /* cancellation may close the request */ } return; }
     if (url.pathname.endsWith('.glb') || url.pathname.endsWith('/model')) return route.fulfill({body:glb,contentType:'model/gltf-binary',headers:cors});
     return route.fulfill({body:png,contentType:'image/png',headers:cors});
@@ -58,7 +60,11 @@ try {
   await page.waitForFunction(()=>window.__larpProject.getWorkpieces().some(i=>i.imported.asset.source?.title==='Gobkit Tree'),null,{timeout:30000});
 
   await search.fill(''); await page.getByRole('button',{name:'Kenney (mirror)',exact:true}).click();
-  await page.getByRole('button',{name:/Kenney Chair/}).waitFor();
+  const chair=page.getByRole('button',{name:/Kenney Chair/});await chair.waitFor();
+  assert.equal(await chair.locator('img').evaluate(img=>img.complete),false,'search result name is available before the slow icon');
+  await page.getByLabel('Web catalog icon size').fill('100');
+  assert.ok(Math.abs((await chair.locator('img').locator('..').boundingBox()).width-100)<1,'icon slider resizes catalog thumbnails');
+  releaseSlowThumb();
   assert.equal(await page.getByRole('button',{name:/Kenney Desk/}).count(),0,'the catalog initially limits displayed cards');
   await page.getByRole('button',{name:/Show more · Kenney/}).click();
   await page.getByRole('button',{name:/Kenney Desk/}).waitFor();
@@ -67,7 +73,7 @@ try {
   await page.waitForFunction(()=>!document.querySelector('[role="status"] button'));
   releaseSlow();
   await search.fill('chair');
-  await page.getByRole('button',{name:/Kenney Chair/}).waitFor();
+  await chair.waitFor();
   assert.equal(await page.getByRole('button',{name:/Kenney Desk/}).count(),0,'the shared search filters the Kenney catalog');
   assert.ok(requests.some(url=>url.includes('hidencod.github.io/tge-assets/catalog.json')));
   await page.getByRole('button',{name:/Kenney Chair/}).click();
@@ -90,4 +96,4 @@ try {
   assert.deepEqual(new Set(await page.evaluate(()=>window.__larpProject.getWorkpieces().map(i=>i.imported.asset.source.provider))),new Set(['Poly Haven','Gobkit','Kenney']));
   assert.deepEqual(errors, []);
   console.log('web catalog (mocked providers): search, retry, show more, thumbnails, cancellation, import and persisted CC0 provenance OK');
-} finally { releaseSlow?.(); await browser.close(); }
+} finally { releaseSlow?.(); releaseSlowThumb?.(); await browser.close(); }

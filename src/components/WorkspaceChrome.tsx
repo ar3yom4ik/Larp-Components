@@ -219,7 +219,7 @@ export function AppChrome(props: ChromeProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(props.projectName);
   const importInput = useRef<HTMLInputElement>(null);
-  const isConveyor = props.selected?.kind === "conveyor" || props.selected?.kind === "roller" || props.selected?.kind === "fence";
+  const isConveyor = props.selected?.kind === "conveyor" || props.selected?.kind === "roller" || props.selected?.kind === "fence" || (props.selected?.kind === "wall" && !!props.selected.points);
   const isRobot = props.selected ? isRobotKind(props.selected.kind) : false;
 
   const finishRename = () => {
