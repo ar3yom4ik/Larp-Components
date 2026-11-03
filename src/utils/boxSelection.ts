@@ -25,8 +25,12 @@ export function sceneItemsInBox(scene: THREE.Scene, camera: THREE.Camera, canvas
       // the instance matrices. Normal meshes share immutable geometry bounds.
       const instanced = node as THREE.InstancedMesh;
       if (instanced.isInstancedMesh) {
-        if (!instanced.boundingBox) instanced.computeBoundingBox();
+        instanced.computeBoundingBox();
         if (instanced.boundingBox) bounds.union(temp.copy(instanced.boundingBox).applyMatrix4(node.matrixWorld));
+      } else if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+        const skinned = mesh as THREE.SkinnedMesh;
+        skinned.computeBoundingBox();
+        if (skinned.boundingBox) bounds.union(temp.copy(skinned.boundingBox).applyMatrix4(node.matrixWorld));
       } else {
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
         if (mesh.geometry.boundingBox) bounds.union(temp.copy(mesh.geometry.boundingBox).applyMatrix4(node.matrixWorld));

@@ -62,6 +62,13 @@ try {
   });
   await page.waitForFunction(ids=>window.__larpProject.getItems().length===2&&window.__larpProject.getItems().some(i=>i.id===ids.laser&&i.position[1]>.5),mounted);
   const mountedBefore=await page.evaluate(ids=>Object.fromEntries(window.__larpProject.getItems().map(i=>[i.id,i])),mounted);
+  // A marquee begun on a selected path's sphere must not edit the spline.
+  await page.getByTitle('Select (V)').click(); await page.evaluate(id=>window.__larpProject.select(id),mounted.belt);
+  await page.waitForFunction(id=>{let found=false;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.splineHandleFor===id&&o.userData.pointIndex===0)found=true});return found;},mounted.belt);
+  const handle=await page.evaluate(async id=>{const T=await import('/node_modules/three/build/three.module.js');let h;window.__larpRenderer.scene.traverse(o=>{if(o.userData?.splineHandleFor===id&&o.userData.pointIndex===0)h=o});const p=new T.Vector3(),r=window.__larpRenderer.gl.domElement.getBoundingClientRect();h.getWorldPosition(p);p.project(window.__larpRenderer.camera);return {x:r.left+(p.x+1)*r.width/2,y:r.top+(1-p.y)*r.height/2};},mounted.belt);
+  await page.mouse.move(handle.x,handle.y);await page.mouse.down();await page.mouse.move(handle.x+30,handle.y+20,{steps:8});await page.mouse.up();
+  assert.deepEqual(await page.evaluate(id=>window.__larpProject.getItems().find(i=>i.id===id).points,mounted.belt),mountedBefore[mounted.belt].points,'select drag must not move a spline handle');
+  await page.evaluate(()=>window.__larpProject.select(null));
   await selectAllByBox([mounted.laser,mounted.belt]);await moveY(mounted.belt);
   await page.waitForFunction(ids=>window.__larpProject.getItems().find(i=>i.id===ids.belt).position[1]>.2,mounted);
   const mountedAfter=await page.evaluate(ids=>Object.fromEntries(window.__larpProject.getItems().map(i=>[i.id,i])),mounted);

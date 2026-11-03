@@ -652,6 +652,10 @@ function SceneContent({
 
   const grabPoint = useCallback(
     (event: ThreeEvent<PointerEvent>, id: string, index: number) => {
+      // In Select mode the same left drag belongs to the marquee, including
+      // when it begins over a visible spline sphere. Move mode still supports
+      // both the original sphere drag and its XYZ gizmo.
+      if (tool === "select") return;
       event.stopPropagation();
       if (gizmoActive.current) return;
       onSelect(id);
@@ -663,7 +667,7 @@ function SceneContent({
       if (controlsRef.current) controlsRef.current.enabled = false;
       gl.domElement.style.cursor = "grabbing";
     },
-    [controlsRef, gl, onBeginEdit, onSelect, onSelectPoint],
+    [controlsRef, gl, onBeginEdit, onSelect, onSelectPoint, tool],
   );
 
   useEffect(() => {

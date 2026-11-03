@@ -35,6 +35,7 @@ try {
       } catch (error) { return {provider,ok:false,error:String(error?.message || error)}; }
     },provider);
     report.push(result); console.log('HTTP origin:',JSON.stringify(result));
+    if (process.env.GITHUB_ACTIONS) console.log(`::notice title=Live catalog HTTP ${provider}::${JSON.stringify(result)}`);
   }
   // Standalone HTML uses the opaque `file://` origin. Test actual CORS from
   // that origin as well as the normal hosted/dev origin.
@@ -51,7 +52,9 @@ try {
         return {provider,ok:true};
       } catch (error) { return {provider,ok:false,error:String(error?.message || error)}; }
     },previous);
-    console.log('File origin:',JSON.stringify(result)); report.push({...result,provider:`${result.provider}-file`});
+    console.log('File origin:',JSON.stringify(result));
+    if (process.env.GITHUB_ACTIONS) console.log(`::notice title=Live catalog file ${result.provider}::${JSON.stringify(result)}`);
+    report.push({...result,provider:`${result.provider}-file`});
   }
   if (report.some(result=>!result.ok) || report.length < 4) process.exitCode = 1;
 } finally { await browser.close(); }
