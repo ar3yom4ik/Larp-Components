@@ -103,7 +103,8 @@ function cleanMaterial(input: ImportedMaterial, index: number): ImportedMaterial
     worldProjection: input.worldProjection === true, worldProjectionScale: clamp(input.worldProjectionScale, 1, .01, 100),
     mapStrength: clamp(input.mapStrength, 1, 0, 1), normalStrength: clamp(input.normalStrength, 1, 0, 4), roughnessStrength: clamp(input.roughnessStrength, 1, 0, 1), metalnessStrength: clamp(input.metalnessStrength, 1, 0, 1),
     aoStrength: clamp(input.aoStrength, 1, 0, 2), emissiveMapStrength: clamp(input.emissiveMapStrength, 1, 0, 1), alphaStrength: clamp(input.alphaStrength, 1, 0, 1), bumpStrength: clamp(input.bumpStrength, 1, -2, 2), displacementStrength: clamp(input.displacementStrength, 0, -2, 2),
-    present: Array.isArray(input.present) ? input.present.filter((s): s is TextureSlot => slots.includes(s)) : [], textures,
+    present: Array.isArray(input.present) ? input.present.filter((s): s is TextureSlot => slots.includes(s)) : [],
+    ...(typeof input.preview === 'string' && input.preview.length <= 30_000 && safeDataUrl(input.preview,true) ? {preview:input.preview} : {}), textures,
   };
 }
 
@@ -174,7 +175,8 @@ export function parseProject(text: string): ProjectFile {
       }
       const cleanProgram = (p:RobotProgram):RobotProgram => {
         if (!p || !["palletize", "transfer", "tend", "paint", "assemble"].includes(p.mode) || typeof p.sourceId !== "string" || typeof p.targetId !== "string") throw new Error("Invalid program");
-        return { mode:p.mode, sourceId:p.sourceId, targetId:p.targetId, machineId:typeof p.machineId === "string" ? p.machineId : undefined, repeat:p.repeat !== false, delay:Math.max(0,Math.min(60,Number(p.delay)||0)), clearance:Math.max(.05,Math.min(.6,Number(p.clearance)||.3)), pickupBack:finite(p.pickupBack) ? Math.max(0,Math.min(200,p.pickupBack)) : undefined, paintColor:/^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
+        if (p.targetIds !== undefined && (!Array.isArray(p.targetIds) || p.targetIds.some(id => typeof id !== 'string' || !id || id.length > 1024))) throw new Error('Invalid pallet targets');
+        return { mode:p.mode, sourceId:p.sourceId, targetId:p.targetId, ...(p.targetIds?.length ? {targetIds:[...new Set(p.targetIds)]} : {}), machineId:typeof p.machineId === "string" ? p.machineId : undefined, repeat:p.repeat !== false, delay:Math.max(0,Math.min(60,Number(p.delay)||0)), clearance:Math.max(.05,Math.min(.6,Number(p.clearance)||.3)), pickupBack:finite(p.pickupBack) ? Math.max(0,Math.min(200,p.pickupBack)) : undefined, paintColor:/^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
       };
       const program = item.program ? cleanProgram(item.program) : undefined;
       let programs:Record<string,RobotProgram> | undefined;
@@ -201,7 +203,8 @@ export function parseProject(text: string): ProjectFile {
         const mode = signalFunction(item.kind,channel.mode)?.value;
         if (!mode || (channel.color !== undefined && !/^#[0-9a-f]{6}$/i.test(channel.color))) throw new Error("Invalid signal channel settings");
         if (channel.material !== undefined && !/^#[0-9a-f]{6}$/i.test(channel.material)) throw new Error("Invalid material color");
-        return {port:channel.port,mode,...(channel.color ? {color:channel.color} : {}),...(channel.material ? {material:channel.material.toLowerCase()} : {})};
+        if (channel.materialRef !== undefined && (typeof channel.materialRef !== 'string' || channel.materialRef.length > 2048)) throw new Error("Invalid material reference");
+        return {port:channel.port,mode,...(channel.color ? {color:channel.color} : {}),...(channel.material ? {material:channel.material.toLowerCase()} : {}),...(channel.materialRef ? {materialRef:channel.materialRef} : {})};
       });
       if (item.signalRoutes !== undefined && !Array.isArray(item.signalRoutes)) throw new Error("Invalid signal routes");
       const signalRoutes = item.signalRoutes?.map(route => {

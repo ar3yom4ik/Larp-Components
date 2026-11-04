@@ -181,6 +181,7 @@ export function FactoryStudio({
         <div className="flex min-w-0 flex-1 flex-col p-2">
           <GraphCanvas
             graph={graph}
+            items={productItems}
             selection={selection}
             diagnostics={compiled.diagnostics.length ? compiled.diagnostics : validation}
             onSelectionChange={setSelection}

@@ -1,3 +1,6 @@
+import { nearestPort } from '../../utils/portSnap';
+import { SurfaceMaterialChoice } from '../MaterialChoice';
+import type { SceneItem } from '../../types';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Info, Maximize2 } from 'lucide-react';
 import { getNodeDef, PORT_COLORS } from '../../gen/graph/registry';
@@ -25,6 +28,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 export interface GraphSelection { nodeIds: string[]; groupId: string | null }
 interface Props {
   graph: NodeGraph;
+  items?: readonly SceneItem[];
   selection: GraphSelection;
   diagnostics: Diagnostic[];
   onSelectionChange: (selection: GraphSelection) => void;
@@ -54,7 +58,7 @@ interface Menu { x:number; y:number; nodeIds:string[]; groupId:string | null }
 
 /** DOM nodes and SVG wires share a world transform. All movement previews are
  * ephemeral; one release produces one undoable graph edit. */
-export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, onChange, onConnect }: Props) {
+export function GraphCanvas({ graph, items = [], selection, diagnostics, onSelectionChange, onChange, onConnect }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const clipboard = useRef<GraphClipboard | null>(null);
   const pasteCount = useRef(0);
@@ -174,6 +178,19 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
       setBox({x:event.clientX-rect.left,y:event.clientY-rect.top,width:0,height:0});
     }
   };
+  const snapInput = (x:number,y:number,from:PortRef) => {
+    const source=nodePort(byId.get(from.node),from.port,'out');
+    if(!source || !host.current)return null;
+    const hostRect=host.current.getBoundingClientRect();
+    if(x<hostRect.left || x>hostRect.right || y<hostRect.top || y>hostRect.bottom)return null;
+    return nearestPort(host.current.querySelectorAll<HTMLElement>('[data-input-node][data-input-port]'),x,y,26,element=>{
+      const rect=element.getBoundingClientRect();
+      if(rect.right<hostRect.left || rect.left>hostRect.right || rect.bottom<hostRect.top || rect.top>hostRect.bottom)return null;
+      const node=element.dataset.inputNode, port=element.dataset.inputPort;
+      if(!node || !port || node===from.node || nodePort(byId.get(node),port,'in')?.type!==source.type)return null;
+      return {node,port};
+    });
+  };
   const onPointerMove = (event: React.PointerEvent) => {
     const state = drag.current;
     if (!state || state.pointerId !== event.pointerId) return;
@@ -191,7 +208,9 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
       const rect = host.current!.getBoundingClientRect();
       setBox({x:Math.min(state.startX,event.clientX)-rect.left,y:Math.min(state.startY,event.clientY)-rect.top,width:Math.abs(event.clientX-state.startX),height:Math.abs(event.clientY-state.startY)});
     } else if (state.kind === 'wire' && state.from) {
-      setWire({from:state.from,...toWorld(event.clientX,event.clientY)});
+      const snap=snapInput(event.clientX,event.clientY,state.from);
+      setHoverPort(snap ? `${snap.value.node}:in:${snap.value.port}` : null);
+      setWire({from:state.from,...toWorld(snap?.x ?? event.clientX,snap?.y ?? event.clientY)});
     }
   };
 
@@ -268,8 +287,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
       }
       setBox(null);
     } else if (state.kind === 'wire' && state.from) {
-      const target = document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-input-node]') as HTMLElement | null;
-      const to = target?.dataset.inputNode && target.dataset.inputPort ? {node:target.dataset.inputNode,port:target.dataset.inputPort} : null;
+      const to = snapInput(event.clientX,event.clientY,state.from)?.value ?? null;
       if (state.detachLinkId && Math.hypot(event.clientX-state.startX,event.clientY-state.startY)>6) {
         const without = {...graph,links:graph.links.filter(link => link.id !== state.detachLinkId)};
         if (to && to.node !== state.from.node) {
@@ -279,10 +297,10 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
       } else if (!state.detachLinkId && to && to.node !== state.from.node) completeConnection(state.from,to);
       setHoverPort(null);
     }
-    drag.current = null; setWire(null);
+    drag.current = null; setWire(null); setHoverPort(null);
   };
   const cancelDrag = () => {
-    drag.current = null; setWire(null); setNodePreview(null); setBox(null);
+    drag.current = null; setWire(null); setHoverPort(null); setNodePreview(null); setBox(null);
     if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
   };
   const onWheel = (event: React.WheelEvent) => {
@@ -467,7 +485,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
             if (!node) return null;
             const from = endpoint(node,wire.from.port,'out','');
             const number = signalPortNumber(wire.from.port,'out');
-            return <path d={pathBetween(from,wire)} fill="none" stroke={number === null ? '#e2e8f0' : channelColor(node,number)} strokeWidth={2} strokeDasharray="5 4" />;
+            return <path data-wire-preview d={pathBetween(from,wire)} fill="none" stroke={number === null ? '#e2e8f0' : channelColor(node,number)} strokeWidth={2} strokeDasharray="5 4" />;
           })()}
         </svg>
         {displayGraph.nodes.map(node => {
@@ -494,7 +512,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
               <div className="flex gap-2">
               <div className="flex min-w-0 flex-1 flex-col">
                 {def.inputs.map((port,index) => <div key={port.key} className="relative flex h-[18px] items-center">
-                  <button type="button" data-no-drag data-input-node={node.id} data-input-port={port.key} aria-label={`${def.title} ${port.label}`}
+                  <button type="button" data-no-drag data-input-node={node.id} data-input-port={port.key} data-port-snap={wire && hoverPort === `${node.id}:in:${port.key}` ? 'true' : undefined} aria-label={`${def.title} ${port.label}`}
                     onPointerDown={event => beginInputDrag(event,node,port.key)} onPointerEnter={() => setHoverPort(`${node.id}:in:${port.key}`)} onPointerLeave={() => setHoverPort(null)}
                     className="absolute -left-[13px] h-[9px] w-[9px] rounded-full border border-[#1c1c1f] transition"
                     style={{background:PORT_COLORS[port.type] ?? '#94a3b8',boxShadow:hoverPort === `${node.id}:in:${port.key}` ? '0 0 0 3px rgba(255,255,255,.25)' : undefined}}
@@ -518,7 +536,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
                 const input = signalPort('in',number), output = signalPort('out',number);
                 const color = channelColor(node,number), option = signalFunction(node.type,channelMode(node,number));
                 return <div key={number} data-signal-row={number} className="relative flex h-[18px] items-center gap-1">
-                  {signalAcceptsInput(node.type) && <button type="button" data-no-drag data-input-node={node.id} data-input-port={input} aria-label={`${def.title} signal IN ${number}`}
+                  {signalAcceptsInput(node.type) && <button type="button" data-no-drag data-input-node={node.id} data-input-port={input} data-port-snap={wire && hoverPort === `${node.id}:in:${input}` ? 'true' : undefined} aria-label={`${def.title} signal IN ${number}`}
                     onPointerDown={event => beginInputDrag(event,node,input)} onPointerEnter={() => setHoverPort(`${node.id}:in:${input}`)} onPointerLeave={() => setHoverPort(null)}
                     className="absolute -left-[13px] h-[9px] w-[9px] rounded-full border border-[#1c1c1f]" style={{background:'#4da9d8',boxShadow:hoverPort === `${node.id}:in:${input}` ? '0 0 0 3px rgba(255,255,255,.25)' : undefined}} title={`${t('Signal input')} ${number}`} />}
                   {!collapsed && <>{signalAcceptsInput(node.type) && <span className="shrink-0 font-mono text-[8px] text-sky-200/70">IN {number}</span>}
@@ -537,7 +555,7 @@ export function GraphCanvas({ graph, selection, diagnostics, onSelectionChange, 
             {!collapsed && node.type.startsWith('part.') && <div data-no-drag className="space-y-1 border-t border-white/10 px-2 py-1.5" onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
               {def.params.filter(param => !param.hidden && (param.kind === 'select' || param.kind === 'number')).map(param => <label key={param.key} className="flex items-center gap-1 text-[9px] text-white/55">
                 <span className="w-[72px] shrink-0 truncate" title={t(param.label)}>{t(param.label)}</span>
-                {param.kind === 'select' ? <select aria-label={t(param.label)} value={String(node.params[param.key] ?? param.default)} onChange={event => onChange(setParam(graph,node.id,param.key,event.target.value))} className="min-w-0 flex-1 rounded bg-[#19191b] px-1 text-white/85">{param.options?.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>
+                {param.key === 'surfaceMaterial' ? <div className="min-w-0 flex-1"><SurfaceMaterialChoice compact label={t(param.label)} value={String(node.params[param.key] ?? param.default)} items={items} onChange={next=>onChange(setParam(graph,node.id,param.key,next))} /></div> : param.kind === 'select' ? <select aria-label={t(param.label)} value={String(node.params[param.key] ?? param.default)} onChange={event => onChange(setParam(graph,node.id,param.key,event.target.value))} className="min-w-0 flex-1 rounded bg-[#19191b] px-1 text-white/85">{param.options?.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>
                   : param.kind === 'number' ? <><input aria-label={t(param.label)} type="range" min={param.min} max={param.max} step={param.step} value={Number(node.params[param.key] ?? param.default)} onChange={event => { const next=setParam(graph,node.id,param.key,Number(event.target.value)); onChange(param.key === 'range' && node.type === 'part.laser' ? setParam(next,node.id,'autoRange',false) : next); }} className="min-w-0 flex-1 accent-range"/><span className="w-7 text-right font-mono">{String(node.params[param.key] ?? param.default)}</span></> : null}
               </label>)}
             </div>}

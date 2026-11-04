@@ -101,7 +101,7 @@ export interface GraphNode {
   /** Collapsed nodes hide parameters but keep their connection ports. */
   collapsed?: boolean;
   /** Settings for independent, numbered signal I/O pairs. */
-  io?: Record<string, { mode?: string; color?: string; material?: string; programSource?: string; programTarget?: string; programMode?: string }>;
+  io?: Record<string, { mode?: string; color?: string; material?: string; materialRef?:string; programSource?: string; programTarget?: string; programMode?: string }>;
 }
 
 export interface PortRef { node: string; port: string }

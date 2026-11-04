@@ -6,7 +6,7 @@ const glb = await readFile(new URL('./fixtures/plane.glb', import.meta.url));
 const png = await readFile(new URL('./fixtures/red.png', import.meta.url));
 const cors = { 'access-control-allow-origin': '*' };
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
-let releaseSlow, releaseSlowThumb;
+let releaseSlow, releaseSlowSecond, releaseSlowThumb;
 try {
   const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
   const errors = [];
@@ -15,21 +15,23 @@ try {
   const requests = [];
   let allowGobkit = false;
   const slow = new Promise(resolve => { releaseSlow = resolve; });
+  const slowSecond = new Promise(resolve => { releaseSlowSecond = resolve; });
   const slowThumb = new Promise(resolve => { releaseSlowThumb = resolve; });
   await page.route(url => ['api.polyhaven.com', 'cdn.polyhaven.com', 'gobkit.com', 'hidencod.github.io'].includes(url.hostname), async route => {
     const url = new URL(route.request().url()); requests.push(url.href);
     if (url.hostname === 'api.polyhaven.com' && url.pathname === '/assets') return route.fulfill({ json: { poly_test: { name:'Poly fixture', categories:['Furniture'], tags:['table'] } }, headers:cors });
     if (url.hostname === 'api.polyhaven.com' && url.pathname === '/files/poly_test') return route.fulfill({ json: { glb:{'1k':{glb:{url:'https://cdn.polyhaven.com/poly.glb',size:glb.length}}} }, headers:cors });
     if (url.hostname === 'gobkit.com' && ['/api/free','/api/community'].includes(url.pathname)) {
-      if (!allowGobkit) return route.fulfill({status:503,body:'unavailable',headers:cors});
-      return route.fulfill({ json: url.pathname === '/api/free' ? {packs:[{id:'nature',name:'Nature',kind:'props',models:[{id:'tree',name:'Gobkit Tree',url:'https://gobkit.com/freebies/tree.glb',license:'CC0'}]}]} : {items:[{slug:'dragon',title:'Gobkit Dragon',creator:'Alice',status:'published',download_available:true,license:'cc0',model_url:'https://gobkit.com/api/community/file/dragon/model',thumb_url:'https://gobkit.com/api/community/file/dragon/thumb',page_url:'https://gobkit.com/s/dragon'}]}, headers:cors });
+      if (!allowGobkit && url.pathname==='/api/community') return route.fulfill({status:503,body:'unavailable',headers:cors});
+      return route.fulfill({ json: url.pathname === '/api/free' ? {packs:[{id:'nature',name:'Nature',kind:'props',models:[{id:'tree',name:'Gobkit Tree',url:'https://gobkit.com/freebies/tree.glb',license:'CC0 1.0 (public domain) — free for any use, commercial or personal, no attribution required.'}]}]} : {items:[{slug:'dragon',title:'Gobkit Dragon',creator:'Alice',status:'published',download_available:true,license:'cc0',model_url:'https://gobkit.com/api/community/file/dragon/model',thumb_url:'https://gobkit.com/api/community/file/dragon/thumb',page_url:'https://gobkit.com/s/dragon'}]}, headers:cors });
     }
     if (url.hostname === 'hidencod.github.io' && url.pathname === '/tge-assets/catalog.json') {
       const asset = (slug, name) => ({id:`furniture/${slug}`,name,file:`packs/furniture/${slug}.glb`,thumb:`packs/furniture/thumbs/${slug}.webp`,size:glb.length});
-      const models = [asset('chair','Kenney Chair'),asset('slow','Slow model'),...Array.from({length:23},(_,i)=>asset(`filler-${i}`,`Filler ${i}`)),asset('desk','Kenney Desk')];
+      const models = [asset('chair','Kenney Chair'),asset('slow','Slow model'),asset('slow-second','Slow second model'),...Array.from({length:23},(_,i)=>asset(`filler-${i}`,`Filler ${i}`)),asset('desk','Kenney Desk')];
       return route.fulfill({json:{packs:[{id:'furniture',name:'Furniture',author:'Kenney',license:'CC0-1.0',url:'https://kenney.nl/assets/furniture-kit',models}]},headers:cors});
     }
     if (url.hostname === 'hidencod.github.io' && url.pathname.endsWith('/thumbs/chair.webp')) { await slowThumb; try { await route.fulfill({body:png,contentType:'image/png',headers:cors}); } catch { /* navigation may cancel */ } return; }
+    if (url.hostname === 'hidencod.github.io' && url.pathname.endsWith('/slow-second.glb')) { await slowSecond; try { await route.fulfill({body:glb,contentType:'model/gltf-binary',headers:cors}); } catch { /* cancelled */ } return; }
     if (url.hostname === 'hidencod.github.io' && url.pathname.endsWith('/slow.glb')) { await slow; try { await route.fulfill({body:glb,contentType:'model/gltf-binary',headers:cors}); } catch { /* cancellation may close the request */ } return; }
     if (url.pathname.endsWith('.glb') || url.pathname.endsWith('/model')) return route.fulfill({body:glb,contentType:'model/gltf-binary',headers:cors});
     return route.fulfill({body:png,contentType:'image/png',headers:cors});
@@ -45,7 +47,8 @@ try {
 
   // Failure is visible and retryable, rather than trapping the catalogue.
   await search.fill('');
-  await page.getByRole('alert').filter({hasText:'503'}).waitFor();
+  await page.getByRole('alert').filter({hasText:'Part of the Gobkit'}).waitFor();
+  await page.getByRole('button',{name:/Gobkit Tree/}).waitFor();
   allowGobkit = true;
   await page.getByRole('alert').getByRole('button',{name:'Retry'}).click();
   await page.getByRole('button',{name:'Gobkit',exact:true}).click();
@@ -69,9 +72,24 @@ try {
   await page.getByRole('button',{name:/Show more · Kenney/}).click();
   await page.getByRole('button',{name:/Kenney Desk/}).waitFor();
   await page.getByRole('button',{name:/Slow model/}).click();
+  await page.waitForFunction(()=>!!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder'));
   await page.getByRole('status').getByRole('button',{name:'Cancel'}).click();
-  await page.waitForFunction(()=>!document.querySelector('[role="status"] button'));
-  releaseSlow();
+  await page.waitForFunction(()=>!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder'));
+  // Switching tabs unmounts the provider while its download is still hung.
+  await page.getByRole('button',{name:/Slow second model/}).click();
+  await page.waitForFunction(()=>!!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder'));
+  await page.getByRole('button',{name:'Components',exact:true}).click();
+  await page.waitForFunction(()=>!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder'));
+  // An old, cancelled response must not clear the next import's ghost.
+  await page.getByRole('button',{name:'Web',exact:true}).click();
+  await page.getByRole('button',{name:'Kenney (mirror)',exact:true}).click();
+  await page.getByRole('button',{name:/Slow second model/}).click();
+  await page.waitForFunction(()=>!!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder'));
+  releaseSlow();await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(()=>!!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder')),true,'a stale cancel cannot clear a new import');
+  await page.getByRole('status').getByRole('button',{name:'Cancel'}).click();
+  await page.waitForFunction(()=>!window.__larpRenderer.scene.getObjectByName('import-loading-placeholder'));
+  releaseSlowSecond();
   await search.fill('chair');
   await chair.waitFor();
   assert.equal(await page.getByRole('button',{name:/Kenney Desk/}).count(),0,'the shared search filters the Kenney catalog');
@@ -96,4 +114,4 @@ try {
   assert.deepEqual(new Set(await page.evaluate(()=>window.__larpProject.getWorkpieces().map(i=>i.imported.asset.source.provider))),new Set(['Poly Haven','Gobkit','Kenney']));
   assert.deepEqual(errors, []);
   console.log('web catalog (mocked providers): search, retry, show more, thumbnails, cancellation, import and persisted CC0 provenance OK');
-} finally { releaseSlow?.(); releaseSlowThumb?.(); await browser.close(); }
+} finally { releaseSlow?.(); releaseSlowSecond?.(); releaseSlowThumb?.(); await browser.close(); }

@@ -87,3 +87,13 @@ export class SpatialHash<T extends object> {
     return out;
   }
 }
+
+/**
+ * Search radius for conservative rotated-product contacts. Each indexed
+ * candidate already occupies its unrotated horizontal half-extents, so the
+ * remaining padding is one maximum perpendicular half-extent plus the largest
+ * movement since the index was built. No fixed-size workpiece limit is needed.
+ */
+export function contactQueryRadius(hx:number,hz:number,maxHalfExtent:number,maxMovement:number) {
+  return hx + hz + maxHalfExtent + maxMovement;
+}

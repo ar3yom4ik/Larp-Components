@@ -1,8 +1,9 @@
+import { surfaceMaterialColor } from '../data/materials';
 import type { GripperKind, RobotProgram, SceneItem } from "../types";
 import { samplePath, type P2 } from "./spline";
 import { getProduct, importedModelSize, importedProductSource, MACHINE_KINDS, palletSize } from "../data/products";
 import { distanceToSegment, navigate, navigateLayers, pointIsFree, projectToFree, type Barrier, type WalkObstacle, type Point3 } from "./navigation";
-import { SpatialHash } from "./spatial";
+import { SpatialHash, contactQueryRadius } from "./spatial";
 import { isLogicSource, isSignalSource, legacySignalTargets } from "../utils/signalPorts";
 import { signalChannelKey, signalFunction, validSignalPort } from "../utils/signalChannels";
 import { itemLocalToWorld, rotateVector, rotationMatrix, unrotateVector } from "../utils/transform";
@@ -119,6 +120,13 @@ export interface Box {
   lastMachine?: string;
   counted?: boolean;
   assembly?: boolean;
+  /** Color-sensor outputs observed by this specific workpiece, not a global level. */
+  colorSignals?: Set<string>;
+  /** Previous integrated bottom, for crossing thin supports at high speed. */
+  previousBottom?: number;
+  /** Position at the start of the current spatial-index rebuild. */
+  indexX?: number;
+  indexZ?: number;
 }
 
 interface Query {
@@ -796,6 +804,8 @@ export class Engine {
   private rigidWasAwake = false;
   private carriedBeltScratch = new Map<string, number>();
   private hasDynamicConveyors = false;
+  private hasAuthoredBounce = false;
+  private maxProductHalfExtent = 0;
   getPhysicsPose(id: string) { return this.rigidBodies.pose(id); }
   getLiveItem(id: string) { return this.itemById.get(id); }
   running = false;
@@ -828,7 +838,7 @@ export class Engine {
   private robotInputs = new Map<string, {source:SceneItem; input:number; key:string}[]>();
   /** Runtime signal-channel proxies are not scene objects. A signal feedback
    * loop advances one simulation substep at a time rather than recursing. */
-  private channelSpecs: {item: SceneItem; port: number; key: string; mode: string}[] = [];
+  private channelSpecs: {item: SceneItem; port: number; key: string; mode: string; material?:string}[] = [];
   private channelInputs = new Map<string, SceneItem[]>();
   private channelOutputScratch: boolean[] = [];
   private readonly noChannelInputs: SceneItem[] = [];
@@ -869,6 +879,10 @@ export class Engine {
   private logicItems: SceneItem[] = [];
   private beamBlockers: {id:string; item:SceneItem; test:(a:V3,b:V3)=>boolean}[] = [];
   private detectedColors = new Map<string, Set<string>>();
+  private palletColorOutputs = new Map<string, {key:string; port:number; material:string}[]>();
+  /** Per-robot/workflow fill cursor: a freshly swapped first pallet must not
+   * steal work from the second pallet until that second pallet is full. */
+  private palletSequences = new Map<string, number>();
   private triggers = new Map<string, SceneItem[]>();
   private walkSources: SceneItem[] = [];
   private cratesItem: SceneItem | undefined;
@@ -919,6 +933,7 @@ export class Engine {
   sync(items: SceneItem[], physicsUpdate = false) {
     if (!physicsUpdate) {
       this.authoredItems = items;
+      this.hasAuthoredBounce = items.some(item=>item.props.physicsRestitution !== undefined);
       this.hasDynamicConveyors = items.some((item) => item.visible !== false && item.props.physicsMode === "dynamic" && (item.kind === "conveyor" || item.kind === "roller"));
       this.rigidBodies.sync(items);
     }
@@ -1216,9 +1231,22 @@ export class Engine {
     for (const item of this.items) for (const port of ports.get(item.id) ?? []) {
       const setting = item.signalChannels?.find(channel => channel.port === port);
       const mode = signalFunction(item.kind,setting?.mode)?.value;
-      if (mode) this.channelSpecs.push({item,port,key:signalChannelKey(item.id,port),mode});
+      const material=(setting?.materialRef ? surfaceMaterialColor(setting.materialRef,this.items) : undefined) ?? setting?.material;
+      if (mode) this.channelSpecs.push({item,port,key:signalChannelKey(item.id,port),mode,material:material?.toLowerCase()});
     }
     this.logicItems = logic;
+    const colorOutputs = new Map<string, {key:string; port:number; material:string}[]>();
+    for (const item of logic) if (item.kind === "color-sensor") {
+      const routes = (item.signalRoutes ?? []).filter(route => this.itemById.get(route.targetId)?.kind === "crates");
+      const channels = item.signalChannels ?? [];
+      const ports = new Set(routes.map(route => route.output));
+      if (legacySignalTargets(item).some(id => this.itemById.get(id)?.kind === "crates")) ports.add(1);
+      const output = channels.filter(channel => ports.has(channel.port))
+        .map(channel => ({key:signalChannelKey(item.id,channel.port),port:channel.port,material:((channel.materialRef ? surfaceMaterialColor(channel.materialRef,this.items) : undefined) ?? channel.material ?? '').toLowerCase()}))
+        .filter(channel=>!!channel.material);
+      if (output.length) colorOutputs.set(item.id,output);
+    }
+    this.palletColorOutputs = colorOutputs;
     this.beamBlockers = logic.some(item => item.kind === "laser" || item.kind === "color-sensor") ? this.items.filter(item => item.visible !== false && !(item.imported?.materials.length && item.imported.materials.every(material => material.opacity < .95))).map(item => ({id:item.id,item,test:makeBeamBlocker(item,this.items)})) : [];
     this.triggers = triggers;
     this.rebuildMergeRoutes(conveyors);
@@ -1652,6 +1680,7 @@ export class Engine {
       robot.status = "stopped";
       robot.solve();
     });
+    this.palletSequences.clear();
     this.log("Simulation reset", "info");
     if (this.running) this.startPrograms();
   }
@@ -1750,6 +1779,13 @@ export class Engine {
       moveTo: (x: number, y: number, z: number) => run(this.moveGen(robot, [x, y, z])),
       waitForPart: (zone: { x: number; y?: number; z: number; r?: number }) => run(this.waitPartGen(robot, zone)),
       waitForSignal: (target?: string) => run(this.waitSignalGen(robot, target || robot.itemId)),
+      waitForPallet: (part:Box, ids:string[]) => run(this.waitPalletGen(robot,part,ids)),
+      advancePallet: (id:string, ids:string[]) => {
+        const config:RobotProgram = {mode:"palletize",sourceId:"",targetId:ids[0] ?? "",targetIds:ids,repeat:true,delay:0,clearance:.3};
+        this.advancePalletSequence(robot,config,id);
+        const pallet=this.pallets.get(id);
+        if (pallet && !pallet.retainFull) this.schedulePalletSwap(id);
+      },
       pick: (box: Box) => run(this.pickGen(robot, box)),
       place: (slot: { x: number; y: number; z: number; yaw?: number }) => run(this.placeGen(robot, slot)),
       wait: (seconds: number) => run(this.waitGen(Number(seconds) || 0)),
@@ -1997,6 +2033,7 @@ export class Engine {
 
   private finishMachineProduct(machine: MachineRT, box: Box) {
     const product = getProduct(machine.outputProduct, this.items);
+    box.colorSignals = undefined;
     box.productId = product.id; box.color = machine.kind === "paint" ? parseInt(machine.paintColor.replace("#", ""), 16) : product.color;
     [box.hx, box.hy, box.hz] = product.size.map((v) => v / 2) as V3;
     box.r = Math.max(product.size[0], product.size[2]) * 0.55;
@@ -2019,10 +2056,10 @@ export class Engine {
         for (const {input:port} of bindings ?? []) {
           const program=robot.programs?.[String(port)] ?? robot.program;
           if (!program || !this.triggerGate(robot.itemId,program.sourceId,false,port)) continue;
-          const pallet=this.pallets.get(program.targetId); if(pallet && pallet.cursor>=pallet.capacity)continue;
           const conveyor=this.conveyors.get(program.sourceId), machine=this.machines.get(program.sourceId);
           const zone=conveyor ? {...conveyor.pointAt(Math.max(0,conveyor.length-(program.pickupBack ?? .3))),r:.65} : machine ? {...machine.table(),r:.45} : null;
-          if(!zone || !this.findPart(robot,zone,this.sharedBeltStations.has(program.sourceId) ? box=>this.sharedStationAccept(program.sourceId,robot.itemId,box) : undefined))continue;
+          const part = zone && this.findPart(robot,zone,this.sharedBeltStations.has(program.sourceId) ? box=>this.sharedStationAccept(program.sourceId,robot.itemId,box) : undefined);
+          if (!part || !this.palletDestination(robot,program,part,port)) continue;
           selected={port,program}; return true;
         }
         return false;
@@ -2037,6 +2074,44 @@ export class Engine {
     }
   }
 
+  private palletSequenceKey(robot:RobotRT, config:RobotProgram, port?:number) {
+    return JSON.stringify([robot.itemId,port ?? 0,config.targetIds ?? [config.targetId]]);
+  }
+
+  /** Resolve a destination for this part. A color wire is latched on the part
+   * that actually crossed its beam, so a high signal caused by a different
+   * object can never send a later, differently coloured part to that pallet. */
+  private palletDestination(robot:RobotRT, config:RobotProgram, part:Box, port?:number): string | null {
+    const ids = config.mode === "palletize" && config.targetIds?.length
+      ? [...new Set(config.targetIds)] : [config.targetId];
+    // Keep legacy single-destination behaviour (including signal-input uses).
+    if (ids.length <= 1) {
+      const pallet = this.pallets.get(ids[0]);
+      return pallet && pallet.cursor >= pallet.capacity ? null : ids[0] || null;
+    }
+    const wired = (id:string) => this.triggers.get(id) ?? [];
+    const match = (id:string) => wired(id).some(source => source.visible !== false &&
+      (source.kind === "color-sensor" ? part.colorSignals?.has(source.id) : this.signalState.get(source.id) === true));
+    const matched = ids.filter(id => wired(id).length && match(id));
+    // A signalled destination takes precedence over the unconnected catch-all.
+    // If its pallet is full, wait; do not silently mis-sort onto another pallet.
+    const eligible = matched.length ? matched : ids.filter(id => !wired(id).length);
+    const key = this.palletSequenceKey(robot,config,port);
+    const start = (this.palletSequences.get(key) ?? 0) % ids.length;
+    for (let n=0;n<ids.length;n++) {
+      const id = ids[(start+n)%ids.length], pallet = this.pallets.get(id);
+      if (eligible.includes(id) && pallet && pallet.cursor < pallet.capacity) return id;
+    }
+    return null;
+  }
+
+  private advancePalletSequence(robot:RobotRT, config:RobotProgram, id:string, port?:number) {
+    const ids = config.targetIds;
+    if (!ids || ids.length < 2) return;
+    const index = ids.indexOf(id);
+    if (index >= 0) this.palletSequences.set(this.palletSequenceKey(robot,config,port),(index+1)%ids.length);
+  }
+
   /** Native visual workflows share the exact same IK pick/place primitives as code. */
   private *visualGen(robot: RobotRT, config = robot.program!, once = false, inputPort?:number): Generator<Cmd, unknown, unknown> {
     if (!once) yield* this.homeGen(robot);
@@ -2047,10 +2122,11 @@ export class Engine {
       if (m) return { ...m.table(), r: 0.45 };
       return null;
     };
+    let targetId = config.targetId;
     const destination = (productId = robot.held?.productId ?? "carton") => {
-      const pallet = this.pallets.get(config.targetId);
-      const conveyor = this.conveyors.get(config.targetId);
-      const machine = this.machines.get(config.targetId);
+      const pallet = this.pallets.get(targetId);
+      const conveyor = this.conveyors.get(targetId);
+      const machine = this.machines.get(targetId);
       return pallet ? pallet.slot(pallet.cursor, productId) : conveyor ? conveyor.pointAt(0.48) : machine?.table() ?? null;
     };
     const machineTarget = () => this.machines.get(config.machineId ?? "");
@@ -2061,15 +2137,14 @@ export class Engine {
         // control to the per-input dispatcher rather than use the default
         // program for the first signal. An already picked part still finishes.
         if (once && inputPort === undefined && this.robotInputs.has(robot.itemId)) return true;
-        const targetPallet = this.pallets.get(config.targetId);
-        if (targetPallet && targetPallet.cursor >= targetPallet.capacity) {
-          robot.error = "Pallet full: replace or clear it to continue."; return false;
-        }
         const zone = source();
         if (!zone) { robot.error = "Choose a source in the visual program"; return false; }
         const found = this.findPart(robot, zone, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined);
         if (!found) { robot.error = null; return false; }
         if (!this.triggerGate(robot.itemId, config.sourceId, false, inputPort)) { robot.error = null; return false; }
+        const selected = this.palletDestination(robot,config,found,inputPort);
+        if (!selected) { robot.error = "No matching pallet available: check signals or replace a full pallet."; return false; }
+        targetId = selected;
         const target = config.mode === "tend" ? machineTarget()?.table() : destination(found.productId);
         if (!target || !robot.reach([target.x, target.y + found.hy * 2, target.z])) {
           robot.error = "Destination is outside robot reach. Move it closer to continue.";
@@ -2121,9 +2196,11 @@ export class Engine {
         get yaw() { return destination()?.yaw ?? 0; },
       };
       yield this.waiter(() => {
-        const targetPallet = this.pallets.get(config.targetId);
+        const targetPallet = this.pallets.get(targetId);
         if (targetPallet && targetPallet.cursor >= targetPallet.capacity) {
-          robot.error = "Pallet full: replace or clear it to continue."; return false;
+          const alternate = robot.held && this.palletDestination(robot,config,robot.held,inputPort);
+          if (!alternate) { robot.error = "Pallet full: replace or clear it to continue."; return false; }
+          targetId = alternate;
         }
         const pos = destination();
         const reachable = !!pos && robot.reach([pos.x, pos.y + (robot.held?.hy ?? 0.13) * 2, pos.z]);
@@ -2135,14 +2212,22 @@ export class Engine {
       });
       const placed = robot.held;
       const success = yield* this.placeGen(robot, dest);
-      const pallet = this.pallets.get(config.targetId);
+      const pallet = this.pallets.get(targetId);
       if (success && pallet) {
         if (placed) this.markPalletPlacement(placed, pallet);
         pallet.cursor += 1;
-        if (pallet.cursor >= pallet.capacity && !pallet.retainFull) {
-          yield* this.waitGen(1.8);
-          const current = this.pallets.get(pallet.id);
-          if (current && current.cursor >= current.capacity && !current.retainFull) this.replacePallet(pallet.id);
+        if (pallet.cursor >= pallet.capacity) {
+          this.advancePalletSequence(robot,config,pallet.id,inputPort);
+          if (!pallet.retainFull) {
+            if ((config.targetIds?.length ?? 0) > 1) {
+              // Allow the next pallet to fill while a full pallet is exchanged.
+              this.schedulePalletSwap(pallet.id);
+            } else {
+              yield* this.waitGen(1.8);
+              const current = this.pallets.get(pallet.id);
+              if (current && current.cursor >= current.capacity && !current.retainFull) this.replacePallet(pallet.id);
+            }
+          }
         }
       }
       if (config.delay > 0) yield* this.waitGen(config.delay);
@@ -2717,6 +2802,7 @@ export class Engine {
 
   private attach(robot: RobotRT, box: Box) {
     box.state = "held";
+    box.previousBottom = undefined;
     box.claim = robot.id;
     box.pickGate = undefined;
     box.yaw0 = box.yaw;
@@ -2733,6 +2819,7 @@ export class Engine {
     const box = robot.held;
     if (!box) return;
     box.state = "free";
+    box.previousBottom = undefined;
     box.claim = 0;
     box.vx = box.vy = box.vz = 0;
     robot.held = null;
@@ -2756,6 +2843,24 @@ export class Engine {
       }
     }
     return best;
+  }
+
+  private schedulePalletSwap(id:string) {
+    this.timers.push({at:this.time+1.8,owner:null,runId:0,fn:() => {
+      const pallet=this.pallets.get(id);
+      if (pallet && pallet.cursor >= pallet.capacity && !pallet.retainFull) this.replacePallet(id);
+    }});
+  }
+
+  private *waitPalletGen(robot:RobotRT, part:Box, ids:string[]): Generator<Cmd,string,unknown> {
+    const config:RobotProgram = {mode:"palletize",sourceId:"",targetId:ids[0] ?? "",targetIds:ids,repeat:true,delay:0,clearance:.3};
+    let selected:string | null = null;
+    yield this.waiter(() => {
+      selected=this.palletDestination(robot,config,part);
+      robot.error = selected ? null : "No matching pallet available: check signals or replace a full pallet.";
+      return !!selected;
+    });
+    return selected!;
   }
 
   private *waitSignalGen(robot: RobotRT, targetId: string): Generator<Cmd, boolean, unknown> {
@@ -2952,8 +3057,11 @@ export class Engine {
     // One fresh copy of the moving products per substep: every consumer below
     // (pickers, workers, physics) then queries cells instead of scanning the list.
     this.boxIndex.clear();
+    this.maxProductHalfExtent = 0;
     for (const box of this.boxes) {
       if (box.state !== "free") continue;
+      this.maxProductHalfExtent = Math.max(this.maxProductHalfExtent,box.hx,box.hz);
+      box.indexX=box.x; box.indexZ=box.z;
       this.boxIndex.insert(box, box.x - box.hx, box.z - box.hz, box.x + box.hx, box.z + box.hz);
     }
 
@@ -3103,7 +3211,7 @@ export class Engine {
       r: Math.max(w, d) * 0.55, state: "free", claim: 0, support: 0,
       palletId: null, palletT: 0, processed: false, color: product.color,
       fade: 1, age: 0, yaw0: 0, waist0: 0, lostCounted: false,
-      convId: "", convS: 0, convLat: 0, productId: product.id,
+      convId: "", convS: 0, convLat: 0, productId: product.id, previousBottom: y - h / 2, indexX: x, indexZ: z,
     };
     this.boxes.push(box); this.stats.spawned += 1;
     return box;
@@ -3210,7 +3318,7 @@ export class Engine {
     // every 60 Hz substep (especially costly in large graph-built plants).
     const outputs = this.channelOutputScratch;
     let index = 0;
-    for (const {item,port,mode} of this.channelSpecs) {
+    for (const {item,port,mode,material} of this.channelSpecs) {
       if (item.visible === false) { outputs[index++] = false; continue; }
       const inputs = this.channelInputs.get(signalChannelKey(item.id,port)) ?? this.noChannelInputs;
       const connected = inputs.length > 0;
@@ -3220,8 +3328,7 @@ export class Engine {
       if (mode === "relay") output = high || (item.kind === "plc" && item.props.signal === true);
       else if (mode === "invert") output = connected && !high;
       else if (item.kind === "color-sensor") {
-        const material = item.signalChannels?.find(channel => channel.port === port)?.material;
-        output = !!material && (this.detectedColors.get(item.id)?.has(material.toLowerCase()) ?? false);
+        output = !!material && (this.detectedColors.get(item.id)?.has(material) ?? false);
       } else if (item.kind === "laser" || item.kind === "sensor") {
         const detected = this.signalState.get(item.id) === true;
         output = enabled && (mode === "clear" ? !detected : detected);
@@ -3262,14 +3369,27 @@ export class Engine {
         for (const box of this.boxes) {
           if (box.state === "dead" || box.state === "dying" || box.state === "inside" || Math.abs(box.y - beamY) > box.hy + .02 || distanceToSegment(box.x, box.z, a, b).distance >= box.r + .02) continue;
           const source = importedProductSource(box.productId, this.items);
-          if (source?.imported?.materials.length) {
-            for (const material of source.imported.materials) if (material.opacity > 0) colors.add(material.color.toLowerCase());
-          } else colors.add(`#${box.color.toString(16).padStart(6,'0')}`.toLowerCase());
+          const materials = source?.imported?.materials;
+          const base = `#${box.color.toString(16).padStart(6,'0')}`.toLowerCase();
+          if (materials?.length) {
+            for (const material of materials) if (material.opacity > 0) colors.add(material.color.toLowerCase());
+          } else colors.add(base);
+          if (box.state === "free") for (const output of this.palletColorOutputs.get(item.id) ?? []) {
+            const matches = materials?.length ? materials.some(material => material.opacity > 0 && material.color.toLowerCase() === output.material) : base === output.material;
+            if (matches) {
+              (box.colorSignals ??= new Set()).add(output.key);
+              if (output.port === 1) box.colorSignals.add(item.id); // legacy unnumbered wire
+            }
+          }
         }
         for (const blocker of this.beamBlockers) {
           if (blocker.id === item.id || blocker.id === item.props.mountedTo || !blocker.test([a[0],beamY,a[1]],[b[0],beamY,b[1]])) continue;
           if (blocker.item.imported?.materials.length) for (const material of blocker.item.imported.materials) { if (material.opacity > 0) colors.add(material.color.toLowerCase()); }
-          else if (typeof blocker.item.color === 'string' && /^#[0-9a-f]{6}$/i.test(blocker.item.color)) colors.add(blocker.item.color.toLowerCase());
+          else {
+            const surface = typeof blocker.item.props.surfaceMaterial === 'string' ? surfaceMaterialColor(blocker.item.props.surfaceMaterial,this.items) : undefined;
+            const color = surface ?? blocker.item.color;
+            if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) colors.add(color.toLowerCase());
+          }
         }
         this.detectedColors.set(item.id, colors); signal = colors.size > 0;
       } else if (item.kind === "laser") {
@@ -3333,6 +3453,8 @@ export class Engine {
     q: null as Query | null,
     palletId: null as string | null,
     collectorId: null as string | null,
+    surfaceId: null as string | null,
+    supportPart: null as Box | null,
   };
 
   /** Workpiece-local compound shapes, fitted to the dimensions at spawn time. */
@@ -3428,7 +3550,10 @@ export class Engine {
     out.q = null;
     out.palletId = null;
     out.collectorId = null;
+    out.surfaceId = null;
+    out.supportPart = null;
     const bottom = b.y - b.hy;
+    const previousBottom=b.previousBottom ?? bottom, falling=b.vy<0;
     // Only the support cells under this product are visited, so a plant with hundreds of
     // belts and tables costs the same as one with three.
     const supports = this.supportIndex.query(b.x, b.z, this.supportScratch);
@@ -3436,27 +3561,29 @@ export class Engine {
       const entry = supports[i];
       const conv = entry.conv;
       if (conv) {
-        if (conv.level && (bottom < conv.top - 0.14 || bottom > conv.top + 0.1)) continue;
+        if (conv.level && (bottom < conv.top - 0.14 || bottom > conv.top + 0.1) && !(falling && previousBottom >= conv.top && bottom < conv.top)) continue;
         const q = conv.query(b.x, b.z, bottom);
-        if (q && q.inside && bottom >= q.y - 0.14 && bottom <= q.y + 0.1 && q.y >= out.top) {
+        if (q && q.inside && ((bottom >= q.y - 0.14 && bottom <= q.y + 0.1) || (falling && previousBottom >= q.y && bottom < q.y)) && q.y >= out.top) {
           out.top = q.y;
           out.kind = 2;
           out.conv = conv;
           out.q = q;
+          out.surfaceId = conv.id; out.supportPart = null;
         }
         continue;
       }
       const rect = entry.rect;
       if (!rect) continue;
-      if (!rect.surface && (bottom < rect.top - 0.14 || bottom > rect.top + 0.1 || rect.top < out.top)) continue;
+      if (!rect.surface && (rect.top < out.top || ((bottom < rect.top - 0.14 || bottom > rect.top + 0.1) && !(falling && previousBottom >= rect.top && bottom < rect.top)))) continue;
       const top = surfaceHeight(rect, b.x, b.z);
-      if (top !== null && bottom >= top - 0.14 && bottom <= top + 0.1 && top >= out.top) {
+      if (top !== null && ((bottom >= top - 0.14 && bottom <= top + 0.1) || (falling && previousBottom >= top && bottom < top)) && top >= out.top) {
         out.top = top;
         out.kind = 3;
         out.conv = null;
         out.q = null;
         out.palletId = rect.palletId;
         out.collectorId = rect.collectorId ?? null;
+        out.surfaceId = rect.id; out.supportPart = null;
       }
     }
     // Stay on the incoming head until its reservation reaches the actual
@@ -3470,7 +3597,7 @@ export class Engine {
         out.top = canTransfer && targetQuery ? targetQuery.y : sourceQuery.y; out.kind = 2;
         out.conv = canTransfer ? route.target : route.source;
         out.q = canTransfer ? targetQuery : sourceQuery;
-        out.palletId = null; out.collectorId = null;
+        out.palletId = null; out.collectorId = null; out.surfaceId = out.conv.id; out.supportPart = null;
       }
     }
     const stacked = this.boxIndex.empty ? this.boxScratch : this.boxIndex.query(b.x, b.z, this.boxScratch, b.r);
@@ -3482,23 +3609,32 @@ export class Engine {
       // products are peers on the same belt rather than potential supports.
       if (!parts) {
         const top=o.y+o.hy;
-        if (top < out.top || bottom < top-.14 || bottom > top+.1) continue;
+        if (top < out.top || ((bottom < top-.14 || bottom > top+.1) && !(falling && previousBottom >= top && bottom < top))) continue;
         const dx=b.x-o.x,dz=b.z-o.z,c=Math.cos(o.yaw),s=Math.sin(o.yaw);
         const lx=dx*c-dz*s,lz=dx*s+dz*c;
         if (Math.abs(lx)<o.hx*.95 && Math.abs(lz)<o.hz*.95) {
-          out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;
+          out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;out.surfaceId=null;out.supportPart=o;
         }
       } else {
         const dx=b.x-o.x,dz=b.z-o.z,c=Math.cos(o.yaw),s=Math.sin(o.yaw);
         const lx=dx*c-dz*s,lz=dx*s+dz*c;
         for (const part of parts) {
         const top=o.y-o.hy+part.center[1]+part.size[1]/2;
-        if (top < out.top || bottom < top-.14 || bottom > top+.1 || Math.abs(lx-part.center[0])>=part.size[0]*.475 || Math.abs(lz-part.center[2])>=part.size[2]*.475) continue;
-        out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;
+        if (top < out.top || ((bottom < top-.14 || bottom > top+.1) && !(falling && previousBottom >= top && bottom < top)) || Math.abs(lx-part.center[0])>=part.size[0]*.475 || Math.abs(lz-part.center[2])>=part.size[2]*.475) continue;
+        out.top=top;out.kind=4;out.conv=null;out.q=null;out.palletId=o.palletId;out.surfaceId=null;out.supportPart=o;
         }
       }
     }
     return out;
+  }
+
+  private productRestitution(box:Box): number | undefined {
+    const value=importedProductSource(box.productId,this.items)?.props.physicsRestitution;
+    return value === undefined ? undefined : Math.max(0,Math.min(1,num(value,0)));
+  }
+
+  private contactRestitution(a:number | undefined, b:number | undefined, fallback:number) {
+    return a === undefined ? (b ?? fallback) : b === undefined ? a : a*b;
   }
 
   private recordProductSupport(b: Box, sup: typeof this.supportResult, dt: number) {
@@ -3596,7 +3732,7 @@ export class Engine {
     }
     groups.clear();
     if (grouped) for (const box of boxes) if (box.state === "free" && box.support === 2) this.addConveyorBox(box);
-    let escaped = false;
+    let escaped = false, maxIndexDisplacement=0;
     const specialStops = this.mergeRoutes.size > 0 || this.sharedBeltStations.size > 0;
     for (const b of boxes) {
       const previousConveyor = grouped && b.state === "free" && b.support === 2 ? b.convId : null;
@@ -3613,14 +3749,24 @@ export class Engine {
       const bottom = b.y - b.hy;
       if (bottom <= sup.top + 0.004 && b.vy <= 0.05) {
         b.y = sup.top + b.hy;
-        if (prev === 0 && b.vy < -1.3) {
-          const authored = importedProductSource(b.productId,this.items)?.props.physicsRestitution;
-          const bounce = authored === undefined ? .12 : Math.max(0,Math.min(1,num(authored,.12)));
-          b.vy = -b.vy * bounce;
-        }
-        else b.vy = 0;
-        b.support = sup.kind;
-        if (sup.kind === 2 && sup.conv && sup.q) {
+        let flyingBounce=false;
+        if(this.hasAuthoredBounce) {
+          const productBounce = this.productRestitution(b);
+          const surfaceValue = sup.supportPart ? this.productRestitution(sup.supportPart) : sup.surfaceId ? this.itemById.get(sup.surfaceId)?.props.physicsRestitution : undefined;
+          const surfaceBounce = surfaceValue === undefined ? undefined : Math.max(0,Math.min(1,num(surfaceValue,0)));
+          const authoredBounce = productBounce !== undefined || surfaceBounce !== undefined;
+          const bounce = this.contactRestitution(productBounce,surfaceBounce,.12);
+          // Authored rubber bounces even on gentle impacts; the cutoff prevents jitter.
+          const rebound = prev === 0 && b.vy < -(authoredBounce ? .28 : 1.3) && -b.vy*bounce > .05;
+          b.vy = rebound ? -b.vy*bounce : 0;
+          flyingBounce=authoredBounce && rebound;
+        } else b.vy = prev===0 && b.vy < -1.3 ? -b.vy*.12 : 0;
+        // Preserve legacy conveyor transfer timing for unauthored materials;
+        // explicitly bouncy contacts must leave support until they land again.
+        b.support = flyingBounce ? 0 : sup.kind;
+        if (flyingBounce) {
+          b.convId = ""; b.beltNormal = undefined;
+        } else if (sup.kind === 2 && sup.conv && sup.q) {
           const conv = sup.conv;
           const q = sup.q;
           if (q.normal || b.beltNormal) b.beltNormal = q.normal;
@@ -3690,6 +3836,7 @@ export class Engine {
         b.vy -= G * dt;
         b.tilt = Math.min(1.25, b.tilt + b.tiltV * dt);
       }
+      b.previousBottom = b.y - b.hy;
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.z += b.vz * dt;
@@ -3713,6 +3860,7 @@ export class Engine {
         }
       }
       if (b.y < -3 || Math.abs(b.x) > 80 || Math.abs(b.z) > 80) escaped = true;
+      if (b.state === "free") maxIndexDisplacement=Math.max(maxIndexDisplacement,Math.abs(b.x-(b.indexX ?? b.x)),Math.abs(b.z-(b.indexZ ?? b.z)));
       if (grouped && b.state === "free" && b.support === 2 && b.convId !== previousConveyor) this.addConveyorBox(b);
     }
 
@@ -3722,7 +3870,11 @@ export class Engine {
     for (let i = 0; i < n; i += 1) {
       const a = boxes[i];
       if (a.state !== "free") continue;
-      const near = this.boxIndex.query(a.x, a.z, this.boxScratchContact, a.hx + a.hz + 1.5);
+      // The index already includes each candidate's unrotated half-extents.
+      // Expanding by the largest perpendicular half-extent covers the same
+      // conservative rotated-box test below without a fixed 1.5 m halo around
+      // every small carton (and also handles very large imported workpieces).
+      const near = this.boxIndex.query(a.x, a.z, this.boxScratchContact, contactQueryRadius(a.hx,a.hz,this.maxProductHalfExtent,maxIndexDisplacement));
       for (let j = 0; j < near.length; j += 1) {
         const c = near[j];
         if (c === a || c.state !== "free" || c.id < a.id) continue;
@@ -3735,13 +3887,23 @@ export class Engine {
         const push = contact.depth * 0.5;
         a.x -= nx * push; a.z -= nz * push;
         c.x += nx * push; c.z += nz * push;
+        // Buckets were built before integration and contacts can move a part
+        // again. Keep subsequent queries conservative with respect to both.
+        maxIndexDisplacement=Math.max(maxIndexDisplacement,Math.abs(a.x-(a.indexX ?? a.x)),Math.abs(a.z-(a.indexZ ?? a.z)),Math.abs(c.x-(c.indexX ?? c.x)),Math.abs(c.z-(c.indexZ ?? c.z)));
         const rel = (c.vx - a.vx) * nx + (c.vz - a.vz) * nz;
         if (rel < 0) {
-          const imp = rel * 0.5;
-          a.vx += nx * imp;
-          a.vz += nz * imp;
-          c.vx -= nx * imp;
-          c.vz -= nz * imp;
+          const ar=this.hasAuthoredBounce ? this.productRestitution(a) : undefined, cr=this.hasAuthoredBounce ? this.productRestitution(c) : undefined;
+          if (ar !== undefined || cr !== undefined) {
+            const restitution=this.contactRestitution(ar,cr,0);
+            const ia=1/Math.max(.01,getProduct(a.productId,this.items).mass), ic=1/Math.max(.01,getProduct(c.productId,this.items).mass);
+            const impulse=-(1+restitution)*rel/(ia+ic);
+            a.vx-=nx*impulse*ia; a.vz-=nz*impulse*ia;
+            c.vx+=nx*impulse*ic; c.vz+=nz*impulse*ic;
+          } else {
+            const imp = rel * 0.5;
+            a.vx += nx * imp; a.vz += nz * imp;
+            c.vx -= nx * imp; c.vz -= nz * imp;
+          }
         }
       }
     }

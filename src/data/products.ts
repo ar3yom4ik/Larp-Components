@@ -1,3 +1,4 @@
+import { parseModelMaterialRef } from '../utils/materialRef';
 import type { ImportedModelData, SceneItem } from "../types";
 import { orientModelSize } from "../utils/modelAxis";
 import { importedCollision, importedCollisionRevision } from "../utils/modelCollision";
@@ -75,7 +76,14 @@ export function importedProductSource(id: unknown, items: readonly SceneItem[]):
 
 /** Workpiece definitions are project assets, not scene objects. Keep a snapshot
  * of each imported model so deleting its scene instance does not break products. */
-export function updateWorkpieceCatalog(items: readonly SceneItem[], catalog: readonly SceneItem[] = []): SceneItem[] {
+export function updateWorkpieceCatalog(items: readonly SceneItem[], catalog: readonly SceneItem[] = [], additionalReferences: readonly SceneItem[] = []): SceneItem[] {
+  // A material may point at a particular edited instance of an asset, not
+  // just its shared workpiece base. Retain that exact instance if referenced.
+  const referenced=new Set<string>();
+  for(const item of [...items,...additionalReferences]) {
+    const refs=[item.props.surfaceMaterial,...(item.signalChannels ?? []).map(channel=>channel.materialRef)];
+    for(const value of refs)if(typeof value==='string') {const ref=parseModelMaterialRef(value);if(ref)referenced.add(ref.id);}
+  }
   const next = new Map(catalog.map((entry) => [entry.id, entry]));
   const assets = new Set(catalog.map(entry=>entry.imported?.asset.id).filter((id):id is string=>!!id));
   let changed = false;
@@ -84,7 +92,7 @@ export function updateWorkpieceCatalog(items: readonly SceneItem[], catalog: rea
     const previous = next.get(item.id);
     // Placements of the same asset share one base. Keep any pre-existing
     // definitions (and their IDs) for older project references.
-    if (!previous && assets.has(item.imported.asset.id)) continue;
+    if (!previous && assets.has(item.imported.asset.id) && !referenced.has(item.id)) continue;
     if (previous && previous.imported === item.imported && previous.name === item.name && previous.scale === item.scale && previous.color === item.color && previous.props.physicsMass === (item.props.physicsMass ?? 1) && previous.props.magnetic === (item.props.magnetic === true) && previous.props.physicsMode === (item.props.physicsMode ?? "legacy") && previous.props.collisionShape === (item.props.collisionShape ?? "accurate") && previous.props.physicsRestitution === item.props.physicsRestitution && previous.props.physicsFriction === item.props.physicsFriction) continue;
     next.set(item.id, {id:item.id, kind:"imported-model", name:item.name, position:[0,0,0], rotation:0, scale:item.scale,
       color:item.color, visible:false, props:{physicsMass:item.props.physicsMass ?? 1, magnetic:item.props.magnetic === true, physicsMode:item.props.physicsMode ?? "legacy", collisionShape:item.props.collisionShape ?? "accurate", ...(item.props.physicsRestitution !== undefined ? {physicsRestitution:item.props.physicsRestitution} : {}), ...(item.props.physicsFriction !== undefined ? {physicsFriction:item.props.physicsFriction} : {})}, imported:item.imported});
@@ -151,15 +159,11 @@ function importedProductMap(items: readonly SceneItem[]): Map<string, Product> {
         tags: ["imported", item.imported.asset.entry],
         shape: "box",
         size: importedModelSize(item.imported, item.scale),
-        color:
-          parseInt(
-            (
-              item.imported.materials[0]?.color ??
-              item.color ??
-              "#9aa7b4"
-            ).replace("#", ""),
-            16,
-          ) || 0x9aa7b4,
+        color: (() => {
+          const parsed = parseInt((item.imported.materials[0]?.color ?? item.color ?? "#9aa7b4").replace("#", ""),16);
+          // Black is a valid material, not a failed parse.
+          return Number.isFinite(parsed) ? parsed : 0x9aa7b4;
+        })(),
         mass: Math.max(0.01, Number(item.props.physicsMass) || 1),
         magnetic: item.props.magnetic === true,
       });

@@ -1,5 +1,7 @@
+import { SURFACE_MATERIALS, parseModelMaterialRef, surfaceMaterialColor } from '../data/materials';
+import { useImportedModelInstance } from './ImportedModel';
 import { upperFloorDimensions, platformCorners } from "../utils/upperFloor";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -514,34 +516,52 @@ function CylinderSpin({ ref: r }: { ref: React.RefObject<THREE.Mesh | null> }) {
 
 /** Parametric mezzanine pieces. Their deck/treads use the same dimensions as
  * the simulator's support surfaces and rigid-body collision shapes. */
-const buildingMaterial = (item:SceneItem):Mat => {
-  const value=String(item.props.surfaceMaterial ?? 'steel');
-  return (['steel','mid','wood','rubber','white','card'].includes(value) ? value : 'steel') as Mat;
-};
-function ElevatedPlatform({ item }: { item: SceneItem }) {
+const productSurfaceMaterials = new Map<string,THREE.Material>();
+function BuiltMaterial({item,items,children}:{item:SceneItem;items:readonly SceneItem[];children:(material:THREE.Material)=>ReactNode}) {
+  const ref=String(item.props.surfaceMaterial ?? (item.kind === 'wall' ? 'mid' : 'steel'));
+  const modelRef=parseModelMaterialRef(ref), source=modelRef && items.find(entry=>entry.id===modelRef.id)?.imported;
+  if (source && modelRef) return <ImportedSurface model={source} index={modelRef.index}>{children}</ImportedSurface>;
+  const builtin=SURFACE_MATERIALS.some(material=>material.id===ref);
+  let material:THREE.Material;
+  if (builtin) material=getMaterial(ref as Mat);
+  else {
+    const color=surfaceMaterialColor(ref,items);
+    if (!color) material=getMaterial('steel');
+    else {
+      material=productSurfaceMaterials.get(ref) ?? new THREE.MeshStandardMaterial({color,roughness:.65,metalness:.12});
+      productSurfaceMaterials.set(ref,material);
+    }
+  }
+  return <>{children(material)}</>;
+}
+function ImportedSurface({model,index,children}:{model:NonNullable<SceneItem['imported']>;index:number;children:(material:THREE.Material)=>ReactNode}) {
+  const {loaded}=useImportedModelInstance(model,index);
+  return <>{children(loaded?.pbrMaterials[index] ?? getMaterial('steel'))}</>;
+}
+function ElevatedPlatform({ item,items }: { item: SceneItem;items:readonly SceneItem[] }) {
   const {height}=upperFloorDimensions(item), corners=platformCorners(item);
   const deck=useMemo(()=>{
     const shape=new THREE.Shape();corners.forEach(([x,z],i)=>i ? shape.lineTo(x,z) : shape.moveTo(x,z));shape.closePath();
     const geometry=new THREE.ExtrudeGeometry(shape,{depth:.2,bevelEnabled:false});geometry.rotateX(Math.PI/2);return geometry;
   },[item.points,item.props.width,item.props.depth]);
   useEffect(()=>()=>deck.dispose(),[deck]);
-  return <group>
-    <mesh position={[0,height,0]} geometry={deck} material={getMaterial(buildingMaterial(item))} castShadow receiveShadow />
+  return <BuiltMaterial item={item} items={items}>{material=><group>
+    <mesh position={[0,height,0]} geometry={deck} material={material} castShadow receiveShadow />
     {height>.2 && corners.map(([x,z],i)=><mesh key={i} position={[x,(height-.2)/2,z]} material={getMaterial('dark')} castShadow><boxGeometry args={[.18,Math.max(.05,height-.2),.18]} /></mesh>)}
-  </group>;
+  </group>}</BuiltMaterial>;
 }
-function IndustrialStairs({ item }: { item: SceneItem }) {
+function IndustrialStairs({ item,items }: { item: SceneItem;items:readonly SceneItem[] }) {
   const {width,length,height,steps}=upperFloorDimensions(item),run=length/steps,rise=height/steps;
-  return <group>
-    {Array.from({length:steps},(_,i)=><mesh key={i} position={[-length/2+(i+.5)*run,(i+1)*rise-.04,0]} material={getMaterial(buildingMaterial(item))} castShadow receiveShadow><boxGeometry args={[run+.005,.08,width]} /></mesh>)}
+  return <BuiltMaterial item={item} items={items}>{material=><group>
+    {Array.from({length:steps},(_,i)=><mesh key={i} position={[-length/2+(i+.5)*run,(i+1)*rise-.04,0]} material={material} castShadow receiveShadow><boxGeometry args={[run+.005,.08,width]} /></mesh>)}
     {[-1,1].map(side=><group key={side}>
       <mesh position={[0,height/2-.09,side*(width/2-.06)]} rotation={[0,0,Math.atan2(height,length)]} material={getMaterial('dark')} castShadow><boxGeometry args={[Math.hypot(length,height),.18,.12]} /></mesh>
       <mesh position={[0,height/2+.9,side*(width/2+.035)]} rotation={[0,0,Math.atan2(height,length)]} material={getMaterial('yellow')}><boxGeometry args={[Math.hypot(length,height),.05,.05]} /></mesh>
     </group>)}
-  </group>;
+  </group>}</BuiltMaterial>;
 }
 /** Wall follows the same sampled spline in the viewport, collisions and navigation. */
-function SplineWall({item}:{item:SceneItem}) {
+function SplineWall({item,items}:{item:SceneItem;items:readonly SceneItem[]}) {
   const path=useMemo(()=>samplePath(item.points ?? [[-3,0],[3,0]],.2),[item.points]);
   const height=Math.max(.2,Math.min(20,Number(item.props.height ?? 4)));
   const geometry=useMemo(()=>{
@@ -551,14 +571,14 @@ function SplineWall({item}:{item:SceneItem}) {
     const result=segments.length ? mergeGeometries(segments) : new THREE.BufferGeometry();segments.forEach(g=>g.dispose());return result;
   },[path,height]);
   useEffect(()=>()=>geometry.dispose(),[geometry]);
-  return <mesh geometry={geometry} material={getMaterial(buildingMaterial(item))} castShadow receiveShadow/>;
+  return <BuiltMaterial item={item} items={items}>{material=><mesh geometry={geometry} material={material} castShadow receiveShadow/>}</BuiltMaterial>;
 }
 
 function FactoryModelBase({ item, productItems = [] }: { item: SceneItem; productItems?: readonly SceneItem[] }) {
   const accent = item.color || "#9aa7b4";
   switch (item.kind) {
-    case "platform": return <ElevatedPlatform item={item} />;
-    case "stairs": return <IndustrialStairs item={item} />;
+    case "platform": return <ElevatedPlatform item={item} items={productItems} />;
+    case "stairs": return <IndustrialStairs item={item} items={productItems} />;
     case "robot":
     case "kuka":
     case "fanuc":
@@ -620,7 +640,7 @@ function FactoryModelBase({ item, productItems = [] }: { item: SceneItem; produc
     case "cabinet":
       return <Static id="cabinet" accent={accent} make={cabinetParts} />;
     case "wall":
-      return item.points ? <SplineWall item={item} /> : <Static id="wall" accent={accent} make={wallParts} />;
+      return item.points || item.props.surfaceMaterial ? <SplineWall item={item} items={productItems} /> : <Static id="wall" accent={accent} make={wallParts} />;
     case "operator":
       return <HumanModel item={item} />;
     default:

@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.8] - 2026-11-03 (prerelease)
+
+- Unified named, searchable material previews in imported models, color sensors, building surfaces and graph nodes. Original texture thumbnails are embedded when available; platforms, stairs and spline walls can use imported textures and follow source edits. Sensors match base colors, not individual texture pixels.
+- Robots can target multiple pallets in both the graph and visual task editor. Unwired pallets fill in order; color-sensor outputs wired to pallets latch the matching signal on each observed part, avoiding misrouting when multiple parts are present. Full pallets can be retained or automatically exchanged.
+- Fixed authored restitution on gentle and swept workpiece impacts, including surface/product contacts. Tightened broad-phase queries for small workpieces while conservatively covering moving and oversized parts; precomputed laser blockers reduce repeated geometry work.
+- Bloom now uses emissive-only sources rather than bright reflections, with depth and transparency in the WebGL mask. WebGPU uses an emissive render target with transparent blending and a black clear color. Its node/MRT path is pixel-tested with Three’s WebGL backend; a SwiftShader WebGPU device failed during rendering and the app fell back to WebGL. Physical WebGPU hardware has not been tested for this release.
+- Improved compatible-port proximity snapping and previews in the node graph and 3D signal view. Catalog requests now have bounded deadlines/downloads and recoverable partial failures, include Gobkit's curated CC0 entries, and remove cancelled/stale loading ghosts. External provider availability and CORS remain outside the editor's control.
+- Added simulation, randomized spatial/raycast, browser texture, pallet-routing, signal-snap, catalog-cancellation and bloom pixel regressions.
+
+## [3.0.0-alpha.7] - 2026-11-03 (prerelease)
+
+- Added source-only detectors, independent color-sensor outputs and per-input robot workflows; added editable building surfaces and improved material/texture editing.
+- Improved current-view component placement, movable/cancellable import ghosts, catalog controls, model projection, emissive rendering and robot/conveyor behavior.
+- Expanded graph, physics, catalog, signal, rendering and standalone browser regression coverage.
+
 ## [3.0.0-alpha.6] - 2026-11-03 (prerelease)
 
 - Added viewport box and modifier multi-selection, group move/rotate, middle-button camera orbit, and right-click/keyboard copy, cut and paste with internal signal-link remapping.

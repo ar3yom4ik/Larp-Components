@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { filterWebAssets, gobkitModels, kenneyModels, parseGobkit, parseKenney } from '../src/utils/webCatalog';
 
 const free = {packs:[{id:'pack', name:'Nature', kind:'props', models:[
-  {id:'tree', name:'Oak Tree', url:'https://gobkit.com/freebies/tree.glb', license:'CC0 1.0'},
+  {id:'tree', name:'Oak Tree', url:'https://gobkit.com/freebies/tree.glb', license:'CC0 1.0 (public domain) — free for any use, commercial or personal, no attribution required.'},
+  {id:'restricted', url:'https://gobkit.com/freebies/restricted.glb', license:'CC0 1.0 (public domain) — no commercial use'},
   {id:'duplicate', url:'https://gobkit.com/freebies/tree.glb'},
   {id:'evil', url:'https://example.com/model.glb'},
   {id:'local', url:'https://gobkit.com:8443/private.glb'},
@@ -51,7 +52,9 @@ try {
     if (url.includes('/tge-assets/catalog.json')) return new Response(JSON.stringify(data), {status:200});
     throw new Error('unexpected');
   };
-  const partial = await gobkitModels();
+  let partialWarning='';
+  const partial = await gobkitModels(undefined,message=>{partialWarning=message;});
+  assert.match(partialWarning,/Part of the Gobkit/,'partial failures are visible and retryable');
   assert.deepEqual(partial.map(item=>item.name), ['Oak Tree'], 'a working source remains usable when the other is down');
   assert.deepEqual((await kenneyModels()).map(item=>item.name),['Work Table','Safe model']);
   assert.ok(calls.includes('https://hidencod.github.io/tge-assets/catalog.json'));

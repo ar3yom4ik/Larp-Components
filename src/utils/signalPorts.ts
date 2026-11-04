@@ -25,7 +25,6 @@ export function canSignalOutput(item: SceneItem): boolean {
 export function canSignalInput(item: SceneItem, sourceId: string): boolean {
   if (item.visible === false || item.id === sourceId || !signalFunctions(item.kind).length) return false;
   if (!signalAcceptsInput(item.kind)) return false;
-  if (item.kind === 'crates') return !!item.signalChannels?.length;
   return true;
 }
 

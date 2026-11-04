@@ -60,6 +60,8 @@ export interface RobotProgram {
   mode: "palletize" | "transfer" | "tend" | "paint" | "assemble";
   sourceId: string;
   targetId: string;
+  /** Ordered pallet destinations. Omitted for legacy single-target workflows. */
+  targetIds?: string[];
   machineId?: string;
   repeat: boolean;
   delay: number;
@@ -101,6 +103,8 @@ export interface ImportedMaterial {
   mapStrength: number; normalStrength: number; roughnessStrength: number; metalnessStrength: number;
   aoStrength: number; emissiveMapStrength: number; alphaStrength: number; bumpStrength: number; displacementStrength: number;
   present: TextureSlot[];
+  /** Small, embedded preview of the original color texture, when available. */
+  preview?: string;
   /** Missing key means preserve the source; null explicitly removes the map. */
   textures: Partial<Record<TextureSlot, TextureOverride | null>>;
 }

@@ -1,3 +1,4 @@
+import { withWebDeadline } from './webRequests';
 import { PolyError } from './polyhaven';
 
 export type WebProvider = 'gobkit' | 'kenney';
@@ -20,7 +21,7 @@ function providerUrl(value: unknown, hosts: string[]): string | null {
   try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.port && hosts.includes(url.hostname) ? url.href : null; }
   catch { return null; }
 }
-function isCC0(value: unknown): boolean { return typeof value === 'string' && /^cc0(?:[-\s]?1\.0)?$/i.test(value.trim()); }
+function isCC0(value: unknown): boolean { return typeof value === 'string' && /^cc0(?:[-\s]?1\.0)?(?:\s*\(public domain\)(?:\s*[—–-]\s*free for any use, commercial or personal, no attribution required\.?)?)?$/i.test(value.trim()); }
 
 interface GobkitModel { id: string; name?: string; url?: string; rigged?: boolean; license?: string }
 interface GobkitPack { id?: string; name?: string; kind?: string; models?: GobkitModel[] }
@@ -76,21 +77,24 @@ export function filterWebAssets(assets: WebAsset[], query: string): WebAsset[] {
 }
 
 async function json<T>(url: string, provider: string, signal?: AbortSignal): Promise<T> {
-  let response: Response;
-  try { response = await fetch(url, {signal, headers:{Accept:'application/json'}, credentials:'omit'}); }
-  catch (error) { if ((error as Error)?.name === 'AbortError') throw error; throw new PolyError(`${provider} could not be reached from this browser. Check the connection or provider CORS policy.`); }
-  if (response.status === 429) throw new PolyError(`${provider} is rate limiting requests. Wait a moment and retry.`);
-  if (!response.ok) throw new PolyError(`${provider} returned ${response.status}. Retry later.`);
-  return response.json() as Promise<T>;
+  return withWebDeadline(async inner=>{
+    let response:Response;
+    try {response=await fetch(url,{signal:inner,headers:{Accept:'application/json'},credentials:'omit'});}
+    catch(error) {if((error as Error)?.name==='AbortError')throw error;throw new PolyError(`${provider} could not be reached from this browser. Check the connection or provider CORS policy.`);}
+    if(response.status===429)throw new PolyError(`${provider} is rate limiting requests. Wait a moment and retry.`);
+    if(!response.ok)throw new PolyError(`${provider} returned ${response.status}. Retry later.`);
+    return await response.json() as T;
+  },signal);
 }
 
-export async function gobkitModels(signal?: AbortSignal): Promise<WebAsset[]> {
+export async function gobkitModels(signal?: AbortSignal, onPartial?: (message:string)=>void): Promise<WebAsset[]> {
   const [free, community] = await Promise.allSettled([
     json<{packs?: GobkitPack[]}>('https://gobkit.com/api/free', 'Gobkit', signal),
     json<{items?: GobkitCommunity[]}>('https://gobkit.com/api/community', 'Gobkit', signal),
   ]);
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   if (free.status === 'rejected' && community.status === 'rejected') throw free.reason;
+  if (free.status === 'rejected' || community.status === 'rejected') onPartial?.('Part of the Gobkit catalogue could not be loaded. Retry to load the missing models.');
   return parseGobkit(free.status === 'fulfilled' ? free.value : {}, community.status === 'fulfilled' ? community.value : {});
 }
 

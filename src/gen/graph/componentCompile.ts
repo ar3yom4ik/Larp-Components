@@ -30,7 +30,7 @@ interface FlowEnd { x: number; z: number; palletZ?: number; pickupBack?: number;
 interface MergeEntry { sourceId: string; along: number; side: number }
 
 /** Compile a DAG of physical parts. Multiple workers can share a belt as
- * competing consumers; other fan-out still needs an explicit splitter. */
+ * competing consumers, and palletizing robots can serve several pallets. */
 export function compileComponentGraph(graph: NodeGraph): CompileResult {
   graph = upgradePickupSensors(graph);
   const start = performance.now();
@@ -59,8 +59,9 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     const nextTypes = outs.map(link => byId.get(link.to.node)?.type);
     const next = outs.length === 1 ? nextTypes[0] : undefined;
     const sharedWorkers = node.type === 'part.conveyor' && outs.length > 1 && nextTypes.every(type => type === 'part.robot' || type === 'part.human');
+    const palletFanout = node.type === 'part.robot' && outs.length > 1 && nextTypes.every(type => type === 'part.pallet');
     if (predecessors.some((parent) => parent && reachable.has(parent.id))) reachable.add(node.id);
-    if (outs.length > 1 && !sharedWorkers) error('Splitting material into multiple outputs is not supported yet.', node.id);
+    if (outs.length > 1 && !sharedWorkers && !palletFanout) error('Splitting material into multiple outputs is not supported yet.', node.id);
     if (node.type === 'part.feeder' && next !== 'part.conveyor') error('A feeder must connect to a conveyor.', node.id);
     if (node.type === 'part.conveyor') {
       if (predecessors.some((parent) => !parent || !['part.feeder','part.robot','part.human','part.conveyor'].includes(parent.type))) error('A conveyor must receive material from a feeder, robot or conveyor.', node.id);
@@ -68,8 +69,8 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       if (!sharedWorkers && !['part.conveyor','part.robot','part.human'].includes(next ?? '')) error('A conveyor must feed another conveyor or a robot.', node.id);
     }
     if (node.type === 'part.robot' || node.type === 'part.human') {
-      if (predecessors.length !== 1 || predecessors[0]?.type !== 'part.conveyor' || !['part.conveyor','part.pallet'].includes(next ?? '')) error('A robot needs a source conveyor and a target conveyor or pallet.', node.id);
-      if (next === 'part.pallet' && machineIn(node.id).length) error('A palletizing robot cannot tend a machine. Connect a conveyor and another robot before the pallet.', node.id);
+      if (predecessors.length !== 1 || predecessors[0]?.type !== 'part.conveyor' || (!palletFanout && !['part.conveyor','part.pallet'].includes(next ?? ''))) error('A robot needs a source conveyor and a target conveyor or pallet.', node.id);
+      if ((next === 'part.pallet' || palletFanout) && machineIn(node.id).length) error('A palletizing robot cannot tend a machine. Connect a conveyor and another robot before the pallet.', node.id);
     }
     if (node.type === 'part.pallet' && (predecessors.length !== 1 || !['part.robot','part.human'].includes(predecessors[0]?.type ?? ''))) error('A pallet must be connected to a robot.', node.id);
   }
@@ -187,8 +188,17 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       // Separate downstream branches from the shared source belt.
       ends.set(part.id, shared ? {x:x+0.6,z:z+side*2.9,palletZ:z+side*2.9,pickupBack,side,station} : {x:x+0.6,z});
     } else {
-      const {x,z,palletZ} = parents[0].end;
-      item = makeItem('crates',[x-0.3,0,palletZ ?? z+2.9],0,{name:'Pallet',props:{product:String(value(part,'product','machined')),cols:number(part,'cols',3,1,8),rows:number(part,'rows',2,1,8),layers:number(part,'layers',4,1,10),gap:0.04}});
+      const {x,z,palletZ,side = 1} = parents[0].end;
+      const siblings = outFlow(parents[0].node.id).filter(link => byId.get(link.to.node)?.type === 'part.pallet');
+      const index = siblings.findIndex(link => link.to.node === part.id);
+      // Arrange multiple destinations around the reachable side of the arm,
+      // rather than putting every compiled pallet at the same coordinates.
+      const angle = siblings.length > 1 ? (index / (siblings.length - 1) - .5) * 1.8 : 0;
+      const robot = instances.get(parents[0].node.id)!;
+      const position: [number,number,number] = siblings.length > 1
+        ? [robot.position[0] + Math.sin(angle)*1.85, 0, robot.position[2] + side*Math.cos(angle)*1.85]
+        : [x-0.3,0,palletZ ?? z+2.9];
+      item = makeItem('crates',position,0,{name:siblings.length > 1 ? `Pallet ${index+1}` : 'Pallet',props:{product:String(value(part,'product','machined')),cols:number(part,'cols',3,1,8),rows:number(part,'rows',2,1,8),layers:number(part,'layers',4,1,10),gap:0.04}});
     }
     instances.set(part.id,item);
     items.push(item);
@@ -209,7 +219,8 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     if (part.type !== 'part.robot' && part.type !== 'part.human') continue;
     const robot = instances.get(part.id)!;
     const source = instances.get(inFlow(part.id)[0].from.node)!;
-    const targetNodeId = outFlow(part.id)[0].to.node;
+    const targetNodeIds = outFlow(part.id).map(link => link.to.node);
+    const targetNodeId = targetNodeIds[0];
     const target = mergeConnectors.get(`${part.id}:${targetNodeId}`) ?? instances.get(targetNodeId)!;
     const station = ends.get(part.id);
     if (station?.pickupBack !== undefined) robot.props = {...robot.props,sharedBeltId:source.id,pickupBack:station.pickupBack,pickupSide:station.side ?? 1,pickupIndex:station.station ?? 0};
@@ -226,7 +237,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       continue;
     }
     const mode = machine ? (machine.kind==='assembly' ? 'assemble' : machine.kind==='paint' ? 'paint' : 'tend') : target.kind==='crates' ? 'palletize' : 'transfer';
-    robot.program = {mode,sourceId:source.id,targetId:target.id,machineId:machine?.id,repeat:true,delay:0,clearance:0.3,...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack} : {})};
+    robot.program = {mode,sourceId:source.id,targetId:target.id,...(mode === 'palletize' && targetNodeIds.length > 1 ? {targetIds:targetNodeIds.map(id => instances.get(id)!.id)} : {}),machineId:machine?.id,repeat:true,delay:0,clearance:0.3,...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack} : {})};
     robot.script = programToCode(robot.program);
   }
   // Automation nodes are real scene objects, not implicit compiler side effects.
@@ -281,7 +292,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     }
     for (const key of Object.keys(part.io ?? {})) { const port=Number(key); if (Number.isSafeInteger(port) && port>0) relevant.add(port); }
     item.signalChannels = signalRows(graph,part).filter(port => relevant.has(port)).map(port => ({
-      port, mode:channelMode(part,port), ...(part.io?.[String(port)]?.color ? {color:signalWireColor(part.io[String(port)].color)} : {}), ...(part.type === 'part.color-sensor' && part.io?.[String(port)]?.material ? {material:part.io[String(port)].material} : {}),
+      port, mode:channelMode(part,port), ...(part.io?.[String(port)]?.color ? {color:signalWireColor(part.io[String(port)].color)} : {}), ...(part.type === 'part.color-sensor' && part.io?.[String(port)]?.material ? {material:part.io[String(port)].material, ...(part.io[String(port)].materialRef ? {materialRef:part.io[String(port)].materialRef} : {})} : {}),
     }));
     // Per-input overrides reference graph nodes; resolve them to scene IDs only
     // after all physical instances have been created.
@@ -295,7 +306,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
           diagnostics.push({id:`program:${part.id}:${key}`,severity:'warning',nodeId:part.id,message:`Input ${key} workflow refers to a component that is not in this factory.`});
           continue;
         }
-        (item.programs ??= {})[key] = {...item.program,sourceId:source?.id ?? item.program.sourceId,targetId:target?.id ?? item.program.targetId,
+        (item.programs ??= {})[key] = {...item.program,sourceId:source?.id ?? item.program.sourceId,targetId:target?.id ?? item.program.targetId,...(target ? {targetIds:undefined} : {}),
           mode:(settings.programMode as typeof item.program.mode | undefined) ?? item.program.mode,repeat:true};
       }
     }

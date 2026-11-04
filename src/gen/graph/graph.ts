@@ -279,10 +279,11 @@ export function parseGraph(input: unknown): NodeGraph {
       const mode = typeof value.mode === 'string' && signalFunction(node.type, value.mode)?.value === value.mode ? value.mode : undefined;
       const color = typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color) ? value.color : undefined;
       const material = typeof value.material === 'string' && /^#[0-9a-f]{6}$/i.test(value.material) ? value.material.toLowerCase() : undefined;
+      const materialRef = typeof value.materialRef === 'string' && value.materialRef.length <= 2048 ? value.materialRef : undefined;
       const programSource = node.type === 'part.robot' && typeof value.programSource === 'string' && value.programSource.length <= 1024 ? value.programSource : undefined;
       const programTarget = node.type === 'part.robot' && typeof value.programTarget === 'string' && value.programTarget.length <= 1024 ? value.programTarget : undefined;
       const programMode = node.type === 'part.robot' && ['palletize','transfer','tend','paint','assemble'].includes(value.programMode ?? '') ? value.programMode : undefined;
-      if (mode || color || material || programSource || programTarget || programMode) io[key] = { ...(mode ? {mode} : {}), ...(color ? {color} : {}), ...(material ? {material} : {}), ...(programSource ? {programSource} : {}), ...(programTarget ? {programTarget} : {}), ...(programMode ? {programMode} : {}) };
+      if (mode || color || material || materialRef || programSource || programTarget || programMode) io[key] = { ...(mode ? {mode} : {}), ...(color ? {color} : {}), ...(material ? {material} : {}), ...(materialRef ? {materialRef} : {}), ...(programSource ? {programSource} : {}), ...(programTarget ? {programTarget} : {}), ...(programMode ? {programMode} : {}) };
     }
     let id = typeof node.id === 'string' && node.id && !usedIds.has(node.id) ? node.id : '';
     if (!id) { do { id = uid(); } while (usedIds.has(id) || reservedIds.has(id)); }

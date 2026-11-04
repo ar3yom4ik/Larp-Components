@@ -1,3 +1,4 @@
+import { surfaceUsesWorldProjection } from '../data/materials';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { ContactShadows, Line, OrbitControls, PerformanceMonitor, TransformControls } from "@react-three/drei";
@@ -865,7 +866,7 @@ function SceneContent({
           <PhysicalItemGroup key={item.id} item={item} onPointerDown={startDrag} onDuplicate={onDuplicateItem} onClick={(event, clicked) => {
             if (event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && !suppressClick.current && tool === "select" && clicked.kind === "button") { event.stopPropagation(); sim.pressButton(clicked.id); }
           }}>
-            {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} productItems={item.kind === "crates" ? productItems : undefined} />}
+            {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} productItems={item.kind === "crates" || item.kind === "platform" || item.kind === "stairs" || item.kind === "wall" ? productItems : undefined} />}
             {selected && <SelectionMarker item={item} />}
             {primary && isConveyor && (
               <ConveyorHandles item={item} selectedPoint={selectedPoint} onGrab={(event, index) => grabPoint(event, item.id, index)} />
@@ -1171,6 +1172,7 @@ export const Viewport = memo(function Viewport({
   const [projectedWorkpieces, setProjectedWorkpieces] = useState(false);
   const projectedMaterials = !benchmark && (projectedWorkpieces || items.some(item => item.visible !== false && (
     item.imported?.materials.some(material => material.worldProjection === true) ||
+    surfaceUsesWorldProjection(item,productItems) ||
     (item.worker?.appearance === "custom" && item.worker.model?.materials.some(material => material.worldProjection === true))
   )));
   const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed && !giError && !projectedMaterials;

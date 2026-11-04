@@ -53,6 +53,52 @@ try {
     let brightened=0;for(let i=0;i<x.length;i+=4)if(y[i]>x[i]+5)brightened++;return brightened;
   },[without.toString('base64'),withBloom.toString('base64')]);
   assert.ok(diff>1000,`bloom brightens pixels around the emissive object (${diff})`);
+  // A deliberately over-lit, highly reflective object is bright enough to
+  // trigger global HDR bloom, but must not generate any halo of its own.
+  await page.evaluate(async()=>{
+    const T=await import('/node_modules/three/build/three.module.js'),scene=window.__larpRenderer.scene;
+    scene.remove(scene.getObjectByName('bloom-probe'));
+    const metal=new T.Mesh(new T.SphereGeometry(1,24,16),new T.MeshStandardMaterial({color:0xffffff,metalness:1,roughness:.08}));metal.position.y=1;metal.name='reflection-probe';scene.add(metal);
+    const light=new T.DirectionalLight(0xffffff,30);light.position.set(1,5,5);light.name='reflection-light';scene.add(light);
+    window.__larpTheme.setGfx({bloom:false});
+  });
+  await page.waitForTimeout(1200);const reflectionOff=await page.locator('canvas').first().screenshot();
+  await page.evaluate(()=>window.__larpTheme.setGfx({bloom:true}));await page.waitForTimeout(1500);const reflectionOn=await page.locator('canvas').first().screenshot();
+  const reflectedChanges=await page.evaluate(async([a,b])=>{
+    const load=src=>new Promise(resolve=>{const i=new Image();i.onload=()=>resolve(i);i.src='data:image/png;base64,'+src});
+    const [one,two]=await Promise.all([load(a),load(b)]),c=document.createElement('canvas');c.width=one.width;c.height=one.height;const x=c.getContext('2d');x.drawImage(one,0,0);const first=x.getImageData(0,0,c.width,c.height).data;x.clearRect(0,0,c.width,c.height);x.drawImage(two,0,0);const second=x.getImageData(0,0,c.width,c.height).data;let n=0;for(let j=0;j<first.length;j+=4)if(Math.abs(first[j]-second[j])+Math.abs(first[j+1]-second[j+1])+Math.abs(first[j+2]-second[j+2])>8)n++;return n;
+  },[reflectionOff.toString('base64'),reflectionOn.toString('base64')]);
+  assert.ok(reflectedChanges<100,`bright non-emissive reflections do not bloom (${reflectedChanges} changed pixels)`);
+
+  // An opaque wall in front of an emitter must block its bloom mask as well.
+  await page.evaluate(async()=>{
+    const T=await import('/node_modules/three/build/three.module.js'),{scene,camera}=window.__larpRenderer;
+    scene.remove(scene.getObjectByName('reflection-probe'),scene.getObjectByName('reflection-light'));
+    const direction=camera.getWorldDirection(new T.Vector3()),position=camera.position.clone().addScaledVector(direction,10);
+    const emitter=new T.Mesh(new T.SphereGeometry(.6,16,12),new T.MeshStandardMaterial({color:0,emissive:0xff0000,emissiveIntensity:8}));emitter.position.copy(position);scene.add(emitter);
+    const wall=new T.Mesh(new T.PlaneGeometry(8,8),new T.MeshBasicMaterial({color:0}));wall.position.copy(position).addScaledVector(direction,-1);wall.quaternion.copy(camera.quaternion);wall.name='bloom-occluder';scene.add(wall);
+    window.__larpTheme.setGfx({bloom:false});
+  });
+  await page.waitForTimeout(1000);const hiddenOff=await page.locator('canvas').first().screenshot();
+  await page.evaluate(()=>window.__larpTheme.setGfx({bloom:true}));await page.waitForTimeout(1500);const hiddenOn=await page.locator('canvas').first().screenshot();
+  const hiddenChanges=await page.evaluate(async([a,b])=>{
+    const load=src=>new Promise(resolve=>{const i=new Image();i.onload=()=>resolve(i);i.src='data:image/png;base64,'+src});
+    const [one,two]=await Promise.all([load(a),load(b)]),c=document.createElement('canvas');c.width=one.width;c.height=one.height;const x=c.getContext('2d');x.drawImage(one,0,0);const first=x.getImageData(0,0,c.width,c.height).data;x.clearRect(0,0,c.width,c.height);x.drawImage(two,0,0);const second=x.getImageData(0,0,c.width,c.height).data;let n=0;for(let j=0;j<first.length;j+=4)if(Math.abs(first[j]-second[j])+Math.abs(first[j+1]-second[j+1])+Math.abs(first[j+2]-second[j+2])>8)n++;return n;
+  },[hiddenOff.toString('base64'),hiddenOn.toString('base64')]);
+  assert.ok(hiddenChanges<100,`opaque geometry hides the emission halo (${hiddenChanges} changed pixels)`);
+  // Semi-transparent glass should transmit a fraction of the emissive mask.
+  const haloEnergy=async(off,on)=>page.evaluate(async([a,b])=>{
+    const load=src=>new Promise(resolve=>{const i=new Image();i.onload=()=>resolve(i);i.src='data:image/png;base64,'+src});
+    const [one,two]=await Promise.all([load(a),load(b)]),c=document.createElement('canvas');c.width=one.width;c.height=one.height;const x=c.getContext('2d');x.drawImage(one,0,0);const first=x.getImageData(0,0,c.width,c.height).data;x.clearRect(0,0,c.width,c.height);x.drawImage(two,0,0);const second=x.getImageData(0,0,c.width,c.height).data;let total=0;for(let j=0;j<first.length;j+=4)total+=Math.max(0,second[j]-first[j])+Math.max(0,second[j+1]-first[j+1])+Math.max(0,second[j+2]-first[j+2]);return total;
+  },[off.toString('base64'),on.toString('base64')]);
+  await page.evaluate(()=>{const wall=window.__larpRenderer.scene.getObjectByName('bloom-occluder');wall.material.transparent=true;wall.material.opacity=.5;wall.material.depthWrite=false;wall.material.needsUpdate=true;window.__larpTheme.setGfx({bloom:false});});
+  await page.waitForTimeout(1000);const translucentOff=await page.locator('canvas').first().screenshot();
+  await page.evaluate(()=>window.__larpTheme.setGfx({bloom:true}));await page.waitForTimeout(1200);const translucentOn=await page.locator('canvas').first().screenshot();
+  await page.evaluate(()=>{window.__larpRenderer.scene.getObjectByName('bloom-occluder').visible=false;window.__larpTheme.setGfx({bloom:false});});
+  await page.waitForTimeout(1000);const visibleOff=await page.locator('canvas').first().screenshot();
+  await page.evaluate(()=>window.__larpTheme.setGfx({bloom:true}));await page.waitForTimeout(1200);const visibleOn=await page.locator('canvas').first().screenshot();
+  const translucentEnergy=await haloEnergy(translucentOff,translucentOn),visibleEnergy=await haloEnergy(visibleOff,visibleOn);
+  assert.ok(translucentEnergy>visibleEnergy*.12 && translucentEnergy<visibleEnergy*.85,`translucent surfaces attenuate rather than erase or amplify the halo (${translucentEnergy}/${visibleEnergy})`);
   assert.deepEqual(errors,[]);
-  console.log('render/theme: Classic red/yellow switching, sloped-product orientation and emissive bloom pixels PASS');
+  console.log('render/theme: Classic red/yellow switching, sloped-product orientation emissive-only bloom, reflection rejection, occlusion and transparency pixels PASS');
 } finally {await browser.close();}

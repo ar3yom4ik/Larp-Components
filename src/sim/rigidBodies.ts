@@ -165,26 +165,37 @@ function selectedShapes(item: SceneItem, items: readonly SceneItem[]): Shape[] {
 /** Intersect a finite laser segment with the same oriented compound proxies used
  * by physics. Precomputed at scene sync; includes static and dynamic equipment. */
 export function makeBeamBlocker(item: SceneItem, items: readonly SceneItem[]) {
-  const shapes = selectedShapes(item, items);
-  const inverseItem = qItem(item).invert();
-  const origin = new THREE.Vector3(...item.position);
-  const inverseShapes = shapes.map(shape => shape.rotation?.clone().invert());
+  const itemRotation=qItem(item), origin=new THREE.Vector3(...item.position);
+  const shapes=selectedShapes(item,items).map(shape=>{
+    const center=new THREE.Vector3(...shape.center).applyQuaternion(itemRotation).add(origin);
+    const rotation=itemRotation.clone();if(shape.rotation)rotation.multiply(shape.rotation);
+    const e=new THREE.Matrix4().makeRotationFromQuaternion(rotation).elements;
+    const [hx,hy,hz]=shape.size.map(value=>value/2);
+    const ex=Math.abs(e[0])*hx+Math.abs(e[4])*hy+Math.abs(e[8])*hz;
+    const ey=Math.abs(e[1])*hx+Math.abs(e[5])*hy+Math.abs(e[9])*hz;
+    const ez=Math.abs(e[2])*hx+Math.abs(e[6])*hy+Math.abs(e[10])*hz;
+    return {center,inverse:rotation.invert(),half:[hx,hy,hz],min:[center.x-ex,center.y-ey,center.z-ez],max:[center.x+ex,center.y+ey,center.z+ez]};
+  });
+  // These vectors are reused for all synchronous checks. Broad-phase world
+  // bounds skip distant compound shapes before any quaternion or allocations.
+  const p=new THREE.Vector3(),q=new THREE.Vector3();
   return (from: Vec3, to: Vec3) => {
-    const a = new THREE.Vector3(...from).sub(origin).applyQuaternion(inverseItem);
-    const b = new THREE.Vector3(...to).sub(origin).applyQuaternion(inverseItem);
-    for (let i=0;i<shapes.length;i++) {
-      const shape=shapes[i], center=new THREE.Vector3(...shape.center);
-      const p=a.clone().sub(center), q=b.clone().sub(center);
-      if(inverseShapes[i]) { p.applyQuaternion(inverseShapes[i]!); q.applyQuaternion(inverseShapes[i]!); }
-      let near=0, far=1;
-      for (const [axis,half] of [['x',shape.size[0]/2],['y',shape.size[1]/2],['z',shape.size[2]/2]] as const) {
-        const d=q[axis]-p[axis];
-        if(Math.abs(d)<1e-9) { if(Math.abs(p[axis])>half){near=2;break;} continue; }
-        let lo=(-half-p[axis])/d, hi=(half-p[axis])/d;
-        if(lo>hi) [lo,hi]=[hi,lo]; near=Math.max(near,lo); far=Math.min(far,hi);
-        if(near>far) break;
+    const minX=Math.min(from[0],to[0]),maxX=Math.max(from[0],to[0]);
+    const minY=Math.min(from[1],to[1]),maxY=Math.max(from[1],to[1]);
+    const minZ=Math.min(from[2],to[2]),maxZ=Math.max(from[2],to[2]);
+    for(const shape of shapes) {
+      if(maxX<shape.min[0] || minX>shape.max[0] || maxY<shape.min[1] || minY>shape.max[1] || maxZ<shape.min[2] || minZ>shape.max[2])continue;
+      p.set(...from).sub(shape.center).applyQuaternion(shape.inverse);
+      q.set(...to).sub(shape.center).applyQuaternion(shape.inverse);
+      let near=0,far=1;
+      for(let axis=0;axis<3;axis++) {
+        const a=axis===0?p.x:axis===1?p.y:p.z, b=axis===0?q.x:axis===1?q.y:q.z;
+        const d=b-a,half=shape.half[axis];
+        if(Math.abs(d)<1e-9){if(Math.abs(a)>half){near=2;break;}continue;}
+        let lo=(-half-a)/d,hi=(half-a)/d;if(lo>hi)[lo,hi]=[hi,lo];
+        near=Math.max(near,lo);far=Math.min(far,hi);if(near>far)break;
       }
-      if(near<=far && near<=1 && far>=0) return true;
+      if(near<=far && near<=1 && far>=0)return true;
     }
     return false;
   };

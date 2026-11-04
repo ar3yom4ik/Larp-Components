@@ -252,9 +252,9 @@ export default function App() {
     syncHistory();
   }, [remember, syncHistory]);
 
-  const fitsProject = useCallback((next: SceneItem[]) => {
+  const fitsProject = useCallback((next: SceneItem[], existingCatalog:SceneItem[] = workpiecesRef.current) => {
     // Count UTF-8 bytes without copying base64 payloads. Reserve room for later title edits.
-    const catalog = updateWorkpieceCatalog(next, workpiecesRef.current);
+    const catalog = updateWorkpieceCatalog(next, existingCatalog);
     if (estimateProjectBytes({items:next, workpieces:catalog, projectName, layoutName, activeLayoutId}) <= MAX_PROJECT_CHARS - 4096) return true;
     notify(t("Project would exceed the 180 MB limit. Remove assets or start a new project."), "info");
     return false;
@@ -667,13 +667,14 @@ export default function App() {
 
   const buildGenerated = useCallback(
     (generated: SceneItem[], options: GenOptions) => {
-      if (!fitsProject(generated)) return;
+      const materialSources=updateWorkpieceCatalog(itemsRef.current,workpiecesRef.current,generated);
+      if (!fitsProject(generated,materialSources)) return;
       setGenOptions(options);
       setGenOpen(false);
       const xs = generated.map((i) => i.position[0]), zs = generated.map((i) => i.position[2]);
       setBuilding({ width: Math.max(20, Math.max(...xs, 8) - Math.min(...xs, -8) + 12), depth: Math.max(16, Math.max(...zs, 6) - Math.min(...zs, -6) + 12), height: 7 });
 
-      replaceScene(cloneItems(generated), `AI Factory ${options.style}-${options.seed}`, null, workpiecesRef.current);
+      replaceScene(cloneItems(generated), `AI Factory ${options.style}-${options.seed}`, null, materialSources);
       const robots = generated.filter((i) => isRobotKind(i.kind)).length;
       sim.log(`AIFactory: built ${generated.length} components (${robots} robots) - seed ${options.seed}`, "ok");
       notify("Factory generated - simulation running");

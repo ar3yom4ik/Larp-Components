@@ -35,7 +35,11 @@ try {
  // Reattach the second line with a genuine output-to-input gesture.
  const output=dialog.locator(`[data-node="${ids.b}"]`).getByRole('button',{name:'Conveyor Material out output'}), input=merge.getByRole('button',{name:'Conveyor Material in'});
  const o=await output.boundingBox(),i=await input.boundingBox();assert.ok(o&&i);
- await page.mouse.move(o.x+o.width/2,o.y+o.height/2);await page.mouse.down();await page.mouse.move(i.x+i.width/2,i.y+i.height/2,{steps:12});await page.mouse.up();
+ await page.mouse.move(o.x+o.width/2,o.y+o.height/2);await page.mouse.down();await page.mouse.move(i.x-16,i.y+i.height/2,{steps:12});
+ await input.waitFor();assert.equal(await input.getAttribute('data-port-snap'),'true','nearby compatible port is highlighted before release');
+ const end=await dialog.locator('[data-wire-preview]').evaluate(path=>{const p=path.getPointAtLength(path.getTotalLength()),m=path.getScreenCTM(),q=new DOMPoint(p.x,p.y).matrixTransform(m);return {x:q.x,y:q.y}});
+ assert.ok(Math.hypot(end.x-(i.x+i.width/2),end.y-(i.y+i.height/2))<2,'preview snaps to the input center');
+ await page.mouse.up();
  await page.waitForFunction(({from,to})=>JSON.parse(localStorage.getItem('larp-factory-component-graph-v1')).links.some(l=>l.from.node===from&&l.to.node===to),{from:ids.b,to:ids.m});
  assert.ok((await getGraph()).links.some(l=>l.id===remaining.id),'attaching another head preserves the first');
  // A loose conveyor can still be dropped onto an existing material wire.

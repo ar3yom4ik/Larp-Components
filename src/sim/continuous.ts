@@ -377,7 +377,7 @@ function clampToImpact(m: Motion, time: number) {
   m.angle = m.q0.angleTo(m.q1);
   sweptBounds(m);
 }
-function respond(hit: Hit) {
+function respond(hit: Hit, world:CANNON.World, floor:CANNON.Body | undefined) {
   const { a, b, normal, time } = hit,
     A = a.body,
     B = b.body;
@@ -389,7 +389,15 @@ function respond(hit: Hit) {
     invA = A.type === CANNON.Body.DYNAMIC ? A.invMass : 0,
     invB = B?.type === CANNON.Body.DYNAMIC ? B.invMass : 0;
   if (closing < 0 && invA + invB > 0) {
-    const impulse = (-1.03 * closing) / (invA + invB);
+    // Use the same authored pair material as ordinary Cannon contacts. CCD
+    // previously hard-coded .03, so fast rubber objects mysteriously stopped
+    // bouncing even though their slow collisions were correctly configured.
+    const materialA=A.material, materialB=(B ?? floor)?.material;
+    const pair=materialA && materialB ? world.getContactMaterial(materialA,materialB) : undefined;
+    const restitution=pair ? pair.restitution
+      : materialA && materialB && materialA.restitution >= 0 && materialB.restitution >= 0
+        ? materialA.restitution*materialB.restitution : world.defaultContactMaterial.restitution;
+    const impulse = (-(1+Math.max(0,Math.min(1,restitution))) * closing) / (invA + invB);
     A.velocity.x += normal.x * impulse * invA;
     A.velocity.y += normal.y * impulse * invA;
     A.velocity.z += normal.z * impulse * invA;
@@ -429,6 +437,7 @@ export function resolveContinuous(
         needsContinuous(m.body, dt, world.gravity));
     sweptBounds(m);
   }
+  const floor = world.bodies.find(body => body.shapes.some(shape => shape instanceof CANNON.Plane));
   const hits: Hit[] = [];
   for (let i = 0; i < motions.length; i++) {
     const a = motions[i];
@@ -452,7 +461,7 @@ export function resolveContinuous(
         ? pairHit(candidate.a, candidate.b)
         : floorHit(candidate.a);
     if (!hit) continue;
-    respond(hit);
+    respond(hit,world,floor);
     changed.add(hit.a);
     touched.add(hit.a.body);
     if (hit.b.body && hit.b.body.type === CANNON.Body.DYNAMIC) {

@@ -69,8 +69,13 @@ function makePbr(src: THREE.Material): Pbr {
   return out;
 }
 
-function cloneModel(root: THREE.Object3D, clips: THREE.AnimationClip[], hidden: readonly number[] = []) {
+function cloneModel(root: THREE.Object3D, clips: THREE.AnimationClip[], hidden: readonly number[] = [], materialOnlyIndex?:number) {
   const originalMaterials = materialsOf(root);
+  if(materialOnlyIndex!==undefined) {
+    const pbrMaterials:Pbr[]=[];
+    if(originalMaterials[materialOnlyIndex])pbrMaterials[materialOnlyIndex]=makePbr(originalMaterials[materialOnlyIndex]);
+    return {object:new THREE.Group(),pbrMaterials,originalMaterials,clips};
+  }
   const pbrMaterials = originalMaterials.map(makePbr);
   const lookup = new Map(originalMaterials.map((material, index) => [material, pbrMaterials[index]]));
   const object = removeModelMeshes(cloneSkeleton(root), hidden);
@@ -88,7 +93,7 @@ function cloneModel(root: THREE.Object3D, clips: THREE.AnimationClip[], hidden: 
 const UNIT_SCALE: Record<Exclude<ModelUnits, "auto">, number> = {m: 1, mm: .001, cm: .01, in: .0254, ft: .3048};
 
 /** Shared source geometry + per-instance cloned PBR materials, so edits never leak to duplicates. */
-export function useImportedModelInstance(model: ImportedModelData) {
+export function useImportedModelInstance(model: ImportedModelData, materialOnlyIndex?:number) {
   const { gl, invalidate } = useThree();
   const [loaded, setLoaded] = useState<ReturnType<typeof cloneModel> | null>(null);
   const [error, setError] = useState("");
@@ -101,15 +106,15 @@ export function useImportedModelInstance(model: ImportedModelData) {
     setLoaded(null); setError("");
     getCachedModel(asset).then(({root, clips}) => {
       if (!alive) return;
-      if (!importedCollision(model)) {
+      if (materialOnlyIndex === undefined && !importedCollision(model)) {
         const collision = buildImportedCollision(root);
         if (collision) registerImportedCollision(asset, collision);
       }
-      instance = cloneModel(root, clips, model.hiddenMeshes); setLoaded(instance); gl.shadowMap.needsUpdate = true; invalidate();
+      instance = cloneModel(root, clips, model.hiddenMeshes, materialOnlyIndex); setLoaded(instance); gl.shadowMap.needsUpdate = true; invalidate();
     }).catch((cause: unknown) => { if (alive) { setError(cause instanceof Error ? cause.message : String(cause)); invalidate(); } });
     const cache = overrideMaps.current, projected = projectedMaps.current;
     return () => { alive = false; if (instance) instance.pbrMaterials.forEach((m) => m.dispose()); cache.forEach((v) => v.texture.dispose()); cache.clear(); projected.forEach((v) => v.texture.dispose()); projected.clear(); };
-  }, [asset, gl, invalidate, JSON.stringify(model.hiddenMeshes ?? [])]);
+  }, [asset, gl, invalidate, materialOnlyIndex, JSON.stringify(model.hiddenMeshes ?? [])]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -166,7 +171,7 @@ export function useImportedModelInstance(model: ImportedModelData) {
   }, [loaded, model.materials, asset.entry, gl, invalidate]);
 
   const transform = useMemo(() => {
-    if (!loaded) return {scale:1, offset: [0, 0, 0] as [number, number, number]};
+    if (!loaded || materialOnlyIndex!==undefined) return {scale:1, offset: [0, 0, 0] as [number, number, number]};
     // Three's loaders already convert glTF, FBX and COLLADA axes to Y-up.
     const temp = new THREE.Group(); temp.rotation.set(...modelAxisRotation(model.axis));
     const boundsObject = loaded.object.clone(true);
@@ -179,7 +184,7 @@ export function useImportedModelInstance(model: ImportedModelData) {
     const offset: [number, number, number] = box.isEmpty() ? [0,0,0] : [-((box.min.x + box.max.x)/2)*scale, -box.min.y*scale, -((box.min.z + box.max.z)/2)*scale];
     temp.remove(boundsObject);
     return {scale, offset};
-  }, [loaded, model.axis, model.units]);
+  }, [loaded, model.axis, model.units, materialOnlyIndex]);
 
   return {loaded, error, transform};
 }

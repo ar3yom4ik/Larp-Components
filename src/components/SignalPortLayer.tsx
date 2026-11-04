@@ -1,3 +1,4 @@
+import { nearestPort } from '../utils/portSnap';
 import { Html } from '@react-three/drei';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -39,6 +40,7 @@ export function SignalPortLayer({items, source, onSource, onTarget, onConnect, o
   latest.current = {items,onSource,onConnect,onReroute};
   const portal = useRef<HTMLElement>(document.body), gesture = useRef<Gesture | null>(null), suppressClick = useRef(false);
   const [preview,setPreview] = useState<{x1:number;y1:number;x2:number;y2:number;color:string} | null>(null);
+  const [snapTarget,setSnapTarget] = useState<InputPort | null>(null);
   const incoming = useMemo(() => {
     const map = new Map<string,OutputPort[]>();
     const add = (target:string,input:number,port:OutputPort) => { const key=inputKey(target,input), row=map.get(key) ?? []; row.push(port); map.set(key,row); };
@@ -58,17 +60,25 @@ export function SignalPortLayer({items, source, onSource, onTarget, onConnect, o
     event.currentTarget.setPointerCapture?.(event.pointerId); onSource(output);
   };
   useEffect(() => {
+    const findInput=(event:PointerEvent, output:OutputPort) => {
+      const inputItems=new Map(latest.current.items.map(item=>[item.id,item]));
+      return nearestPort(document.querySelectorAll<HTMLElement>('[data-signal-input]'),event.clientX,event.clientY,26,element=>{
+      const id=element.dataset.signalInput, port=Number(element.dataset.signalInputPort || 1);
+      const item=inputItems.get(id ?? '');
+      return item && Number.isSafeInteger(port) && port>0 && canSignalInput(item,output.id) ? {id:item.id,port} : null;
+    });
+    };
     const move=(event:PointerEvent) => {
       const g=gesture.current;if(!g || g.pointerId !== event.pointerId)return;
       if(Math.hypot(event.clientX-g.startX,event.clientY-g.startY)<5&&!g.moved)return;
       g.moved=true; const item=latest.current.items.find(i=>i.id===g.source.id);
-      setPreview({x1:g.anchorX,y1:g.anchorY,x2:event.clientX,y2:event.clientY,color:signalWireColor((g.source.port ? item?.signalChannels?.find(c=>c.port===g.source.port)?.color : undefined) ?? item?.props.wireColor)});
+      const snap=findInput(event,g.source); setSnapTarget(snap?.value ?? null);
+      setPreview({x1:g.anchorX,y1:g.anchorY,x2:snap?.x ?? event.clientX,y2:snap?.y ?? event.clientY,color:signalWireColor((g.source.port ? item?.signalChannels?.find(c=>c.port===g.source.port)?.color : undefined) ?? item?.props.wireColor)});
     };
     const finish=(event:PointerEvent) => {
-      const g=gesture.current;if(!g||g.pointerId!==event.pointerId)return;gesture.current=null;setPreview(null);
+      const g=gesture.current;if(!g||g.pointerId!==event.pointerId)return;gesture.current=null;setPreview(null);setSnapTarget(null);
       if(!g.moved||event.type==='pointercancel')return;
-      const element=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLElement>('[data-signal-input]');
-      const target=element?.dataset.signalInput ? {id:element.dataset.signalInput,port:Number(element.dataset.signalInputPort || 1)} : null;
+      const target=findInput(event,g.source)?.value ?? null;
       if(g.oldTarget) { if(!target||target.id!==g.oldTarget.id||target.port!==g.oldTarget.port)latest.current.onReroute(g.source,g.oldTarget,target); }
       else if(target)latest.current.onConnect(g.source,target);
       suppressClick.current=true;window.setTimeout(()=>{suppressClick.current=false;},0);
@@ -90,7 +100,7 @@ export function SignalPortLayer({items, source, onSource, onTarget, onConnect, o
           const connected=source ? !!signalOutputConnections(items.find(i=>i.id===source.id)!,source.port).some(c=>c.targetId===item.id&&c.input===port) : sources.length>0;
           const dragSource=source ? (connected ? source : null) : sources.length===1 ? sources[0] : null;
           const label=inputs.length===1 && port===1 ? `${t('Signal input')}: ${item.name}` : `${t('Signal input')} ${port}: ${item.name}`;
-          return <button key={`i${port}`} type="button" data-signal-input={item.id} data-signal-input-port={port} aria-label={label} aria-pressed={connected} title={sources.length>1&&!source?t('Select an OUT to choose which connection to disconnect.'):label} onPointerDown={event=>{if(dragSource)begin(event,dragSource,target);}} onClick={event=>{event.stopPropagation();if(!suppressClick.current&&source)onTarget(target);}} style={{touchAction:'none'}} className={`rounded px-1.5 py-1 text-[10px] font-bold text-white ${connected?'bg-[#bd8735]':'bg-[#3a7655]'}`}>IN{inputs.length>1?port:''}{connected?' ✓':''}{sources.length>1?` ${sources.length}`:''}</button>;})}
+          return <button key={`i${port}`} type="button" data-signal-input={item.id} data-signal-input-port={port} data-signal-snap={snapTarget?.id===item.id && snapTarget.port===port ? 'true' : undefined} aria-label={label} aria-pressed={connected} title={sources.length>1&&!source?t('Select an OUT to choose which connection to disconnect.'):label} onPointerDown={event=>{if(dragSource)begin(event,dragSource,target);}} onClick={event=>{event.stopPropagation();if(!suppressClick.current&&source)onTarget(target);}} style={{touchAction:'none'}} className={`rounded px-1.5 py-1 text-[10px] font-bold text-white ${connected?'bg-[#bd8735]':'bg-[#3a7655]'} ${snapTarget?.id===item.id && snapTarget.port===port ? 'ring-2 ring-white shadow-[0_0_12px_#fff]' : ''}`}>IN{inputs.length>1?port:''}{connected?' ✓':''}{sources.length>1?` ${sources.length}`:''}</button>;})}
       </div></PortAnchor>;
     })}
     {preview && <Html portal={portal} calculatePosition={() => [0,0]} zIndexRange={[999999,999999]} style={{pointerEvents:'none'}}><svg aria-label={t('Signal wire preview')} style={{position:'fixed',inset:0,width:'100vw',height:'100vh',pointerEvents:'none'}}><path d={`M ${preview.x1} ${preview.y1} C ${preview.x1} ${(preview.y1+preview.y2)/2}, ${preview.x2} ${(preview.y1+preview.y2)/2}, ${preview.x2} ${preview.y2}`} fill="none" stroke={preview.color} strokeWidth="4" strokeLinecap="round" /></svg></Html>}

@@ -31,11 +31,13 @@ Windows users can also double-click `start-larp.bat`, which installs dependencie
 | `npm run test:physics-browser` | Playwright checks for point-height gizmos, imported workpieces, dynamic poses and moving wires. |
 | `npm run test:physics-standalone` | Offline packaged-file checks for custom products, physics, multi-level components and export (run after `npm run build`). |
 | `npm run bench:physics` | Headless fixed-step benchmark for falling and sleeping rigid bodies. |
+| `npm run bench:beam` | Compare sparse beam/blocker intersection costs against the alpha.7 Git baseline. |
 | `npm run test:speed-browser` | Playwright real-time robot, workpiece, worker and overloaded speed checks against the development server. |
 | `npm run test:speed-standalone` | Offline packaged-file speed and startup fallback checks (run after `npm run build`). |
 | `npm run test:startup-browser` | Playwright startup, blocked-module and error-recovery checks against the development server. |
 | `npm run test:factory-browser` | Playwright checks for graph selection, groups, tooltips, wiring, insertion and merge building. |
 | `npm run test:factory-signal-browser` | Playwright checks for sensor nodes, numbered signal ports, colors, wiring and pickup placement. |
+| `npm run test:alpha8-browser` | Browser checks for imported surface textures, multi-pallet workflow editing and port snapping. |
 | `npm run test:factory-standalone` | Checks the production preview, offline graph editing and iframe loading. |
 | `npm run test:catalog-browser` | Browser checks for catalog import, shared edits, submodels, drag and loading placeholder. |
 | `npm run test:selection-browser` | Marquee, group transforms, clipboard, camera gestures, dynamic bodies and spline-selection safety. |
@@ -71,9 +73,17 @@ To use an imported model as a product, import it, set its units/scale/weight, th
 
 ### Sensor nodes and numbered signals
 
-In **AI Factory → Node graph**, laser, proximity, push-button and PLC triggers are editable nodes. Connecting a conveyor to a robot automatically adds a pickup sensor with signal IN and OUT; it mounts near that robot on the source belt. The robot’s **Automatic pickup sensor** setting chooses laser, proximity or none for new connections. Select an existing sensor to edit its settings, mount, beam/radius and wire colour. You can also drop a loose sensor onto a conveyor-to-robot material wire to attach it without replacing the material connection.
+In **AI Factory → Node graph**, laser, proximity, push-button and PLC triggers are editable nodes. Connecting a conveyor to a robot automatically adds a source-only pickup sensor; it mounts near that robot on the source belt and has signal outputs, not inputs. The robot’s **Automatic pickup sensor** setting chooses laser, proximity or none for new connections. Select an existing sensor to edit its settings, mount, beam/radius and wire colour. You can also drop a loose sensor onto a conveyor-to-robot material wire to attach it without replacing the material connection.
 
-Material and signal wires are separate. Each physical node starts with **IN 1 → function → OUT 1**; wiring either port exposes the next numbered pair. Choose each pair’s function and optional output colour in the node or its inspector. For example, a robot can report moving on one output and pulse operation-end on another. Signal feedback to an upstream feeder is allowed; material loops are not. Saved graphs and `.lcmx` projects retain numbered ports, functions and colours.
+Material and signal wires are separate. Receivers start with **IN 1 → function → OUT 1**; sensors and buttons have outputs only. Wiring a numbered port exposes the next one. Choose each pair’s function and optional output colour in the node or its inspector. For example, a robot can report moving on one output and pulse operation-end on another. Signal feedback to an upstream feeder is allowed; material loops are not. Saved graphs and `.lcmx` projects retain numbered ports, functions and colours.
+
+### Materials and pallet sorting
+
+Material pickers in sensors, imported-model editing, platform/stair/wall properties and the node graph share a searchable list with names and previews. Imported materials can retain their textures on building surfaces; a sensor compares the base material color, not individual texture pixels. Previews of readable original textures are saved with new imports; older or unsupported textures fall back to a color swatch.
+
+In the node graph, connect one robot's material output to multiple pallet inputs. In the regular **Program → Visual builder**, select the first destination and check **Additional pallets** in the desired order. Unwired pallets fill the first completely before advancing to the next, even while full pallets are being exchanged. To sort, wire a color sensor's numbered output to each pallet's signal input and configure its material. A matching signal is remembered on the individual part as it crosses the sensor; an unwired pallet can serve as a catch-all. If a matching pallet is full, the robot waits rather than sending the part to the wrong one.
+
+Connection drags snap to the nearest compatible input within a screen-space radius, including when zoomed out. Dragging an existing input away still disconnects it.
 
 ### Signal-controlled feeders and robots
 

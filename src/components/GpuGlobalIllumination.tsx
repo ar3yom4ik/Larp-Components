@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { builtinGIContext, mrt, normalView, packNormalToRGB, pass, sample, screenUV, unpackRGBToNormal, velocity } from 'three/tsl';
+import { createEmissiveMRT } from './emissiveMrt';
 import { RenderPipeline, UnsignedByteType, type WebGPURenderer } from 'three/webgpu';
 import { vxgi } from 'three/addons/lighting/vxgi/VXGINode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
@@ -84,11 +85,13 @@ export function GlobalIlluminationPipeline({ voxelKey, running, resolution = GI_
       const giContext = builtinGIContext(gi.getAONode().sample(screenUV).r, gi.getGINode().sample(screenUV).rgb);
       const scenePass = pass(scene, camera);
       scenePass.contextNode = giContext;
+      // MRT exposes emission separately, so reflections never feed the halo.
+      if (bloomEnabled) scenePass.setMRT(createEmissiveMRT());
       const traaPass = traa(scenePass, prePassDepth, prePassVelocity, camera);
 
       const pipeline = new RenderPipeline(renderer);
       const output = gi.useTemporalFiltering ? traaPass : scenePass;
-      pipeline.outputNode = bloomEnabled ? output.add(bloom(scenePass.getTextureNode('output'), bloomStrength, .4, 1.0)) : output;
+      pipeline.outputNode = bloomEnabled ? output.add(bloom(scenePass.getTextureNode('emissive'), bloomStrength, .4, 1.0)) : output;
       pipeline.needsUpdate = true;
 
       created = { pipeline, gi };

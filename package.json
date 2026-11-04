@@ -1,6 +1,6 @@
 {
   "name": "larp-components",
-  "version": "3.0.0-alpha.7",
+  "version": "3.0.0-alpha.8",
   "description": "Browser-based React/Three.js factory layout editor and discrete-time simulator (Larp Components 5.1, V3 prerelease).",
   "private": true,
   "type": "module",
@@ -39,7 +39,9 @@
     "test:selection-browser": "node tests/selection-browser.mjs && node tests/selection-physics-browser.mjs",
     "test:web-catalog-browser": "node tests/web-catalog-browser.mjs",
     "test:web-catalog-live": "node tests/web-catalog-live.mjs",
-    "test:alpha7-browser": "node tests/alpha7-browser.mjs && node tests/factory-new-features-browser.mjs && node tests/import-placement-browser.mjs && node tests/render-theme-browser.mjs"
+    "test:alpha7-browser": "node tests/alpha7-browser.mjs && node tests/factory-new-features-browser.mjs && node tests/import-placement-browser.mjs && node tests/render-theme-browser.mjs",
+    "test:alpha8-browser": "node tests/material-surfaces-browser.mjs && node tests/multi-pallet-browser.mjs && node tests/port-snap-browser.mjs && node tests/emissive-mrt-browser.mjs",
+    "bench:beam": "node scripts/bench-beam.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

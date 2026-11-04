@@ -18,7 +18,12 @@ try {
     await page.mouse.move(b.x,b.y,{steps:5});await page.mouse.up();
   }
   const has=(target)=>page.evaluate(({source,target})=>{const i=window.__larp.items.find(x=>x.id===source);return !!(i.props.connectedTo===target||i.signalTargets?.includes(target))}, {source:ids.source,target});
-  await drag(out,robot); await page.waitForFunction(({source,robot})=>window.__larp.items.find(i=>i.id===source)?.props.connectedTo===robot,ids);
+  const start=await center(out), near=await center(robot), robotRect=await robot.boundingBox();
+  await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(robotRect.x-16,near.y,{steps:12});
+  assert.equal(await robot.getAttribute('data-signal-snap'),'true','nearby 3D input highlights as a snap target');
+  const previewEnd=await page.getByLabel('Signal wire preview').locator('path').getAttribute('d');
+  assert.ok(previewEnd.endsWith(`${near.x} ${near.y}`),'3D preview ends at the snapped input');
+  await page.mouse.up(); await page.waitForFunction(({source,robot})=>window.__larp.items.find(i=>i.id===source)?.props.connectedTo===robot,ids);
   await drag(robot,feeder); await page.waitForFunction(({source,feeder})=>window.__larp.items.find(i=>i.id===source)?.props.connectedTo===feeder,ids);
   assert.equal(await has(ids.robot),false,'dragging connected IN onto another IN reroutes just that branch');
   await drag(out,robot); await page.waitForFunction(({source,robot})=>window.__larp.items.find(i=>i.id===source)?.signalTargets?.includes(robot),ids);

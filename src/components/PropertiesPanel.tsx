@@ -1,5 +1,5 @@
 import { platformCorners, validPlatformCorners } from "../utils/upperFloor";
-import { MaterialChoice } from './MaterialChoice';
+import { MaterialChoice, SurfaceMaterialChoice } from './MaterialChoice';
 import { useMemo, useState, type ReactNode } from "react";
 import {
   ArrowLeftRight,
@@ -392,7 +392,7 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
 
         {['platform','stairs','wall'].includes(selected.kind) && <Section title={t("Building geometry and material")}>
           <div className="space-y-2">
-            <label className="block text-[10px] text-white/50">{t("Surface material")}<select aria-label={t("Surface material")} disabled={selected.locked} value={String(selected.props.surfaceMaterial ?? (selected.kind === 'wall' ? 'mid' : 'steel'))} onChange={event=>onUpdate(selected.id,{props:{...selected.props,surfaceMaterial:event.target.value}})} className={cn(inputCls,"mt-1")}><option value="steel">{t("Steel")}</option><option value="mid">{t("Concrete")}</option><option value="wood">{t("Wood")}</option><option value="rubber">{t("Rubber")}</option><option value="white">{t("White")}</option></select></label>
+            <div className="block text-[10px] text-white/50"><span className="mb-1 block">{t("Surface material")}</span><SurfaceMaterialChoice label={t("Surface material")} disabled={selected.locked} value={String(selected.props.surfaceMaterial ?? (selected.kind === 'wall' ? 'mid' : 'steel'))} items={productItems} onChange={surfaceMaterial=>onUpdate(selected.id,{props:{...selected.props,surfaceMaterial}})} /></div>
             {(selected.kind === 'platform' ? ['width','depth','height'] : selected.kind === 'stairs' ? ['width','length','height'] : ['height']).map(key=>{
               const value=Number(selected.props[key] ?? (key === 'height' ? 2 : 4));
               return <label key={key} className="block text-[10px] text-white/50">{t(key === 'height' ? 'Height (m)' : key === 'width' ? 'Width (m)' : key === 'depth' ? 'Depth (m)' : 'Length (m)')}<input type="number" aria-label={`${t(key === 'height' ? 'Height' : key === 'width' ? 'Width' : key === 'depth' ? 'Depth' : 'Length')} (m)`} disabled={selected.locked} min={key==='height'?0:.4} max={20} step={key==='height'&&selected.kind==='platform'?1:.1} value={value} onFocus={onBeginEdit} onChange={event=>{
@@ -583,14 +583,14 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
             const existing = selected.signalChannels ?? [];
             const nextPort = Math.max(0,...existing.map(channel => channel.port)) + 1;
             const rows = [...existing, {port:nextPort, mode:'match'}];
-            const change = (port:number, patch:{material?:string;color?:string}) => {
+            const change = (port:number, patch:{material?:string;materialRef?:string;color?:string}) => {
               const current = existing.find(channel => channel.port === port) ?? {port,mode:'match'};
               const next = {...current,...patch};
               onUpdate(selected.id,{signalChannels:[...existing.filter(channel => channel.port !== port),next].sort((a,b) => a.port-b.port)});
             };
             return rows.map(channel => <div key={channel.port} className="rounded border border-white/10 bg-white/[0.03] p-2">
               <div className="mb-1 text-[10px] text-white/60">OUT {channel.port}</div>
-              <MaterialChoice label={`${t("Material")} ${channel.port}`} value={channel.material} items={productItems} disabled={selected.locked} onChange={material => change(channel.port,{material:material || undefined})} />
+              <MaterialChoice label={`${t("Material")} ${channel.port}`} value={channel.material} choiceId={channel.materialRef} items={productItems} disabled={selected.locked} onChange={(material,materialRef) => change(channel.port,{material:material || undefined,materialRef})} />
               <label className="mt-2 flex items-center justify-between text-[10px] text-white/50">{t("Output colour")} {channel.port}<input type="color" aria-label={`${t("Output colour")} ${channel.port}`} disabled={selected.locked} value={signalWireColor(channel.color ?? selected.props.wireColor)} onChange={event => change(channel.port,{color:event.target.value})} className="h-7 w-10" /></label>
             </div>);
           })()}
@@ -613,7 +613,7 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
               const change = (patch:Partial<RobotProgram>) => onUpdate(selected.id,{programs:{...selected.programs,[String(channel.port)]:{...program,...patch}}});
               return <div className="mt-2 space-y-1.5 rounded border border-white/10 p-1.5"><div className="text-[9px] text-white/55">{t("Visual workflow for input")} {channel.port}</div>
                 <label className="block text-[9px] text-white/45">{t("Source")}<select aria-label={`${t("Input source")} ${channel.port}`} disabled={selected.locked} value={program.sourceId} onChange={event=>change({sourceId:event.target.value,pickupBack:undefined})} className={inputCls}>{items.filter(item=>['conveyor','roller','cnc','press','weld','packaging','paint','cutter','inspection','assembly','kiln','lathe','grinder'].includes(item.kind)).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="block text-[9px] text-white/45">{t("Destination")}<select aria-label={`${t("Input destination")} ${channel.port}`} disabled={selected.locked} value={program.targetId} onChange={event=>change({targetId:event.target.value})} className={inputCls}>{items.filter(item=>['conveyor','roller','crates','cnc','press','weld','packaging','paint','cutter','inspection','assembly','kiln','lathe','grinder'].includes(item.kind)).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="block text-[9px] text-white/45">{t("Destination")}<select aria-label={`${t("Input destination")} ${channel.port}`} disabled={selected.locked} value={program.targetId} onChange={event=>change({targetId:event.target.value,targetIds:undefined})} className={inputCls}>{items.filter(item=>['conveyor','roller','crates','cnc','press','weld','packaging','paint','cutter','inspection','assembly','kiln','lathe','grinder'].includes(item.kind)).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="block text-[9px] text-white/45">{t("Workflow")}<select aria-label={`${t("Input workflow")} ${channel.port}`} disabled={selected.locked} value={program.mode} onChange={event=>change({mode:event.target.value as RobotProgram['mode']})} className={inputCls}>{['transfer','palletize','tend','paint','assemble'].map(mode=><option key={mode} value={mode}>{t(mode)}</option>)}</select></label>
               </div>;
             })() : <p className="mt-2 text-[9px] text-white/40">{t("Create a visual program before assigning input workflows.")}</p>)}

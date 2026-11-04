@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { SelectiveBloom } from './SelectiveBloom';
 import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { GraphicsSettings, ToneMapping } from '../theme';
@@ -82,7 +82,7 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
   const fxaa = gfx.antialias === 'fxaa' && !webgpu;
   const ao = aoActive && !webgpu;
   const bloom = gfx.bloom && !webgpu;
-  const effects = useRef<{ composer: EffectComposer; ao: GTAOPass | null; fxaa: FXAAPass | null; bloom: UnrealBloomPass | null; output: OutputPass } | null>(null);
+  const effects = useRef<{ composer: EffectComposer; ao: GTAOPass | null; fxaa: FXAAPass | null; bloom: SelectiveBloom | null; output: OutputPass } | null>(null);
 
   useEffect(() => {
     if (!fxaa && !ao && !bloom) return undefined;
@@ -97,10 +97,10 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
       aoPass.blendIntensity = gfx.aoIntensity;
       composer.addPass(aoPass);
     }
-    let bloomPass: UnrealBloomPass | null = null;
+    let bloomPass: SelectiveBloom | null = null;
     if (bloom) {
-      bloomPass = new UnrealBloomPass(new THREE.Vector2(size.width, size.height), gfx.bloomStrength, .4, 1.0);
-      composer.addPass(bloomPass);
+      bloomPass = new SelectiveBloom(gl,scene,camera,size.width,size.height,gfx.bloomStrength);
+      composer.addPass(bloomPass.composite);
     }
     let fxaaPass: FXAAPass | null = null;
     if (fxaa) {
@@ -127,7 +127,7 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
   }, [gl, scene, camera, fxaa, ao, bloom]);
 
   useEffect(() => {
-    if (effects.current?.bloom) { effects.current.bloom.strength = gfx.bloomStrength; invalidate(); }
+    if (effects.current?.bloom) { effects.current.bloom.bloom.strength = gfx.bloomStrength; invalidate(); }
   }, [gfx.bloomStrength, bloom, invalidate]);
 
   useEffect(() => {
@@ -144,6 +144,7 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
     // Composer pixel ratio and FXAA both scale with the 3D resolution setting.
     fx.composer.setPixelRatio(gl.getPixelRatio());
     fx.composer.setSize(size.width, size.height);
+    fx.bloom?.resize(size.width,size.height,gl.getPixelRatio());
     fx.fxaa?.setSize(size.width * gl.getPixelRatio(), size.height * gl.getPixelRatio());
     invalidate();
   }, [gl, size.width, size.height, pixelRatio, fxaa, invalidate]);
@@ -155,7 +156,7 @@ export function PostEffects({ gfx, pixelRatio, aoActive, externalPipeline = fals
   // looked like it had lost its global illumination.
   useFrame((_, delta) => {
     if (externalPipeline) return;
-    if (effects.current) effects.current.composer.render(delta);
+    if (effects.current) {effects.current.bloom?.render(delta);effects.current.composer.render(delta);}
     else gl.render(scene, camera);
   }, 1);
   return null;

@@ -14,8 +14,8 @@ try{
  const cssColor=await page.evaluate(hex=>{const e=document.createElement('span');e.style.color=hex;return e.style.color},nodeColor);
  assert.equal(color,cssColor,'palette entry uses the canvas node color');
  assert.equal(await sensor.locator('[data-input-port^="signal-in-"]').count(),0,'sensor has no signal input');
- await inspector.getByLabel('Material 1',{exact:true}).selectOption('#d84d38');
- await inspector.getByLabel('Material 2',{exact:true}).selectOption('#b89a6c');
+ await inspector.getByRole('button',{name:'Material 1',exact:true}).click();await inspector.locator('[data-material-option="product:apple"]').click();
+ await inspector.getByRole('button',{name:'Material 2',exact:true}).click();await inspector.locator('[data-material-option="product:carton"]').click();
  await inspector.getByLabel('Output colour 2',{exact:true}).fill('#11aa44');
  assert.equal(await inspector.getByLabel('Material 3',{exact:true}).count(),1,'each selection adds another material/output');
  await dialog.getByRole('button',{name:'Fit all nodes'}).click();
@@ -37,7 +37,7 @@ try{
    await search.fill(query);const option=palette.getByRole('button',{name,exact:true}),paint=await option.evaluate(el=>el.style.color);await option.click();
    const node=dialog.locator(`[data-node-type="part.${type}"]`);assert.equal(await node.count(),1);
    const actual=await node.getAttribute('data-node-color');assert.equal(paint,await page.evaluate(hex=>{const e=document.createElement('span');e.style.color=hex;return e.style.color},actual));
-   await inspector.getByLabel('Surface material').selectOption(material);
+   await inspector.getByRole('button',{name:'Surface material'}).click();await inspector.locator(`[data-material-option="${material}"]`).click();
    if(type==='platform')await inspector.getByLabel('Height (m)').fill('4');
    if(type==='wall')await inspector.getByLabel('Height (m)').fill('3.5');
  }

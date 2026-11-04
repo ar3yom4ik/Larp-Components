@@ -1,3 +1,4 @@
+import { abortable, withWebDeadline } from './webRequests';
 
 /**
  * Poly Haven catalogue integration (https://polyhaven.com).
@@ -50,16 +51,14 @@ export class PolyError extends Error {}
 const fail = (message: string): never => { throw new PolyError(message); };
 
 export async function getPolyJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
-  } catch (error) {
-    if ((error as Error).name === 'AbortError') throw error;
-    return fail('Poly Haven could not be reached. Check the internet connection and try again.');
-  }
-  if (response.status === 429) fail('Poly Haven is rate limiting requests. Wait a moment and try again.');
-  if (!response.ok) fail(`Poly Haven returned ${response.status}. Try again later.`);
-  return (await response.json()) as T;
+  return withWebDeadline(async inner=>{
+    let response:Response;
+    try { response=await fetch(url,{signal:inner,headers:{Accept:'application/json'},credentials:'omit'}); }
+    catch(error) {if((error as Error).name==='AbortError')throw error;return fail('Poly Haven could not be reached. Check the internet connection and try again.');}
+    if(response.status===429)fail('Poly Haven is rate limiting requests. Wait a moment and try again.');
+    if(!response.ok)fail(`Poly Haven returned ${response.status}. Try again later.`);
+    return await response.json() as T;
+  },signal);
 }
 
 /** The API returns dimensions such as [4096, 4096], not a display string. */
@@ -75,7 +74,7 @@ export function formatPolyResolution(value: unknown): string {
 let catalogue: Promise<PolyAsset[]> | null = null;
 
 /** The full model catalogue (about 500 entries) is fetched once per session. */
-export function polyHavenModels(_signal?: AbortSignal): Promise<PolyAsset[]> {
+export function polyHavenModels(signal?: AbortSignal): Promise<PolyAsset[]> {
   if (!catalogue) {
     catalogue = getPolyJson<AssetsResponse>(`${API}/assets?type=models`).then((data) =>
       Object.entries(data).map(([id, asset]) => ({
@@ -91,7 +90,7 @@ export function polyHavenModels(_signal?: AbortSignal): Promise<PolyAsset[]> {
     // A failed catalogue should be retried on the next try, not cached forever.
     catalogue.catch(() => { catalogue = null; });
   }
-  return catalogue;
+  return abortable(catalogue,signal);
 }
 
 /** Local ranking: the API search endpoint has a stricter rate limit and no CORS guarantees. */

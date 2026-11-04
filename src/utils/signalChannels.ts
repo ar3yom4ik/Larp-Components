@@ -8,6 +8,8 @@ export interface SignalChannel {
   color?: string;
   /** Base material color selected for a color-sensor output. */
   material?: string;
+  /** Optional picker identity; the matched base color remains in material. */
+  materialRef?: string;
 }
 
 export interface SignalRoute {

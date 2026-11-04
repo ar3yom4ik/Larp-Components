@@ -1,3 +1,5 @@
+import { MaterialPicker } from './MaterialChoice';
+import { materialPreview } from '../data/materials';
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, RotateCcw, Trash2 } from "lucide-react";
 import type { ImportedMaterial, ImportedModelData, ModelUpAxis, ModelUnits, SceneItem, TextureSlot } from "../types";
@@ -119,9 +121,9 @@ export function ModelMaterialEditor({item, onUpdate, onBeginEdit}: {item: SceneI
     </section>
     {material && <section className="border-b border-white/[0.08] px-3 py-3" aria-label={t("Materials and textures")}>
       <div className="mb-2 flex items-center justify-between gap-1"><h4 className="text-[10.5px] font-medium uppercase tracking-[0.12em] text-[#a8a8ad]">{t("Materials & textures")}</h4><button type="button" onClick={() => void resetMaterial()} disabled={item.locked} className="flex items-center gap-1 text-[10px] text-[var(--app-accent-bright)]" title={t("Restore source material")}><RotateCcw size={11}/>{t("Reset")}</button></div>
-      <label className="block text-[10px] text-white/55">{t("Material")}
-        <select aria-label={t("Material")} value={selectedIndex} onChange={(e) => setIndex(Number(e.target.value))} className={`${field} mt-1`}>{model.materials.map((m,i) => <option key={i} value={i}>{i+1}. {m.name}</option>)}</select>
-      </label>
+      <div className="block text-[10px] text-white/55"><span className="mb-1 block">{t("Material")}</span>
+        <MaterialPicker label={t("Material")} value={String(selectedIndex)} onChange={option=>{if(option)setIndex(Number(option.id));}} options={model.materials.map((m,i)=>({id:String(i),name:`${i+1}. ${m.name}`,color:m.color,category:'Imported materials',preview:materialPreview(m)}))} />
+      </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <label className="text-[10px] text-white/55">{t("Base color")}<input aria-label={t("Base color")} type="color" disabled={item.locked} value={material.color} onFocus={onBeginEdit} onChange={(e) => updateMaterial({color:e.target.value}, false)} className="mt-1 h-8 w-full cursor-pointer rounded border border-white/10 bg-[#1e1e1e]" /></label>
         <label className="text-[10px] text-white/55">{t("Emissive color")}<input aria-label={t("Emissive color")} type="color" disabled={item.locked} value={material.emissive} onFocus={onBeginEdit} onChange={(e) => updateMaterial({emissive:e.target.value}, false)} className="mt-1 h-8 w-full cursor-pointer rounded border border-white/10 bg-[#1e1e1e]" /></label>

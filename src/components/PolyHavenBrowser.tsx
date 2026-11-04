@@ -42,6 +42,7 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState('');
   const importAbort = useRef<AbortController | null>(null);
+  const loadingCallback=useRef(onLoadingChange); loadingCallback.current=onLoadingChange;
   const active = (name: Provider) => source === name || source === 'all';
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
     if (!(source === 'gobkit' || source === 'all') || gobkit) return;
     const controller = new AbortController();
     setErrors(current => ({...current, gobkit:undefined}));
-    void gobkitModels(controller.signal).then(models => { if (!controller.signal.aborted) setGobkit(models); }).catch((cause:unknown) => { if (!controller.signal.aborted) setErrors(current => ({...current, gobkit:(cause as Error)?.message ?? 'Could not load Gobkit.'})); });
+    void gobkitModels(controller.signal, message=>{if(!controller.signal.aborted)setErrors(current=>({...current,gobkit:message}));}).then(models => { if (!controller.signal.aborted) setGobkit(models); }).catch((cause:unknown) => { if (!controller.signal.aborted) setErrors(current => ({...current, gobkit:(cause as Error)?.message ?? 'Could not load Gobkit.'})); });
     return () => controller.abort();
   }, [source, gobkit, attempt]);
 
@@ -67,13 +68,16 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
     void kenneyModels(controller.signal).then(models => { if (!controller.signal.aborted) setKenney(models); }).catch((cause:unknown) => { if (!controller.signal.aborted) setErrors(current => ({...current, kenney:(cause as Error)?.message ?? 'Could not load the Kenney mirror.'})); });
     return () => controller.abort();
   }, [source, kenney, attempt]);
-  useEffect(() => () => { importAbort.current?.abort(); }, []);
+  useEffect(() => () => {
+    const pending=importAbort.current;
+    if(pending) { importAbort.current=null; pending.abort(); loadingCallback.current?.(false); }
+  }, []);
 
   const matchesPoly = useMemo(() => filterPolyAssets(poly ?? [], query), [poly, query]);
   const matchesKenney = useMemo(() => filterWebAssets(kenney ?? [], query), [kenney, query]);
   const matchesGobkit = useMemo(() => filterWebAssets(gobkit ?? [], query), [gobkit, query]);
   const importAsset = async (card: Card) => {
-    if (busy) return;
+    if (importAbort.current) return;
     const controller = new AbortController(); importAbort.current = controller;
     const key = `${card.provider}:${card.asset.id}`;
     setBusy(key); onLoadingChange?.(true); setErrors(current => ({...current, import:undefined}));
@@ -85,14 +89,23 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
       if (onImported(result.model, result.warnings) === false) throw new Error(t('Project would exceed the 180 MB limit. Remove assets or start a new project.'));
       onInfo(`${card.asset.name} imported (${Math.max(1, Math.round(result.bytes / 1024 / 1024))} MB)`);
     } catch (cause) {
-      if ((cause as Error)?.name !== 'AbortError') setErrors(current => ({...current, import:(cause as Error)?.message ?? 'The model could not be imported.'}));
+      if (!controller.signal.aborted && (cause as Error)?.name !== 'AbortError') setErrors(current => ({...current, import:(cause as Error)?.message ?? 'The model could not be imported.'}));
     } finally {
-      if (importAbort.current === controller) importAbort.current = null;
-      setBusy(null); onLoadingChange?.(false); setProgress('');
+      if (importAbort.current === controller) {
+        importAbort.current = null;
+        setBusy(null); loadingCallback.current?.(false); setProgress('');
+      }
     }
   };
   const changeQuery = (value:string) => { setQuery(value); setLimits(initialLimits()); };
-  const retry = () => { setErrors({}); setAttempt(value => value + 1); };
+  const retry = (name:Provider) => {
+    if(name==='poly')setPoly(null);else if(name==='kenney')setKenney(null);else setGobkit(null);
+    setErrors(current=>({...current,[name]:undefined}));setAttempt(value => value + 1);
+  };
+  const cancelImport = () => {
+    const pending=importAbort.current;if(!pending)return;
+    importAbort.current=null;pending.abort();setBusy(null);setProgress('');loadingCallback.current?.(false);
+  };
   const cards = (provider: Provider, entries: (PolyAsset | WebAsset)[]) => <div className="grid gap-1.5 pb-2" style={{gridTemplateColumns:`repeat(auto-fit, minmax(${Math.max(140, iconSize + 100)}px, 1fr))`}}>
     {entries.map(asset => {
       const key = `${provider}:${asset.id}`;
@@ -106,7 +119,7 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
       </button>;
     })}
   </div>;
-  const errorPanel = (name: Provider | 'import') => errors[name] ? <div role="alert" className="mb-2 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1.5 text-[9.5px] text-amber-100/90">{errors[name]} {name !== 'import' ? <button type="button" onClick={retry} className="underline">{t('Retry')}</button> : <button type="button" aria-label={t('Dismiss')} onClick={() => setErrors(current => ({...current, import:undefined}))}><X size={10}/></button>}</div> : null;
+  const errorPanel = (name: Provider | 'import') => errors[name] ? <div role="alert" className="mb-2 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1.5 text-[9.5px] text-amber-100/90">{errors[name]} {name !== 'import' ? <button type="button" onClick={() => retry(name)} className="underline">{t('Retry')}</button> : <button type="button" aria-label={t('Dismiss')} onClick={() => setErrors(current => ({...current, import:undefined}))}><X size={10}/></button>}</div> : null;
   const heading = (name: Provider) => <div className="mb-1 mt-2 flex items-center justify-between text-[10px] text-white/55"><b>{t(sourceNames[name])}</b><span>CC0</span></div>;
   const section = (name: Provider, data: (PolyAsset | WebAsset)[] | null, matches: (PolyAsset | WebAsset)[]) => <section>
     {heading(name)}{errorPanel(name)}
@@ -132,7 +145,7 @@ export function PolyHavenBrowser({ onImported, onInfo, onLoadingChange }: {
     <div className="group mb-2 flex items-center gap-2 rounded-md border border-white/[0.08] bg-[#1e1e1e] px-2 py-1.5 focus-within:border-[var(--app-accent)]/40"><Search size={12} className="shrink-0 text-white/25"/><input value={query} onChange={event => changeQuery(event.target.value)} placeholder={t('Search web models...')} className="w-full bg-transparent text-[10.5px] text-white/75 outline-none placeholder:text-white/25"/>{query && <button type="button" aria-label={t('Clear search')} onClick={() => changeQuery('')} className="text-white/30 hover:text-white/70"><X size={11}/></button>}</div>
     <label className="mb-2 flex items-center gap-2 text-[10px] text-white/55"><span className="shrink-0">{t('Icon size')}</span><input aria-label={t('Web catalog icon size')} type="range" min={24} max={120} step={4} value={iconSize} onChange={event => setIconSize(Number(event.target.value))} className="accent-range min-w-0 flex-1"/><span className="font-mono">{iconSize}px</span></label>
     {errorPanel('import')}
-    {busy && <div role="status" className="mb-2 flex items-center gap-2 rounded border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[9.5px] text-white/60"><Loader2 size={11} className="animate-spin"/><span className="min-w-0 flex-1 truncate">{progress || t('Downloading…')}</span><button type="button" onClick={() => importAbort.current?.abort()} className="text-white/40 hover:text-white">{t('Cancel')}</button></div>}
+    {busy && <div role="status" className="mb-2 flex items-center gap-2 rounded border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[9.5px] text-white/60"><Loader2 size={11} className="animate-spin"/><span className="min-w-0 flex-1 truncate">{progress || t('Downloading…')}</span><button type="button" onClick={cancelImport} className="text-white/40 hover:text-white">{t('Cancel')}</button></div>}
     {active('poly') && section('poly',poly,matchesPoly)}
     {active('kenney') && section('kenney',kenney,matchesKenney)}
     {active('gobkit') && section('gobkit',gobkit,matchesGobkit)}

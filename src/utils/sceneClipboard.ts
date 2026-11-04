@@ -1,3 +1,4 @@
+import { modelMaterialRef, parseModelMaterialRef } from '../data/materials';
 import { makeItem } from '../data/library';
 import type { SceneItem, Vec3 } from '../types';
 
@@ -12,8 +13,8 @@ export function snapshotSceneItems(items: readonly SceneItem[]): SceneItem[] {
     signalRoutes: item.signalRoutes?.map(route => ({ ...route })),
     points: item.points?.map(point => [...point] as [number, number]),
     pointHeights: item.pointHeights ? [...item.pointHeights] : undefined,
-    program: item.program ? { ...item.program } : undefined,
-    programs: item.programs ? Object.fromEntries(Object.entries(item.programs).map(([key,program]) => [key,{...program}])) : undefined,
+    program: item.program ? { ...item.program, targetIds:item.program.targetIds?.slice() } : undefined,
+    programs: item.programs ? Object.fromEntries(Object.entries(item.programs).map(([key,program]) => [key,{...program,targetIds:program.targetIds?.slice()}])) : undefined,
   }));
 }
 
@@ -36,9 +37,12 @@ export function copySceneItems(items: readonly SceneItem[], offset: Vec3): Scene
       const value = item.props[key];
       if (typeof value === 'string') item.props[key] = remap(value);
     }
+    const remapMaterial = (value:string) => {const ref=parseModelMaterialRef(value);return ref ? modelMaterialRef(remap(ref.id),ref.index) : value;};
+    if (typeof item.props.surfaceMaterial === 'string') item.props.surfaceMaterial=remapMaterial(item.props.surfaceMaterial);
+    if (item.signalChannels) item.signalChannels=item.signalChannels.map(channel=>channel.materialRef ? {...channel,materialRef:remapMaterial(channel.materialRef)} : channel);
     if (item.signalTargets) item.signalTargets = item.signalTargets.map(remap);
     if (item.signalRoutes) item.signalRoutes = item.signalRoutes.map(route => ({ ...route, targetId: remap(route.targetId) }));
-    const remapProgram = (program:NonNullable<SceneItem['program']>) => ({ ...program, sourceId: remap(program.sourceId), targetId: remap(program.targetId), machineId: program.machineId ? remap(program.machineId) : undefined });
+    const remapProgram = (program:NonNullable<SceneItem['program']>) => ({ ...program, sourceId: remap(program.sourceId), targetId: remap(program.targetId), targetIds: program.targetIds?.map(remap), machineId: program.machineId ? remap(program.machineId) : undefined });
     if (item.program) item.program = remapProgram(item.program);
     if (item.programs) item.programs = Object.fromEntries(Object.entries(item.programs).map(([key,program]) => [key,remapProgram(program)]));
   }

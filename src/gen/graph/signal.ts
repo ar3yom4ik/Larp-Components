@@ -63,7 +63,7 @@ export function channelColor(node: GraphNode, port: number): string {
   return signalWireColor(node.io?.[String(port)]?.color ?? node.params.wireColor);
 }
 
-export function setChannel(graph: NodeGraph, nodeId: string, port: number, patch: {mode?: string; color?: string; material?: string; programSource?:string; programTarget?:string; programMode?:string}): NodeGraph {
+export function setChannel(graph: NodeGraph, nodeId: string, port: number, patch: {mode?: string; color?: string; material?: string; materialRef?:string; programSource?:string; programTarget?:string; programMode?:string}): NodeGraph {
   return {...graph, nodes:graph.nodes.map(node => node.id === nodeId ? {
     ...node, io:{...node.io, [String(port)]:{...node.io?.[String(port)], ...patch}},
   } : node)};

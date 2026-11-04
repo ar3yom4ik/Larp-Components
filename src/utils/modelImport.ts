@@ -134,6 +134,17 @@ function materialsOf(root: THREE.Object3D): THREE.Material[] {
 export { materialsOf };
 
 type MaterialLike = THREE.Material & {color?: THREE.Color; emissive?: THREE.Color; emissiveIntensity?: number; roughness?: number; metalness?: number; normalScale?: THREE.Vector2; aoMapIntensity?: number; bumpScale?: number; displacementScale?: number; shininess?: number; [key: string]: unknown};
+/** Capture a tiny source-texture thumbnail, without duplicating the full image
+ * in project metadata. Compressed/unreadable maps fall back to a color swatch. */
+function texturePreview(value: unknown): string | undefined {
+  if (typeof document === "undefined" || !(value instanceof THREE.Texture) || !value.image) return undefined;
+  try {
+    const canvas=document.createElement("canvas");canvas.width=32;canvas.height=32;
+    const context=canvas.getContext("2d");if(!context)return undefined;
+    context.drawImage(value.image as CanvasImageSource,0,0,32,32);
+    return canvas.toDataURL("image/jpeg",.75);
+  } catch { return undefined; }
+}
 export function inspectMaterials(root: THREE.Object3D): ImportedMaterial[] {
   return materialsOf(root).map((raw, index) => {
     const m = raw as MaterialLike;
@@ -148,7 +159,7 @@ export function inspectMaterials(root: THREE.Object3D): ImportedMaterial[] {
       mapStrength: 1, normalStrength: m.normalScale?.x ?? 1, roughnessStrength: 1, metalnessStrength: 1,
       aoStrength: m.aoMapIntensity ?? 1, emissiveMapStrength: 1, alphaStrength: 1,
       bumpStrength: m.bumpScale ?? 1, displacementStrength: m.displacementScale ?? 0,
-      present, textures: {},
+      present, preview:texturePreview(m.map), textures: {},
     };
   });
 }

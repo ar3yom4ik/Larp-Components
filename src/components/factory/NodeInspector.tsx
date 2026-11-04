@@ -2,7 +2,7 @@ import { RotateCcw, Trash2 } from 'lucide-react';
 import { getNodeDef } from '../../gen/graph/registry';
 import { channelColor, channelMode, signalRows } from '../../gen/graph/signal';
 import { signalAcceptsInput, signalFunction, signalFunctions } from '../../utils/signalChannels';
-import { MaterialChoice } from '../MaterialChoice';
+import { MaterialChoice, SurfaceMaterialChoice } from '../MaterialChoice';
 import { ProductPicker } from '../ProductPicker';
 import type { SceneItem } from '../../types';
 import type { GraphNode, NodeGraph, ParamDef } from '../../gen/graph/types';
@@ -27,7 +27,7 @@ export function NodeInspector({
 }: {
   node: GraphNode | null;
   graph: NodeGraph;
-  onChannelChange: (port: number, patch: {mode?: string; color?: string; material?: string; programSource?:string; programTarget?:string; programMode?:string}) => void;
+  onChannelChange: (port: number, patch: {mode?: string; color?: string; material?: string; materialRef?:string; programSource?:string; programTarget?:string; programMode?:string}) => void;
   items?: readonly SceneItem[];
   onChange: (key: string, value: unknown) => void;
   onReset: (key: string) => void;
@@ -130,7 +130,7 @@ export function NodeInspector({
                 </span>
               )}
 
-              {param.kind === 'select' && (
+              {param.kind === 'select' && param.key !== 'surfaceMaterial' && (
                 <select
                   aria-label={t(param.label)}
                   value={String(value(param))}
@@ -140,6 +140,8 @@ export function NodeInspector({
                   {(param.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.value === 'auto' ? t('Recipe default') : t(option.label)}</option>)}
                 </select>
               )}
+
+              {param.key === 'surfaceMaterial' && <SurfaceMaterialChoice label={t(param.label)} value={String(value(param))} items={items} onChange={next=>onChange(param.key,next)} />}
 
               {param.kind === 'product' && (
                 <ProductPicker value={String(value(param))} onChange={(next) => onChange(param.key, next)} label={param.label} showLabel={false} allowAuto={param.default === 'auto'} allowAny={param.key === 'inputProduct'} items={items} />
@@ -157,7 +159,7 @@ export function NodeInspector({
               {signalFunctions(node.type).filter(option => signalAcceptsInput(node.type) || option.value === channelMode(node,port) || !['relay','invert'].includes(option.value)).map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}
             </select>
             <p className="mt-1 text-[9px] leading-relaxed text-white/40">{t(signalFunction(node.type,channelMode(node,port))?.help ?? '')}</p>
-            {node.type === 'part.color-sensor' && <div className="mt-2"><MaterialChoice label={`${t('Material')} ${port}`} value={node.io?.[String(port)]?.material} items={items} onChange={material => onChannelChange(port,{material:material || undefined})} /></div>}
+            {node.type === 'part.color-sensor' && <div className="mt-2"><MaterialChoice label={`${t('Material')} ${port}`} value={node.io?.[String(port)]?.material} choiceId={node.io?.[String(port)]?.materialRef} items={items} onChange={(material,materialRef) => onChannelChange(port,{material:material || undefined,materialRef})} /></div>}
             {node.type === 'part.robot' && <div className="mt-2 space-y-1.5 rounded border border-white/10 p-1.5">
               <div className="text-[9px] text-white/55">{t('Visual workflow for input')} {port}</div>
               <select aria-label={`${t('Input source')} ${port}`} value={node.io?.[String(port)]?.programSource ?? ''} onChange={event => onChannelChange(port,{programSource:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default source')}</option>{graph.nodes.filter(candidate=>['part.conveyor','part.machine'].includes(candidate.type)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title ?? getNodeDef(candidate.type)?.title} · {candidate.id.slice(-6)}</option>)}</select>

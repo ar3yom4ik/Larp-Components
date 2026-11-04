@@ -1,6 +1,6 @@
 # Larp Factory V3 prerelease — independent AI/developer handoff
 
-**Current release:** V3.0.0-alpha.6, 2026-11-03
+**Current release:** V3.0.0-alpha.8, 2026-11-03
 **Audience:** a developer or another AI starting without any prior conversation.<br>
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V3 is the current prerelease number.
 
