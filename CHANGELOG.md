@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.9] - 2026-11-05 (prerelease)
+
+- Added opt-in LAN multiplayer: UDP session discovery, nickname and host approval, joinability, kick/disconnect, per-player 3D camera avatars, chat, field-merged shared scenes and host-authoritative simulation. Viewports and graphics settings remain local.
+- Added prefilled mixed-product pallets, deterministic shuffled stock and reset, pallet-source robot workflows, color-sensor inspection before sorting, generated scripts and AI Factory source-pallet nodes. Multiple robots can share stock; occupied and reserved slots prevent collisions.
+- Added real two-helper/two-browser and packaged-standalone LAN tests, pallet graph/UI and 10,100-part inventory tests. The multiplayer ZIP includes the standalone app, helper, launchers and third-party notices. LAN traffic is unencrypted and intended for trusted participants.
+
 ## [3.0.0-alpha.8] - 2026-11-03 (prerelease)
 
 - Unified named, searchable material previews in imported models, color sensors, building surfaces and graph nodes. Original texture thumbnails are embedded when available; platforms, stairs and spline walls can use imported textures and follow source edits. Sensors match base colors, not individual texture pixels.

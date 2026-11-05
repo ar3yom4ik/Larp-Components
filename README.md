@@ -18,11 +18,25 @@ npm run dev
 
 Windows users can also double-click `start-larp.bat`, which installs dependencies on first run and starts the app.
 
+## Multiplayer and mixed pallets
+
+The single HTML file remains offline and zero-install for single-player. For LAN multiplayer, download **`Larp_Multiplayer.zip`** from the prerelease and extract it on **each computer**. Install Node.js LTS, run `Larp_Multiplayer.bat` on Windows or `sh Larp_Multiplayer.sh` on macOS/Linux, and open the helper's `http://localhost:4174/` page. In **Connectivity → Multiplayer**, enter a nickname and host or join a discovered session; the host approves or denies each request. The host can change joinability, kick players or end the session. Chat is beside Statistics. Each player has a private camera and visual settings; scene edits and simulation controls are shared, with the host running the simulation. On disconnect, a guest keeps a local scene copy and its simulation resets.
+
+Discovery uses UDP **43749**, and connections use TCP **4174** on the same subnet. Allow them through firewalls; isolated Wi-Fi or VPNs may block broadcasts. LAN traffic is unencrypted, and shared projects can contain executable robot scripts: approve only trusted people on a trusted network. Opening the HTML as `file://` cannot host or discover sessions. In development, run `npm run multiplayer` alongside Vite; the same-origin proxy connects to the helper.
+
+For depalletizing, select a pallet and enable **Prefill pallet**. Add one or more products to the shuffled mix; reset applies changed fill settings. In **Program → Visual builder**, choose the pallet as the robot's source, optionally choose a color sensor to inspect each held part, and connect sensor outputs to destination pallets for sorting. AI Factory's physical pallet nodes support the same stock and robot/sensor configuration, including multiple robots consuming the same source. Replacing a pallet leaves it empty until reset. Very large inventories consume corresponding memory and simulation time.
+
 ## Scripts
 
 | Command | Description |
 |---|---|
 | `npm run dev` | Start the Vite dev server (port 5173 by default; docs/tests use 4173). |
+| `npm run multiplayer` | Start the opt-in local LAN helper (UDP discovery and approved sessions). |
+| `npm run package:multiplayer` | Package the built standalone HTML, helper, launchers and notices. |
+| `npm run test:multiplayer-server` | Real UDP discovery and session protocol test. |
+| `npm run test:multiplayer-browser` | Two-browser LAN collaboration, camera, chat and simulation test. |
+| `npm run test:multiplayer-standalone` | Test the extracted LAN package (after build and packaging). |
+| `npm run test:depalletize-browser` | Prefilled pallet, mixed stock, task and graph UI checks. |
 | `npm run typecheck` | TypeScript type check with `tsc --noEmit`. |
 | `npm run test:unit` | Browser-free simulation, prompt, navigation, project-size, settings, layout, floor-plan, worker-shirt, performance, and server-rendered UI tests. |
 | `npm run test:signals-browser` | Playwright viewport signal-port editing checks against the development server. |

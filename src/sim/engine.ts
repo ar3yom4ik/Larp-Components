@@ -1,3 +1,4 @@
+import { palletFillProducts, shuffledPalletProducts } from '../utils/palletFill';
 import { surfaceMaterialColor } from '../data/materials';
 import type { GripperKind, RobotProgram, SceneItem } from "../types";
 import { samplePath, type P2 } from "./spline";
@@ -102,6 +103,10 @@ export interface Box {
   pickGate?: {owner:number; conveyorId:string; along:number};
   support: 0 | 1 | 2 | 3 | 4;
   palletId: string | null;
+  /** Stable fill order for picking the uppermost occupied pallet slot. */
+  palletSlot?: number;
+  /** Scripted reservation awaiting physical contact. */
+  pendingPalletId?: string;
   palletT: number;
   processed: boolean;
   color: number;
@@ -357,6 +362,9 @@ export class PalletRT {
   gap: number;
   width: number;
   depth: number;
+  fillProducts: string[];
+  prefill: boolean;
+  private cellSize: V3;
   private item: SceneItem;
   private products: readonly SceneItem[];
 
@@ -376,6 +384,10 @@ export class PalletRT {
     this.productId = String(item.props.product || "carton");
     this.retainFull = item.props.retainFull === true;
     this.gap = num(item.props.gap, 0.04);
+    this.prefill = item.props.prefill === true;
+    this.fillProducts = palletFillProducts(item.props.fillProducts, this.productId);
+    const sizes = this.fillProducts.map(id => getProduct(id, products).size);
+    this.cellSize = [Math.max(...sizes.map(size => size[0])), Math.max(...sizes.map(size => size[1])), Math.max(...sizes.map(size => size[2]))];
     [this.width, this.depth] = palletSize(item.props, products).map((v) => v * this.scale) as [number, number];
     if (prev) {
       this.cursor = prev.cursor;
@@ -388,7 +400,8 @@ export class PalletRT {
   }
 
   slot(i: number, productId = this.productId) {
-    const size = getProduct(productId, this.products).size;
+    const own = getProduct(productId, this.products).size;
+    const size = this.fillProducts.length > 1 ? this.cellSize : own;
     const per = this.cols * this.rows;
     const layer = Math.floor(i / per) % this.layers;
     const idx = i % per;
@@ -806,7 +819,11 @@ export class Engine {
   private hasDynamicConveyors = false;
   private hasAuthoredBounce = false;
   private maxProductHalfExtent = 0;
-  getPhysicsPose(id: string) { return this.rigidBodies.pose(id); }
+  /** Guest render poses come from the host; guests never advance their own physics. */
+  networkGuest = false;
+  networkPoses = new Map<string, NonNullable<ReturnType<RigidBodyWorld["pose"]>>>();
+  networkAction: ((action: string, value: unknown) => void) | null = null;
+  getPhysicsPose(id: string) { return this.networkGuest ? (this.networkPoses.get(id) ?? null) : this.rigidBodies.pose(id); }
   getLiveItem(id: string) { return this.itemById.get(id); }
   running = false;
   speed = 1;
@@ -883,6 +900,8 @@ export class Engine {
   /** Per-robot/workflow fill cursor: a freshly swapped first pallet must not
    * steal work from the second pallet until that second pallet is full. */
   private palletSequences = new Map<string, number>();
+  /** Slots being filled are reserved so concurrent robots cannot place into one cell. */
+  private palletReservations = new Map<string, Map<number, {owner:string; counted:boolean}>>();
   private triggers = new Map<string, SceneItem[]>();
   private walkSources: SceneItem[] = [];
   private cratesItem: SceneItem | undefined;
@@ -943,6 +962,7 @@ export class Engine {
     });
     items = resolveMountedSensors(items);
     const previousItems = this.itemById;
+    const previousPallets = this.pallets;
     const previousSignals = this.signalState;
     const previousTriggers = this.triggers;
     this.items = items;
@@ -1117,6 +1137,9 @@ export class Engine {
     }
     this.conveyors = conveyors;
     this.pallets = pallets;
+    if (!physicsUpdate) for (const [id, pallet] of pallets) {
+      if (pallet.prefill && (!previousPallets.has(id) || previousItems.get(id)?.props.prefill !== true) && pallet.cursor === 0) this.prefillPallet(pallet);
+    }
     this.machines = machines;
     this.feeders = feeders;
     this.robots = robots;
@@ -1603,26 +1626,86 @@ export class Engine {
     this.speed = next;
   }
 
+  /** Stock is created once on enabling prefill, and recreated on reset. */
+  private prefillPallet(pallet: PalletRT) {
+    const count = pallet.capacity;
+    if (!Number.isSafeInteger(count) || count < 1 || count > 0xffffffff) { this.log(`${pallet.name}: invalid pallet dimensions`, "warn"); return; }
+    const products = shuffledPalletProducts(pallet.fillProducts, count, pallet.id);
+    for (let index = 0; index < count; index++) {
+      const product = getProduct(products[index], this.items), slot = pallet.slot(index, product.id);
+      const box = this.spawn(product.id, slot.x, slot.y + product.size[1] / 2, slot.z, slot.yaw);
+      box.palletId = pallet.id; box.palletSlot = index; box.support = 3;
+    }
+    pallet.cursor = count;
+    this.stats.spawned -= count; // Initial inventory is not production throughput.
+  }
+
   /** Remove a loaded pallet's contents and make its slots available again. */
   replacePallet(id: string) {
+    if (this.networkGuest && this.networkAction) { this.networkAction("replacePallet", id); return true; }
     const pallet = this.pallets.get(id);
     if (!pallet) return false;
     for (const box of this.boxes) if (box.palletId === id && box.state === "free") { box.state = "dying"; box.fade = 1; }
     if (pallet.cursor > 0) { pallet.shipped += 1; this.stats.pallets += 1; }
     pallet.cursor = 0;
+    this.palletReservations.delete(id);
     this.log(`${pallet.name}: pallet replaced`, "ok");
     return true;
   }
 
-  private markPalletPlacement(box: Box, pallet: PalletRT) {
+  /** Find a physically accessible, unoccupied slot, not just the current count.
+   * This matters when depalletizing leaves holes or several robots share a pallet. */
+  private nextPalletSlot(pallet: PalletRT): number | null {
+    const occupied = new Set<number>(this.palletReservations.get(pallet.id)?.keys() ?? []);
+    const unknown: Box[] = [];
+    for (const box of this.boxes) if (box.palletId === pallet.id && box.state !== "dead" && box.state !== "dying") {
+      if (box.palletSlot !== undefined && box.palletSlot >= 0 && box.palletSlot < pallet.capacity) occupied.add(box.palletSlot);
+      else unknown.push(box);
+    }
+    // Legacy/scripted parts may not have an index; infer their nearest slot.
+    for (const box of unknown) {
+      let best = -1, distance = Infinity;
+      for (let index = 0; index < pallet.capacity; index++) if (!occupied.has(index)) {
+        const slot = pallet.slot(index, box.productId);
+        const d = (box.x-slot.x)**2 + (box.z-slot.z)**2 + (box.y-box.hy-slot.y)**2;
+        if (d < distance) { distance = d; best = index; }
+      }
+      if (best >= 0) { box.palletSlot = best; occupied.add(best); }
+    }
+    const per = pallet.cols * pallet.rows;
+    for (let index = 0; index < pallet.capacity; index++) {
+      if (occupied.has(index) || (index >= per && !occupied.has(index-per))) continue;
+      let blocked = false;
+      for (let above = index+per; above < pallet.capacity; above += per) if (occupied.has(above)) { blocked = true; break; }
+      if (!blocked) return index;
+    }
+    return null;
+  }
+  private reservePalletSlot(pallet: PalletRT, index: number, owner: string, counted = false) {
+    let slots = this.palletReservations.get(pallet.id);
+    if (!slots) { slots = new Map(); this.palletReservations.set(pallet.id, slots); }
+    slots.set(index, {owner, counted});
+  }
+  private releasePalletSlot(id: string, index: number) {
+    const slots = this.palletReservations.get(id); slots?.delete(index);
+    if (slots && slots.size === 0) this.palletReservations.delete(id);
+  }
+  private palletAvailable(pallet: PalletRT) {
+    const reservations = this.palletReservations.get(pallet.id);
+    let pending = 0; if (reservations) for (const slot of reservations.values()) if (!slot.counted) pending++;
+    return pallet.cursor + pending < pallet.capacity;
+  }
+  private markPalletPlacement(box: Box, pallet: PalletRT, index = pallet.cursor) {
     if (box.palletId === pallet.id) return;
     box.palletId = pallet.id;
+    box.palletSlot = index;
     this.stats.placed += 1; this.stats.events.push(this.time);
     if (this.stats.events.length > 4096) this.stats.events = this.stats.events.filter((time) => time > this.time - 90);
   }
 
   reset() {
     this.rigidBodies.reset(this.authoredItems);
+    this.palletReservations.clear();
     this.rigidTick = 0;
     this.rigidWasAwake = false;
     this.sync(this.authoredItems, true);
@@ -1636,6 +1719,7 @@ export class Engine {
     this.pallets.forEach((pallet) => {
       pallet.cursor = 0;
       pallet.shipped = 0;
+      if (pallet.prefill) this.prefillPallet(pallet);
     });
     this.machines.forEach((machine) => {
       machine.busy = false;
@@ -1778,6 +1862,8 @@ export class Engine {
       home: () => run(this.homeGen(robot)),
       moveTo: (x: number, y: number, z: number) => run(this.moveGen(robot, [x, y, z])),
       waitForPart: (zone: { x: number; y?: number; z: number; r?: number }) => run(this.waitPartGen(robot, zone)),
+      waitForPalletPart: (id:string) => run(this.waitPalletPartGen(robot, id)),
+      inspectSensor: (id:string) => { if (robot.held) robot.held.colorSignals = undefined; return run(this.inspectSensorGen(robot,id)); },
       waitForSignal: (target?: string) => run(this.waitSignalGen(robot, target || robot.itemId)),
       waitForPallet: (part:Box, ids:string[]) => run(this.waitPalletGen(robot,part,ids)),
       advancePallet: (id:string, ids:string[]) => {
@@ -1833,10 +1919,12 @@ export class Engine {
           },
           nextSlot: () => {
             const pallet = get();
-            if (pallet.cursor >= pallet.capacity) throw new Error(`Pallet ${pallet.name} is full. Await swap() before requesting another slot.`);
-            const index = pallet.cursor++;
+            const index = this.nextPalletSlot(pallet);
+            if (!this.palletAvailable(pallet) || index === null) throw new Error(`Pallet ${pallet.name} is full. Await swap() before requesting another slot.`);
+            this.reservePalletSlot(pallet, index, `script:${robot.itemId}`, true);
+            pallet.cursor += 1;
             const productId = robot.held?.productId;
-            return { get x() { return get().slot(index, productId).x; }, get y() { return get().slot(index, productId).y; }, get z() { return get().slot(index, productId).z; }, get yaw() { return get().yaw; } };
+            return { get x() { return get().slot(index, productId).x; }, get y() { return get().slot(index, productId).y; }, get z() { return get().slot(index, productId).z; }, get yaw() { return get().yaw; }, _palletId:id, _palletSlot:index };
           },
           isFull: () => get().cursor >= get().capacity,
           swap: () =>
@@ -2056,10 +2144,10 @@ export class Engine {
         for (const {input:port} of bindings ?? []) {
           const program=robot.programs?.[String(port)] ?? robot.program;
           if (!program || !this.triggerGate(robot.itemId,program.sourceId,false,port)) continue;
-          const conveyor=this.conveyors.get(program.sourceId), machine=this.machines.get(program.sourceId);
+          const conveyor=this.conveyors.get(program.sourceId), machine=this.machines.get(program.sourceId), pallet=this.pallets.get(program.sourceId);
           const zone=conveyor ? {...conveyor.pointAt(Math.max(0,conveyor.length-(program.pickupBack ?? .3))),r:.65} : machine ? {...machine.table(),r:.45} : null;
-          const part = zone && this.findPart(robot,zone,this.sharedBeltStations.has(program.sourceId) ? box=>this.sharedStationAccept(program.sourceId,robot.itemId,box) : undefined);
-          if (!part || !this.palletDestination(robot,program,part,port)) continue;
+          const part = pallet ? this.findPalletPart(robot,pallet.id) : zone && this.findPart(robot,zone,this.sharedBeltStations.has(program.sourceId) ? box=>this.sharedStationAccept(program.sourceId,robot.itemId,box) : undefined);
+          if (!part || (!program.inspectSensorId && !this.palletDestination(robot,program,part,port))) continue;
           selected={port,program}; return true;
         }
         return false;
@@ -2087,7 +2175,7 @@ export class Engine {
     // Keep legacy single-destination behaviour (including signal-input uses).
     if (ids.length <= 1) {
       const pallet = this.pallets.get(ids[0]);
-      return pallet && pallet.cursor >= pallet.capacity ? null : ids[0] || null;
+      return pallet && !this.palletAvailable(pallet) ? null : ids[0] || null;
     }
     const wired = (id:string) => this.triggers.get(id) ?? [];
     const match = (id:string) => wired(id).some(source => source.visible !== false &&
@@ -2100,7 +2188,7 @@ export class Engine {
     const start = (this.palletSequences.get(key) ?? 0) % ids.length;
     for (let n=0;n<ids.length;n++) {
       const id = ids[(start+n)%ids.length], pallet = this.pallets.get(id);
-      if (eligible.includes(id) && pallet && pallet.cursor < pallet.capacity) return id;
+      if (eligible.includes(id) && pallet && this.palletAvailable(pallet)) return id;
     }
     return null;
   }
@@ -2118,16 +2206,20 @@ export class Engine {
     const source = () => {
       const c = this.conveyors.get(config.sourceId);
       const m = this.machines.get(config.sourceId);
+      const p = this.pallets.get(config.sourceId);
+      if (p) return {x:p.x, z:p.z, r:Math.hypot(p.width,p.depth)/2};
       if (c) return { ...c.pointAt(Math.max(0, c.length - (config.pickupBack ?? 0.3))), r: 0.65 };
       if (m) return { ...m.table(), r: 0.45 };
       return null;
     };
     let targetId = config.targetId;
+    let reservedSlot: number | null = null, reservedPallet = "";
     const destination = (productId = robot.held?.productId ?? "carton") => {
       const pallet = this.pallets.get(targetId);
       const conveyor = this.conveyors.get(targetId);
       const machine = this.machines.get(targetId);
-      return pallet ? pallet.slot(pallet.cursor, productId) : conveyor ? conveyor.pointAt(0.48) : machine?.table() ?? null;
+      const index = pallet ? (reservedPallet === targetId ? reservedSlot : this.nextPalletSlot(pallet)) : null;
+      return pallet ? (index === null ? null : pallet.slot(index, productId)) : conveyor ? conveyor.pointAt(0.48) : machine?.table() ?? null;
     };
     const machineTarget = () => this.machines.get(config.machineId ?? "");
     do {
@@ -2139,15 +2231,18 @@ export class Engine {
         if (once && inputPort === undefined && this.robotInputs.has(robot.itemId)) return true;
         const zone = source();
         if (!zone) { robot.error = "Choose a source in the visual program"; return false; }
-        const found = this.findPart(robot, zone, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined);
+        const found = this.pallets.has(config.sourceId) ? this.findPalletPart(robot,config.sourceId) : this.findPart(robot, zone, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined);
         if (!found) { robot.error = null; return false; }
         if (!this.triggerGate(robot.itemId, config.sourceId, false, inputPort)) { robot.error = null; return false; }
-        const selected = this.palletDestination(robot,config,found,inputPort);
+        const selected = config.inspectSensorId ? config.targetId : this.palletDestination(robot,config,found,inputPort);
         if (!selected) { robot.error = "No matching pallet available: check signals or replace a full pallet."; return false; }
         targetId = selected;
-        const target = config.mode === "tend" ? machineTarget()?.table() : destination(found.productId);
+        const sensor = config.inspectSensorId ? this.itemById.get(config.inspectSensorId) : undefined;
+        const target = sensor?.kind === "color-sensor" && sensor.visible !== false
+          ? {x:sensor.position[0],y:sensor.position[1] + (sensor.props.mountedTo ? .1 : .85) * sensor.scale - found.hy,z:sensor.position[2]}
+          : config.inspectSensorId ? null : config.mode === "tend" ? machineTarget()?.table() : destination(found.productId);
         if (!target || !robot.reach([target.x, target.y + found.hy * 2, target.z])) {
-          robot.error = "Destination is outside robot reach. Move it closer to continue.";
+          robot.error = config.inspectSensorId ? "Color sensor is missing or outside robot reach." : "Destination is outside robot reach. Move it closer to continue.";
           return false;
         }
         this.triggerGate(robot.itemId, config.sourceId, true, inputPort);
@@ -2159,7 +2254,19 @@ export class Engine {
         }
         return true;
       });
-      if (!box || !(yield* this.pickGen(robot, box))) continue;
+      const picked = box as Box | null;
+      if (!picked || !(yield* this.pickGen(robot, picked))) continue;
+      if (config.inspectSensorId) {
+        picked.colorSignals = undefined;
+        if (!(yield* this.inspectSensorGen(robot, config.inspectSensorId))) continue;
+        yield this.waiter(() => {
+          const selected = robot.held && this.palletDestination(robot,config,robot.held,inputPort);
+          robot.error = selected ? null : "No matching pallet available: check sensor outputs or replace a full pallet.";
+          if (!selected) return false;
+          targetId = selected;
+          return true;
+        });
+      }
 
       if (config.mode === "tend" || config.mode === "paint" || config.mode === "assemble") {
         const machine = machineTarget();
@@ -2169,7 +2276,7 @@ export class Engine {
         for (let n = 0; n < rounds; n += 1) {
           if (n > 0) {
             let extra: Box | null = null;
-            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId, false, inputPort)) return false; extra = this.findPart(robot, z, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true, inputPort); extra.claim = robot.id; } return !!extra; });
+            yield this.waiter(() => { const z = source(); if (!z || !this.triggerGate(robot.itemId, config.sourceId, false, inputPort)) return false; extra = this.pallets.has(config.sourceId) ? this.findPalletPart(robot, config.sourceId) : this.findPart(robot, z, this.sharedBeltStations.has(config.sourceId) ? box => this.sharedStationAccept(config.sourceId,robot.itemId,box) : undefined); if (extra) { this.triggerGate(robot.itemId, config.sourceId, true, inputPort); extra.claim = robot.id; } return !!extra; });
             if (!extra || !(yield* this.pickGen(robot, extra))) break;
           }
           if (!(yield* this.placeGen(robot, live, false))) break;
@@ -2197,7 +2304,7 @@ export class Engine {
       };
       yield this.waiter(() => {
         const targetPallet = this.pallets.get(targetId);
-        if (targetPallet && targetPallet.cursor >= targetPallet.capacity) {
+        if (targetPallet && !this.palletAvailable(targetPallet) && reservedPallet !== targetId) {
           const alternate = robot.held && this.palletDestination(robot,config,robot.held,inputPort);
           if (!alternate) { robot.error = "Pallet full: replace or clear it to continue."; return false; }
           targetId = alternate;
@@ -2208,13 +2315,20 @@ export class Engine {
         if (!reachable) return false;
         const halfHeight = robot.held?.hy ?? 0.13;
         const footprint = { x: dest.x, z: dest.z, hx: robot.held?.hx ?? 0.17, hz: robot.held?.hz ?? 0.17, yaw: dest.yaw };
-        return !this.boxes.some((b) => b !== robot.held && b.state === "free" && Math.abs(b.y - (dest.y + halfHeight)) < b.hy + halfHeight - 0.012 && !!contactXZ(b, footprint));
+        const clear = !this.boxes.some((b) => b !== robot.held && b.state === "free" && Math.abs(b.y - (dest.y + halfHeight)) < b.hy + halfHeight - 0.012 && !!contactXZ(b, footprint));
+        if (clear && targetPallet && reservedPallet !== targetId) {
+          const index = this.nextPalletSlot(targetPallet);
+          if (index === null) return false;
+          this.reservePalletSlot(targetPallet, index, robot.itemId);
+          reservedPallet = targetId; reservedSlot = index;
+        }
+        return clear;
       });
       const placed = robot.held;
       const success = yield* this.placeGen(robot, dest);
       const pallet = this.pallets.get(targetId);
       if (success && pallet) {
-        if (placed) this.markPalletPlacement(placed, pallet);
+        if (placed) this.markPalletPlacement(placed, pallet, reservedSlot ?? pallet.cursor);
         pallet.cursor += 1;
         if (pallet.cursor >= pallet.capacity) {
           this.advancePalletSequence(robot,config,pallet.id,inputPort);
@@ -2230,6 +2344,8 @@ export class Engine {
           }
         }
       }
+      if (reservedPallet && reservedSlot !== null) this.releasePalletSlot(reservedPallet, reservedSlot);
+      reservedPallet = ""; reservedSlot = null;
       if (config.delay > 0) yield* this.waitGen(config.delay);
     } while (config.repeat && !once);
     return true;
@@ -2657,14 +2773,15 @@ export class Engine {
     const pallet = this.pallets.get(dest.id);
     const out = this.conveyors.get(dest.id);
     if (pallet && pallet.cursor >= pallet.capacity) { human.walking = false; human.status = "pallet full"; return; }
-    const target = pallet ? pallet.slot(pallet.cursor, b.productId) : out ? out.pointAt(0.5) : this.machines.get(dest.id)?.table();
+    const slotIndex = pallet ? this.nextPalletSlot(pallet) : null;
+    const target = pallet ? (slotIndex === null ? null : pallet.slot(slotIndex, b.productId)) : out ? out.pointAt(0.5) : this.machines.get(dest.id)?.table();
     if (!target) return;
     if (this.walkHuman(human, target.x, target.z + 0.45, speed * 0.8, dt, out ? this.beltAccessHeight(dest,target.y) : dest.position[1])) {
       b.x = target.x; b.z = target.z; b.y = target.y + b.hy + 0.003;
       b.state = "free"; b.claim = 0; b.support = 0;
       human.held = null; human.completed += 1;
       if (pallet) {
-        this.markPalletPlacement(b, pallet);
+        this.markPalletPlacement(b, pallet, slotIndex ?? pallet.cursor);
         pallet.cursor += 1;
         if (pallet.cursor >= pallet.capacity && !pallet.retainFull) {
           this.timers.push({ at: this.time + 1.8, owner: null, runId: 0, fn: () => {
@@ -2772,6 +2889,25 @@ export class Engine {
     return move.ok;
   }
 
+  /** Move the held part through the real color-sensor beam before routing. */
+  private *inspectSensorGen(robot:RobotRT, sensorId:string): Generator<Cmd, boolean, unknown> {
+    const position = (): V3 | null => {
+      const sensor=this.itemById.get(sensorId), part=robot.held;
+      if (!sensor || sensor.kind !== "color-sensor" || sensor.visible === false || !part) return null;
+      return [sensor.position[0],sensor.position[1] + (sensor.props.mountedTo ? .1 : .85) * sensor.scale + part.hy,sensor.position[2]];
+    };
+    yield this.waiter(() => {
+      const target=position(), ready=!!target && robot.reach(target);
+      robot.error=ready ? null : "Color sensor is missing or outside robot reach.";
+      return ready;
+    });
+    const move=this.servo(robot,position,.01);
+    yield move;
+    if (!move.ok) return false;
+    yield* this.waitGen(.25); // updateLogic observes the held workpiece in the beam
+    return true;
+  }
+
   private *moveGen(robot: RobotRT, target: V3): Generator<Cmd, boolean, unknown> {
     const move = this.servo(robot, () => target, 0.01);
     yield move;
@@ -2810,7 +2946,11 @@ export class Engine {
     box.vx = box.vy = box.vz = 0;
     box.support = 0;
     box.tilt = 0;
-    box.palletId = null;
+    if (box.palletId) {
+      const pallet = this.pallets.get(box.palletId);
+      if (pallet) pallet.cursor = Math.max(0, pallet.cursor - 1);
+    }
+    box.palletId = null; box.palletSlot = undefined;
     robot.held = box;
     robot.holdYaw = null;
   }
@@ -2843,6 +2983,36 @@ export class Engine {
       }
     }
     return best;
+  }
+
+  private findPalletPart(robot:RobotRT, id:string): Box | null {
+    let best:Box | null = null;
+    const pallet = this.pallets.get(id); if (!pallet || pallet.cursor <= 0) return null;
+    const per = pallet.cols * pallet.rows;
+    const occupied = new Set(this.boxes.filter(box => box.palletId === id && box.state === "free" && box.palletSlot !== undefined).map(box => box.palletSlot!));
+    // Stock is normally appended in slot order, so examine top layers first.
+    for (let i=this.boxes.length-1; i>=0; i--) {
+      const box = this.boxes[i];
+      if (box.palletId !== id || box.state !== "free" || (box.claim !== 0 && box.claim !== robot.id) || !this.canGrip(robot,box)) continue;
+      if (best && box.palletSlot !== undefined && best.palletSlot !== undefined && box.palletSlot <= best.palletSlot) continue;
+      if (!robot.reach(this.approach(robot,[box.x,box.y+box.hy,box.z],0.35))) continue;
+      if (per && box.palletSlot !== undefined) {
+        let blocked = false; for (let above=box.palletSlot+per; above<(pallet?.capacity ?? 0); above+=per) if (occupied.has(above)) { blocked=true; break; }
+        if (blocked) continue;
+      }
+      if (!best || (box.palletSlot !== undefined && best.palletSlot !== undefined ? box.palletSlot > best.palletSlot : box.y > best.y)) best = box;
+    }
+    return best;
+  }
+
+  private *waitPalletPartGen(robot:RobotRT, id:string): Generator<Cmd,Box,unknown> {
+    let found:Box | null = null;
+    yield this.waiter(() => {
+      found=this.findPalletPart(robot,id);
+      if (found) found.claim=robot.id;
+      return !!found;
+    });
+    return found!;
   }
 
   private schedulePalletSwap(id:string) {
@@ -2921,7 +3091,7 @@ export class Engine {
 
   private *placeGen(
     robot: RobotRT,
-    slot: { x: number; y: number; z: number; yaw?: number },
+    slot: { x: number; y: number; z: number; yaw?: number; _palletId?:string; _palletSlot?:number },
     emitOutput = true,
   ): Generator<Cmd, boolean, unknown> {
     const box = robot.held;
@@ -2938,6 +3108,11 @@ export class Engine {
     yield down;
     if (!down.ok) return false;
     this.detach(robot);
+    if (slot._palletId && slot._palletSlot !== undefined) {
+      // The reservation remains until the box settles on its pallet.
+      box.palletSlot = slot._palletSlot;
+      box.pendingPalletId = slot._palletId;
+    }
     robot.gripTarget = 0;
     let t = 0;
     yield this.waiter(() => {
@@ -3295,6 +3470,7 @@ export class Engine {
   /** With duration zero, every click toggles. A positive duration makes a
    * retriggerable pulse; expiration is paused together with the simulation. */
   pressButton(id: string) {
+    if (this.networkGuest && this.networkAction) { this.networkAction("pressButton", id); return; }
     const item = this.itemById.get(id);
     if (!item || item.kind !== "button") return;
     const duration = Math.max(0, num(item.props.activeDuration, 0));
@@ -3374,7 +3550,7 @@ export class Engine {
           if (materials?.length) {
             for (const material of materials) if (material.opacity > 0) colors.add(material.color.toLowerCase());
           } else colors.add(base);
-          if (box.state === "free") for (const output of this.palletColorOutputs.get(item.id) ?? []) {
+          if (box.state === "free" || box.state === "held") for (const output of this.palletColorOutputs.get(item.id) ?? []) {
             const matches = materials?.length ? materials.some(material => material.opacity > 0 && material.color.toLowerCase() === output.material) : base === output.material;
             if (matches) {
               (box.colorSignals ??= new Set()).add(output.key);
@@ -3650,6 +3826,8 @@ export class Engine {
         b.palletT += dt;
         if (b.palletId !== sup.palletId && b.palletT > 0.35) {
           b.palletId = sup.palletId;
+          if (b.pendingPalletId === sup.palletId && b.palletSlot !== undefined) this.releasePalletSlot(sup.palletId, b.palletSlot);
+          b.pendingPalletId = undefined;
           this.stats.placed += 1;
           this.stats.events.push(this.time);
           // Throughput only looks back 60 s, so older entries are dead weight that

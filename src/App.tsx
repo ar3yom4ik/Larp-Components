@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { MultiplayerClient } from './multiplayer/client';
+import { captureSimulation, applySimulation } from './multiplayer/simulation';
+import { MultiplayerDialog } from './components/Multiplayer';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { isRobotKind } from "./utils/kinds";
 import { CheckCircle2, Info, SlidersHorizontal, X } from "lucide-react";
@@ -104,6 +107,8 @@ export default function App() {
   const skipRestore = useRef(false);
   const autosaveDisabled = useRef(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [multiplayerOpen, setMultiplayerOpen] = useState(false);
+  const multiplayerRef = useRef<MultiplayerClient | null>(null);
   const [catalogEditId, setCatalogEditId] = useState<string | null>(null);
   const [loadingPosition, setLoadingPosition] = useState<Vec3 | null>(null);
   const viewCenter = useRef<() => Vec3>(() => [0, 0, 0]);
@@ -196,7 +201,7 @@ export default function App() {
     sim.sync(productItems);
   }, [productItems]);
   useEffect(() => {
-    sim.setRunning(running);
+    if (sim.networkGuest) sim.running = running; else sim.setRunning(running);
   }, [running]);
   useEffect(() => {
     sim.setSpeed(simSpeed);
@@ -214,20 +219,80 @@ export default function App() {
     window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3200);
   }, []);
 
-  const syncHistory = useCallback(() => setHistoryCounts({ past: pastRef.current.length, future: futureRef.current.length }), []);
+  const syncHistory = useCallback(() => { if (!multiplayerRef.current?.active) setHistoryCounts({ past: pastRef.current.length, future: futureRef.current.length }); }, []);
   const remember = useCallback((snapshot: SceneItem[]) => {
+    if (multiplayerRef.current?.active) { multiplayerRef.current.beginEdit(); return; }
     pastRef.current = [...pastRef.current.slice(-39), {items: snapshot, workpieces: workpiecesRef.current}];
     futureRef.current = [];
   }, []);
-  const applyItems = useCallback((next: SceneItem[], catalog?: SceneItem[]) => {
+  const applyItems = useCallback((next: SceneItem[], catalog?: SceneItem[], remote = false) => {
     next = resolveMountedSensors(next);
     const nextCatalog = updateWorkpieceCatalog(next, catalog ?? workpiecesRef.current);
     itemsRef.current = next;
     workpiecesRef.current = nextCatalog;
     setItems(next);
     setWorkpieces(nextCatalog);
+    if (!remote) multiplayerRef.current?.updateScene(next, nextCatalog);
     return nextCatalog;
   }, []);
+  // The collaborative scene is field-merged; only the host advances simulation.
+  const metadataRef = useRef({projectName, layoutName, activeLayoutId});
+  metadataRef.current = {projectName, layoutName, activeLayoutId};
+  if (!multiplayerRef.current) multiplayerRef.current = new MultiplayerClient({
+    onHosted: () => {
+      const client = multiplayerRef.current!;
+      pastRef.current = []; futureRef.current = [];
+      client.updateScene(itemsRef.current, workpiecesRef.current);
+      client.updateMeta(metadataRef.current); client.clearHistory();
+      sim.networkGuest = false; sim.networkAction = null;
+      notify('Session started');
+    },
+    onJoined: () => {
+      pastRef.current = []; futureRef.current = [];
+      skipRestore.current = true; setStorageReady(true);
+      sim.networkGuest = true;
+      sim.networkAction = (action, value) => multiplayerRef.current?.action(action, value);
+      sim.running = false; setRunning(false);
+      notify('Joined the shared session');
+    },
+    onScene: (scene) => {
+      const catalog = applyItems(scene.items, scene.workpieces, true);
+      sim.sync(itemsWithWorkpieces(scene.items, catalog));
+      setProjectName(scene.projectName); setLayoutName(scene.layoutName); setActiveLayoutId(scene.activeLayoutId);
+      setSelectedIds(current => current.filter(id => scene.items.some(item => item.id === id)));
+    },
+    onSimulation: (snapshot) => {
+      const value = applySimulation(snapshot);
+      if (value) { setRunning(value.running); setSimSpeed(value.speed); }
+    },
+    onAction: (action, value) => {
+      if (action === 'run' && typeof value === 'boolean') { sim.setRunning(value); setRunning(value); }
+      if (action === 'speed' && typeof value === 'number' && Number.isFinite(value)) { sim.setSpeed(value); setSimSpeed(sim.speed); }
+      if (action === 'reset') { sim.setRunning(false); sim.reset(); setRunning(false); }
+      if (action === 'pressButton' && typeof value === 'string') sim.pressButton(value);
+      if (action === 'replacePallet' && typeof value === 'string') sim.replacePallet(value);
+    },
+    onHistory: (past, future) => setHistoryCounts({past, future}),
+    onEnded: (reason) => {
+      if (sim.networkGuest) {
+        sim.networkGuest = false; sim.networkAction = null; sim.networkPoses.clear();
+        sim.setRunning(false); sim.reset(); setRunning(false);
+      }
+      notify(reason, 'info');
+    },
+  });
+  const multiplayer = multiplayerRef.current;
+  // Camera presence can update ten times a second per player. Subscribe here
+  // only to the primitive values App actually needs, not the whole roster.
+  const multiplayerStatus = useSyncExternalStore(multiplayer.subscribe, () => multiplayer.getState().status);
+  const multiplayerRequestCount = useSyncExternalStore(multiplayer.subscribe, () => multiplayer.getState().requests.length);
+  useEffect(() => { if (multiplayerRequestCount) setMultiplayerOpen(true); }, [multiplayerRequestCount]);
+  useEffect(() => {
+    if (multiplayerStatus !== 'host') return;
+    const timer = window.setInterval(() => { if (multiplayer.hasGuests) multiplayer.simulation(captureSimulation()); }, 150);
+    return () => window.clearInterval(timer);
+  }, [multiplayer, multiplayerStatus]);
+  useEffect(() => () => multiplayer.close(), [multiplayer]);
   // Restore IndexedDB after V1's synchronous localStorage fallback, without
   // allowing an initial render to overwrite a newer large project.
   useEffect(() => {
@@ -486,6 +551,7 @@ export default function App() {
   );
 
   const undo = useCallback(() => {
+    if (multiplayerRef.current?.active) { multiplayerRef.current.undo(); return; }
     const previous = pastRef.current.pop();
     if (!previous) return;
     futureRef.current = [{items: itemsRef.current, workpieces: workpiecesRef.current}, ...futureRef.current].slice(0, 40);
@@ -495,6 +561,7 @@ export default function App() {
   }, [applyItems, syncHistory]);
 
   const redo = useCallback(() => {
+    if (multiplayerRef.current?.active) { multiplayerRef.current.redo(); return; }
     const next = futureRef.current.shift();
     if (!next) return;
     pastRef.current = [...pastRef.current, {items: itemsRef.current, workpieces: workpiecesRef.current}].slice(-40);
@@ -630,8 +697,15 @@ export default function App() {
 
   /* ----- simulation control ----- */
 
-  const toggleRun = useCallback(() => setRunning((value) => !value), []);
+  const toggleRun = useCallback(() => {
+    if (multiplayerRef.current?.isGuest) multiplayerRef.current.action("run", !sim.running);
+    else setRunning(value => !value);
+  }, []);
+  const changeSimSpeed = useCallback((value: number) => {
+    if (multiplayerRef.current?.isGuest) multiplayerRef.current.action("speed", value); else setSimSpeed(value);
+  }, []);
   const resetSim = useCallback(() => {
+    if (multiplayerRef.current?.isGuest) { multiplayerRef.current.action("reset"); return; }
     setRunning(false);
     sim.setRunning(false);
     sim.reset();
@@ -642,14 +716,15 @@ export default function App() {
       remember(itemsRef.current);
       const catalog = applyItems(next, workpieceCatalog);
       sim.sync(itemsWithWorkpieces(next, catalog));
-      sim.setRunning(false);
-      sim.reset();
+      if (multiplayerRef.current?.isGuest) multiplayerRef.current.action("reset");
+      else { sim.setRunning(false); sim.reset(); }
       setProjectName(name);
       setLayoutName(name);
       setActiveLayoutId(layoutId);
+      multiplayerRef.current?.updateMeta({projectName:name, layoutName:name, activeLayoutId:layoutId});
       setSelectedId(next.find((item) => isRobotKind(item.kind))?.id ?? null);
-      setRunning(next.length > 0);
-      sim.setRunning(next.length > 0);
+      if (multiplayerRef.current?.isGuest) multiplayerRef.current.action("run", next.length > 0);
+      else { setRunning(next.length > 0); sim.setRunning(next.length > 0); }
       syncHistory();
     },
     [applyItems, remember, syncHistory],
@@ -721,6 +796,7 @@ export default function App() {
       if (parsed.items.some((i) => i.script?.trim() && (!i.program || i.script.trim() !== programToCode(i.program).trim())) && !window.confirm(t("This project contains executable JavaScript. Only open scripts from a trusted source. Continue?"))) return;
       replaceScene(parsed.items, parsed.projectName || file.name.replace(/\.(txt|json|lcmx)$/i, ""), parsed.activeLayoutId, parsed.workpieces ?? []);
       setLayoutName(parsed.layoutName);
+      multiplayerRef.current?.updateMeta({projectName: parsed.projectName || file.name.replace(/\.(txt|json|lcmx)$/i, ""), layoutName: parsed.layoutName, activeLayoutId: parsed.activeLayoutId});
       detachExportHandle();
       setMobilePanel(null);
       notify("Project imported");
@@ -752,7 +828,7 @@ export default function App() {
     return true;
   }, [applyItems, fitsProject, mobile, modelTarget, notify, remember, syncHistory, updateItem]);
 
-  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getWorkpieces: () => workpiecesRef.current, getText: projectText, setItems: applyItems, select: setSelectedId, getSelection: () => selectedIds};
+  if (import.meta.env.DEV) (window as unknown as {__larpProject: unknown}).__larpProject = {getItems: () => itemsRef.current, getWorkpieces: () => workpiecesRef.current, getText: projectText, setItems: applyItems, select: setSelectedId, getSelection: () => selectedIds, multiplayer};
 
   /* ----- spline editing ----- */
 
@@ -1011,11 +1087,12 @@ export default function App() {
     />
   );
 
-  const dock = (fullHeight = false) => <BottomDock tab={dockTab} setTab={setDockTab} expanded={dockExpanded} setExpanded={setDockExpanded} items={items} selectedId={selectedId} onSelect={setSelectedId} onUpdateItem={updateItem} onTemplate={applyTemplate} showApi={showApi} fullHeight={fullHeight} />;
+  const dock = (fullHeight = false) => <BottomDock multiplayer={multiplayer} tab={dockTab} setTab={setDockTab} expanded={dockExpanded} setExpanded={setDockExpanded} items={items} selectedId={selectedId} onSelect={setSelectedId} onUpdateItem={updateItem} onTemplate={applyTemplate} showApi={showApi} fullHeight={fullHeight} />;
   // The dock fills its panel, so the panel's own height replaces the fixed 175/350 px
   // sizes. The chevron button still expands and shrinks it.
   const dockPanelBody = (
     <BottomDock
+      multiplayer={multiplayer}
       tab={dockTab} setTab={setDockTab}
       expanded={layout.dock.size > 260}
       setExpanded={(expanded) => setPanel("dock", { size: expanded ? 420 : 175 })}
@@ -1039,12 +1116,13 @@ export default function App() {
     <div data-skin={appearance.skin} className={cn("larp-app flex h-[100dvh] w-full select-none flex-col overflow-hidden bg-[#1e1e1e] text-white antialiased", mobile && "touch-workspace")}>
       {mobile ? <MobileChrome project={projectName} tool={tool} setTool={setTool} undo={undo} redo={redo} canUndo={historyCounts.past > 0} canRedo={historyCounts.future > 0} onProject={() => setMobilePanel("project")} onFactory={() => setGenOpen(true)} /> : (
       <AppChrome
+        onMultiplayer={() => setMultiplayerOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onCopy={copySelected}
         onPaste={paste}
         exportedName={exportedName}
         projectName={projectName}
-        onRenameProject={setProjectName}
+        onRenameProject={(name) => { setProjectName(name); multiplayer.updateMeta({...metadataRef.current, projectName:name}); }}
         tool={tool}
         setTool={setTool}
         snap={snap}
@@ -1093,7 +1171,7 @@ export default function App() {
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1">
-            <Viewport mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectViewport} onSelectMany={setSelectedIds} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={setSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onMoveLoading={moveLoading} onViewCenterReady={registerViewCenter} onUpdateItem={updateItem} onUpdateItems={updateMany} onBeginEdit={beginEdit} onDuplicateItem={duplicateItem} onCopy={copySelected} onCut={cutSelected} onPaste={paste} canPaste={hasClipboard} onDeleteSelected={deleteSelected} onDuplicateSelected={duplicateSelected} onShowFloorMap={() => setFloorMapOpen(true)} />
+            <Viewport multiplayer={multiplayer} multiplayerActive={multiplayerStatus === "host" || multiplayerStatus === "guest"} mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectViewport} onSelectMany={setSelectedIds} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={changeSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onMoveLoading={moveLoading} onViewCenterReady={registerViewCenter} onUpdateItem={updateItem} onUpdateItems={updateMany} onBeginEdit={beginEdit} onDuplicateItem={duplicateItem} onCopy={copySelected} onCut={cutSelected} onPaste={paste} canPaste={hasClipboard} onDeleteSelected={deleteSelected} onDuplicateSelected={duplicateSelected} onShowFloorMap={() => setFloorMapOpen(true)} />
             {!mobile && <div className="absolute bottom-3 left-[110px] z-20 flex gap-1.5 xl:hidden"><button type="button" onClick={() => setMobilePanel("inspector")} className="flex items-center gap-1.5 rounded border border-white/15 bg-[#2a2a2c]/95 px-2.5 py-1.5 text-[10px] text-white/80"><SlidersHorizontal size={12} className="text-[var(--teal)]" />{t("Properties")}</button></div>}
           </div>
           {dockNode}
@@ -1137,6 +1215,7 @@ export default function App() {
         }}>{t("Continue without restoring or autosave — export a copy")}</button>}
       </div>}
       {storageFailed && <div role="alert" className="fixed bottom-8 right-4 z-[105] max-w-[300px] rounded border border-amber-400/40 bg-[#382c1b] p-3 text-[11px] text-amber-100">{t("Browser autosave is unavailable. Export a project copy to keep your work.")}</div>}
+      {multiplayerOpen && <MultiplayerDialog client={multiplayer} open onClose={() => setMultiplayerOpen(false)} />}
       <GeneratorDialog open={genOpen} initial={genOptions} productItems={productItems} onClose={() => setGenOpen(false)} onBuild={buildGenerated} />
       {settingsOpen && <SettingsDialog>{projectSettings}</SettingsDialog>}
       <div className={cn("pointer-events-none fixed left-1/2 z-[100] flex w-full max-w-[420px] -translate-x-1/2 flex-col items-center gap-1.5 px-4", mobile ? "bottom-[78px]" : "top-[158px]")}>

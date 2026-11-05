@@ -1,7 +1,9 @@
+import { ChatPanel } from './Multiplayer';
+import type { MultiplayerClient } from '../multiplayer/client';
 import { signalTargets } from '../utils/signalPorts';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { isRobotKind } from "../utils/kinds";
-import { AlertTriangle, BookOpen, Braces, ChevronDown, ChevronUp, Eraser, Play, RotateCcw, Terminal, BarChart3, Cable } from "lucide-react";
+import { AlertTriangle, BookOpen, Braces, ChevronDown, ChevronUp, Eraser, Play, RotateCcw, Terminal, BarChart3, Cable, MessageSquare } from "lucide-react";
 import type { SceneItem } from "../types";
 import { sim } from "../sim/engine";
 import { API_DOC, API_DOC_RU, blankScript } from "../sim/scripts";
@@ -11,9 +13,10 @@ import { TaskBuilder } from "./TaskBuilder";
 import { programToCode } from "../sim/programCode";
 import { getLanguage, t } from "../i18n";
 
-export type DockTab = "output" | "program" | "stats" | "signals";
+export type DockTab = "output" | "program" | "stats" | "chat" | "signals";
 
 interface DockProps {
+  multiplayer: MultiplayerClient;
   tab: DockTab;
   setTab: (tab: DockTab) => void;
   expanded: boolean;
@@ -319,6 +322,7 @@ export function BottomDock(props: DockProps) {
     { id: "output", label: "Output", icon: <Terminal size={12} /> },
     { id: "program", label: "Program", icon: <Braces size={12} /> },
     { id: "stats", label: "Statistics", icon: <BarChart3 size={12} /> },
+    { id: "chat", label: "Chat", icon: <MessageSquare size={12} /> },
     { id: "signals", label: "Connected Variables", icon: <Cable size={12} /> },
   ];
   return (
@@ -347,6 +351,7 @@ export function BottomDock(props: DockProps) {
         />
       )}
       {tab === "stats" && <StatsPanel onSelect={props.onSelect} />}
+      {tab === "chat" && <ChatPanel client={props.multiplayer} />}
       {tab === "signals" && <SignalsPanel items={props.items} onSelect={props.onSelect} />}
       <div className="dock-tabs flex h-[26px] shrink-0 items-end border-t border-white/10 bg-[#1c1c1e]">
         {tabs.map((entry) => (

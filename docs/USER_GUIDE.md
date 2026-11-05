@@ -1,6 +1,15 @@
-# Larp Factory Simulator — V3 prerelease 6
+# Larp Factory Simulator — V3 prerelease 9
 
-An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.8** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
+An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.9** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
+
+
+## LAN multiplayer and depalletizing
+
+For multiplayer, extract `Larp_Multiplayer.zip` on each computer, install Node.js LTS, start its Windows or shell launcher, and open the local helper page at `http://localhost:4174/`. In **Connectivity → Multiplayer**, enter a nickname and host or request to join. The host accepts or denies each request, may toggle joinability, kick players or end the session. Open **Chat** beside Statistics. Remote camera models show view direction and a facing nickname; your own camera is not drawn. View and appearance settings stay local; scene edits and simulation controls are shared, and only the host executes the simulation. On guest disconnect the scene remains locally, but the guest simulation resets.
+
+Discovery needs UDP 43749 and sessions need TCP 4174 on the same subnet; firewall, Wi-Fi client isolation or VPN policy can prevent discovery. Traffic is unencrypted; approve only trusted participants, since shared scenes may contain executable JavaScript. The standalone `file://` editor remains available offline for single-player but cannot discover or host without the helper.
+
+Select a pallet and enable **Prefill pallet**, then add workpiece types to its randomized mix. Reset creates fresh stock with the configured pattern. A robot's **Visual builder** can select a pallet as source and, optionally, a color sensor to present the held part before routing to wired destination pallets. The same source, mixed stock and inspection settings are available in AI Factory's pallet/robot nodes; several robots can draw from the same stock. Replacing a pallet empties it. Changes to fill settings apply on reset. Large inventories consume proportionate memory and simulation time.
 
 ## Start in under a minute
 

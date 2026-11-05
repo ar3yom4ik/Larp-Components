@@ -59,10 +59,13 @@ export type GripperKind = "vacuum" | "parallel" | "three-finger" | "magnetic" | 
 export interface RobotProgram {
   mode: "palletize" | "transfer" | "tend" | "paint" | "assemble";
   sourceId: string;
+  sourceKind?: "pallet" | "conveyor";
   targetId: string;
   /** Ordered pallet destinations. Omitted for legacy single-target workflows. */
   targetIds?: string[];
   machineId?: string;
+  /** Optional color sensor the robot visits with a held workpiece before routing. */
+  inspectSensorId?: string;
   repeat: boolean;
   delay: number;
   clearance: number;

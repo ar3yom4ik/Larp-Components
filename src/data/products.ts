@@ -1,3 +1,4 @@
+import { palletFillProducts } from '../utils/palletFill';
 import { parseModelMaterialRef } from '../utils/materialRef';
 import type { ImportedModelData, SceneItem } from "../types";
 import { orientModelSize } from "../utils/modelAxis";
@@ -200,7 +201,8 @@ export function searchProducts(query: string, category = "All", items: readonly 
 }
 
 export function palletSize(props: Record<string, string | number | boolean>, items: readonly SceneItem[] = []): [number, number] {
-  const product = getProduct(props.product, items);
+  const sizes = palletFillProducts(props.fillProducts, props.product).map(id => getProduct(id, items).size);
+  const width = Math.max(...sizes.map(size => size[0])), depth = Math.max(...sizes.map(size => size[2]));
   const gap = Number(props.gap ?? 0.04);
-  return [Math.max(1.2, Number(props.cols ?? 3) * (product.size[0] + gap) + 0.04), Math.max(0.8, Number(props.rows ?? 2) * (product.size[2] + gap) + 0.04)];
+  return [Math.max(1.2, Number(props.cols ?? 3) * (width + gap) + 0.04), Math.max(0.8, Number(props.rows ?? 2) * (depth + gap) + 0.04)];
 }

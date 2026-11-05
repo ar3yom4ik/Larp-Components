@@ -5,6 +5,10 @@ Generated from package-lock.json and installed package metadata. The list is del
 | Package | Version | Declared license | Included notice |
 |---|---:|---|---|
 | @babel/runtime | 7.29.10 | MIT | LICENSE |
+| yjs | 13.6.33 | MIT | LICENSE |
+| lib0 | 0.2.119 | MIT | LICENSE |
+| isomorphic.js | 0.2.5 | MIT | LICENSE |
+| ws | 8.22.1 | MIT | LICENSE |
 | @dimforge/rapier3d-compat | 0.12.0 | Apache-2.0 | LICENSE |
 | @mediapipe/tasks-vision | 0.10.17 | Apache-2.0 | no license file supplied in package |
 | @monogrid/gainmap-js | 3.7.2 | MIT | LICENSE |

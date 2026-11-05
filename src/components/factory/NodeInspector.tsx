@@ -4,6 +4,7 @@ import { channelColor, channelMode, signalRows } from '../../gen/graph/signal';
 import { signalAcceptsInput, signalFunction, signalFunctions } from '../../utils/signalChannels';
 import { MaterialChoice, SurfaceMaterialChoice } from '../MaterialChoice';
 import { ProductPicker } from '../ProductPicker';
+import { PalletFillPicker } from '../PalletFillPicker';
 import type { SceneItem } from '../../types';
 import type { GraphNode, NodeGraph, ParamDef } from '../../gen/graph/types';
 import { t } from '../../i18n';
@@ -92,8 +93,8 @@ export function NodeInspector({
 
               {param.kind === 'nodeRef' && (
                 <select aria-label={t(param.label)} value={String(value(param))} onChange={event => onChange(param.key,event.target.value)} className="w-full rounded border border-white/12 bg-[#1e1e20] px-2 py-1.5 text-[11px] text-white/85">
-                  <option value="auto">{t('Automatic')}</option><option value="none">{t('Free standing')}</option>
-                  {graph.nodes.filter(entry => entry.type === 'part.conveyor').map(entry => <option key={entry.id} value={entry.id}>{entry.title || `${t('Conveyor')} · ${entry.id}`}</option>)}
+                  {param.key !== 'inspectSensor' && <option value="auto">{t('Automatic')}</option>}<option value="none">{t(param.key === 'inspectSensor' ? 'No inspection' : 'Free standing')}</option>
+                  {graph.nodes.filter(entry => entry.type === (param.key === 'inspectSensor' ? 'part.color-sensor' : 'part.conveyor')).map(entry => <option key={entry.id} value={entry.id}>{entry.title || `${t(param.key === 'inspectSensor' ? 'Color sensor' : 'Conveyor')} · ${entry.id}`}</option>)}
                 </select>
               )}
 
@@ -143,6 +144,7 @@ export function NodeInspector({
 
               {param.key === 'surfaceMaterial' && <SurfaceMaterialChoice label={t(param.label)} value={String(value(param))} items={items} onChange={next=>onChange(param.key,next)} />}
 
+              {param.kind === 'product-list' && <PalletFillPicker value={value(param)} fallback={String(node.params.product ?? 'carton')} items={items} onChange={next => onChange(param.key,next)} />}
               {param.kind === 'product' && (
                 <ProductPicker value={String(value(param))} onChange={(next) => onChange(param.key, next)} label={param.label} showLabel={false} allowAuto={param.default === 'auto'} allowAny={param.key === 'inputProduct'} items={items} />
               )}
@@ -162,7 +164,7 @@ export function NodeInspector({
             {node.type === 'part.color-sensor' && <div className="mt-2"><MaterialChoice label={`${t('Material')} ${port}`} value={node.io?.[String(port)]?.material} choiceId={node.io?.[String(port)]?.materialRef} items={items} onChange={(material,materialRef) => onChannelChange(port,{material:material || undefined,materialRef})} /></div>}
             {node.type === 'part.robot' && <div className="mt-2 space-y-1.5 rounded border border-white/10 p-1.5">
               <div className="text-[9px] text-white/55">{t('Visual workflow for input')} {port}</div>
-              <select aria-label={`${t('Input source')} ${port}`} value={node.io?.[String(port)]?.programSource ?? ''} onChange={event => onChannelChange(port,{programSource:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default source')}</option>{graph.nodes.filter(candidate=>['part.conveyor','part.machine'].includes(candidate.type)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title ?? getNodeDef(candidate.type)?.title} · {candidate.id.slice(-6)}</option>)}</select>
+              <select aria-label={`${t('Input source')} ${port}`} value={node.io?.[String(port)]?.programSource ?? ''} onChange={event => onChannelChange(port,{programSource:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default source')}</option>{graph.nodes.filter(candidate=>['part.conveyor','part.machine','part.pallet'].includes(candidate.type)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title ?? getNodeDef(candidate.type)?.title} · {candidate.id.slice(-6)}</option>)}</select>
               <select aria-label={`${t('Input destination')} ${port}`} value={node.io?.[String(port)]?.programTarget ?? ''} onChange={event => onChannelChange(port,{programTarget:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default destination')}</option>{graph.nodes.filter(candidate=>['part.conveyor','part.machine','part.pallet'].includes(candidate.type)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title ?? getNodeDef(candidate.type)?.title} · {candidate.id.slice(-6)}</option>)}</select>
               <select aria-label={`${t('Input workflow')} ${port}`} value={node.io?.[String(port)]?.programMode ?? ''} onChange={event => onChannelChange(port,{programMode:event.target.value || undefined})} className="w-full rounded border border-white/12 bg-[#1e1e20] p-1 text-[10px] text-white/85"><option value="">{t('Default workflow')}</option>{['transfer','palletize','tend','paint','assemble'].map(mode=><option key={mode} value={mode}>{t(mode)}</option>)}</select>
             </div>}

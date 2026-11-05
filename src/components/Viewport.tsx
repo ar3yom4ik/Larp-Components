@@ -1,3 +1,5 @@
+import { RemoteCameras } from './RemoteCameras';
+import type { MultiplayerClient } from '../multiplayer/client';
 import { surfaceUsesWorldProjection } from '../data/materials';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
@@ -53,6 +55,8 @@ import { sceneItemsInBox } from "../utils/boxSelection";
 import { t, useLanguage } from "../i18n";
 
 interface ViewportProps {
+  multiplayer: MultiplayerClient;
+  multiplayerActive: boolean;
   mobile: boolean;
   skin: SkinId;
   quality: GraphicsQuality;
@@ -317,7 +321,7 @@ function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; 
   }, [items, shell, gl, invalidate]);
 
   useFrame((_, delta) => {
-    if (!sim.running) return;
+    if (!sim.running || sim.networkGuest) return;
     // Exponential average of the real frame time, including the last simulation step.
     const ms = Math.min(200, delta * 1000);
     frameMs.current = frameMs.current * 0.85 + ms * 0.15;
@@ -1064,6 +1068,8 @@ function SelectionSceneBridge({ target, onViewCenterReady }: { target: RefObject
 }
 
 export const Viewport = memo(function Viewport({
+  multiplayer,
+  multiplayerActive,
   mobile,
   skin,
   quality,
@@ -1259,7 +1265,8 @@ export const Viewport = memo(function Viewport({
   // Below 1 renders fewer pixels than the screen has (faster, softer).
   const renderDpr = gfx.adaptive && low ? Math.min(1, gfx.pixelRatio) : gfx.pixelRatio;
   const aoActive = effectiveGi === "ao" || effectiveGi === "approx";
-  useEffect(() => { setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1); }, [layoutName]);
+  const multiplayerActiveRef = useRef(multiplayerActive); multiplayerActiveRef.current = multiplayerActive;
+  useEffect(() => { if (multiplayerActiveRef.current) return; setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1); }, [layoutName]);
   useEffect(() => {
     if (benchmark) {
       if (!wasBenchmark.current) factoryCamera.current = savedCamera.current;
@@ -1358,7 +1365,7 @@ export const Viewport = memo(function Viewport({
         key={`${gpuMode ? "renderer-webgpu" : "renderer-webgl"}-${gfx.antialias}-${gfx.shadows ? (gfx.softShadows ? "soft" : "hard") : "nosun"}`}
         shadows={gfx.shadows ? (gfx.softShadows ? "percentage" : "basic") : false}
         // The WebGPU VXGI pipeline accumulates TRAA samples across frames, so it must keep rendering.
-        frameloop={running || gpuMode ? "always" : "demand"}
+        frameloop={running || gpuMode || multiplayerActive ? "always" : "demand"}
         dpr={renderDpr}
         gl={gpuMode ? makeRenderer : { antialias: gfx.antialias === "msaa", powerPreference: "high-performance", stencil: false }}
         camera={{ position: VIEWS.iso.position, fov: 36, near: 0.1, far: 220 }}
@@ -1392,6 +1399,7 @@ export const Viewport = memo(function Viewport({
         {benchmark && <directionalLight position={[10, 14, 8]} intensity={0} />}
         <directionalLight position={[-14, 10, -10]} intensity={benchmark ? 0 : gfx.fill} color="#dbe8ff" />
 
+        {multiplayerActive && <RemoteCameras client={multiplayer} />}
         <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} fitSelected={fitSelected} zoom={zoom} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} savedCamera={savedCamera} restoreCamera={restoreCamera} handledRestore={handledRestore} />
         {gpuMode && <GlobalIlluminationPipeline
           voxelKey={voxelKey}

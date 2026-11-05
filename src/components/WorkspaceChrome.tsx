@@ -43,6 +43,7 @@ import {
   LayoutGrid,
   Columns3,
   PanelBottom,
+  Users,
 } from "lucide-react";
 import { BrandMark } from "./PartIcon";
 import { cn } from "../utils/cn";
@@ -56,6 +57,7 @@ import { PanelToggles } from "./PanelShell";
 
 export interface ChromeProps {
   onSettings: () => void;
+  onMultiplayer: () => void;
   onCopy: () => void;
   onPaste: () => void;
   exportedName: string | null;
@@ -510,6 +512,7 @@ export function AppChrome(props: ChromeProps) {
               {add("sensor", "Proximity sensor", <Shield size={22} />, "text-[#63c5f0]")}
               {add("plc", "PLC control", <Boxes size={22} />, "text-[#8fa9c2]")}
             </Group>
+            <Group label={t("Multiplayer")}><RibbonButton icon={<Users size={22} className="text-[var(--app-accent)]" />} label={t("Multiplayer")} onClick={props.onMultiplayer} /></Group>
             <Group label={t("Robot I/O")}>
               <RibbonButton icon={<BookOpen size={22} className="text-[var(--app-accent)]" />} label={t("Signals & API")} onClick={props.onShowApi} />
             </Group>

@@ -44,6 +44,9 @@ export const API_DOC = `ROBOT API
   await robot.home()                      move to the home pose
   await robot.moveTo(x, y, z)             move the tool tip (world metres)
   box = await robot.waitForPart(zone)     wait for a box inside a zone
+  box = await robot.waitForPalletPart(id) wait for occupied pallet stock
+  await robot.inspectSensor(id)           present the held part to a color sensor
+  id = await robot.waitForPallet(box, ids) choose a wired destination pallet
   ok  = await robot.pick(box)             approach, grip and lift a box
   ok  = await robot.place(target)         lower, release and retreat
   await robot.grip() / robot.release()    gripper only
@@ -65,6 +68,9 @@ export const API_DOC_RU = `API РОБОТА
   await robot.home()                      вернуться в исходное положение
   await robot.moveTo(x, y, z)              переместить инструмент (мировые метры)
   part = await robot.waitForPart(zone)      ждать изделие в зоне
+  part = await robot.waitForPalletPart(id)  ждать изделие на паллете
+  await robot.inspectSensor(id)             поднести деталь к датчику цвета
+  id = await robot.waitForPallet(part, ids) выбрать целевой паллет по сигналам
   ok = await robot.pick(part)              подойти, захватить, поднять
   ok = await robot.place(target)           опустить, отпустить, отойти
   await robot.grip() / robot.release()     управлять захватом

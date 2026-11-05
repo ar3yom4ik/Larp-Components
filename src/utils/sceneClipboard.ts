@@ -42,7 +42,7 @@ export function copySceneItems(items: readonly SceneItem[], offset: Vec3): Scene
     if (item.signalChannels) item.signalChannels=item.signalChannels.map(channel=>channel.materialRef ? {...channel,materialRef:remapMaterial(channel.materialRef)} : channel);
     if (item.signalTargets) item.signalTargets = item.signalTargets.map(remap);
     if (item.signalRoutes) item.signalRoutes = item.signalRoutes.map(route => ({ ...route, targetId: remap(route.targetId) }));
-    const remapProgram = (program:NonNullable<SceneItem['program']>) => ({ ...program, sourceId: remap(program.sourceId), targetId: remap(program.targetId), targetIds: program.targetIds?.map(remap), machineId: program.machineId ? remap(program.machineId) : undefined });
+    const remapProgram = (program:NonNullable<SceneItem['program']>) => ({ ...program, sourceId: remap(program.sourceId), targetId: remap(program.targetId), targetIds: program.targetIds?.map(remap), machineId: program.machineId ? remap(program.machineId) : undefined, inspectSensorId: program.inspectSensorId ? remap(program.inspectSensorId) : undefined });
     if (item.program) item.program = remapProgram(item.program);
     if (item.programs) item.programs = Object.fromEntries(Object.entries(item.programs).map(([key,program]) => [key,remapProgram(program)]));
   }

@@ -29,20 +29,25 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
-      - name: Production build (standalone HTML)
-        run: npm run build
+      - name: LAN helper protocol and UDP discovery
+        run: npm run test:multiplayer-server
+
+      - name: Production build (standalone HTML and LAN package)
+        run: npm run build && npm run package:multiplayer
 
       - name: Upload standalone build
         uses: actions/upload-artifact@v4
         with:
           name: larp-components-standalone
-          path: dist/index.html
+          path: |
+            dist/index.html
+            dist/Larp_Multiplayer.zip
           if-no-files-found: error
           retention-days: 14
 
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,6 +73,10 @@ jobs:
         run: npm run test:alpha7-browser
       - name: Alpha.8 materials, multi-pallet, snapping and MRT regressions
         run: npm run test:alpha8-browser
+      - name: Depalletizing and LAN multiplayer browser regressions
+        run: npm run test:depalletize-browser && npm run test:multiplayer-browser
+      - name: Packaged LAN helper and standalone two-browser regression
+        run: npm run build && npm run package:multiplayer && npm run test:multiplayer-standalone
 
   catalog-diagnostic:
     runs-on: ubuntu-latest
@@ -137,11 +146,13 @@ jobs:
         run: |
           npm ci
           npm run build
+          npm run package:multiplayer
           cp dist/index.html Larp_Factory_V3.html
+          cp dist/Larp_Multiplayer.zip Larp_Multiplayer.zip
 
-      - name: Attach standalone HTML to prerelease
+      - name: Attach standalone HTML and multiplayer bundle to prerelease
         if: steps.release.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
-        run: gh release upload "$TAG" Larp_Factory_V3.html --clobber
+        run: gh release upload "$TAG" Larp_Factory_V3.html Larp_Multiplayer.zip --clobber

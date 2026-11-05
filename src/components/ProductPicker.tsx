@@ -13,7 +13,7 @@ export function ProductThumb({ product, size = 32 }: { product: Product; size?: 
   </svg>;
 }
 
-export function ProductPicker({ value, onChange, label, allowAny = false, allowAuto = false, showLabel = true, items = [], removableWorkpieces, onRemoveWorkpiece }: { value: string; onChange: (id: string) => void; label: string; allowAny?: boolean; allowAuto?: boolean; showLabel?: boolean; items?: readonly SceneItem[]; removableWorkpieces?: ReadonlySet<string>; onRemoveWorkpiece?: (id: string) => void }) {
+export function ProductPicker({ value, onChange, label, allowAny = false, allowAuto = false, showLabel = true, items = [], removableWorkpieces, onRemoveWorkpiece, disabled = false }: { value: string; onChange: (id: string) => void; label: string; allowAny?: boolean; allowAuto?: boolean; showLabel?: boolean; items?: readonly SceneItem[]; removableWorkpieces?: ReadonlySet<string>; onRemoveWorkpiece?: (id: string) => void; disabled?: boolean }) {
   useLanguage();
   const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [category, setCategory] = useState("All");
   const product = getProduct(value, items);
@@ -22,7 +22,7 @@ export function ProductPicker({ value, onChange, label, allowAny = false, allowA
   const thumb = (product:Product, size=32) => { const source = importedProductSource(product.id,items); return source?.imported ? <ImportedThumbnail model={source.imported} className={`h-8 w-8 shrink-0 object-contain`} /> : <ProductThumb product={product} size={size} />; };
   return <div className="product-picker relative">
     {showLabel && <span className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/45">{t(label)}</span>}
-    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={t(label)} className="flex min-h-11 w-full items-center gap-2 rounded border border-white/15 bg-[#222225] px-2 py-1.5 text-left transition hover:border-[var(--app-accent)]/60">
+    <button type="button" disabled={disabled} onClick={() => setOpen(!open)} aria-expanded={open} aria-label={t(label)} className="flex min-h-11 w-full items-center gap-2 rounded border border-white/15 bg-[#222225] px-2 py-1.5 text-left transition hover:border-[var(--app-accent)]/60">
       {value === "any" || value === "auto" ? <span className="flex h-8 w-8 items-center justify-center font-mono text-lg text-[var(--app-accent-bright)]">*</span> : thumb(product)}
       <span className="min-w-0 flex-1"><span className="block truncate text-[12px] text-white/85">{value === "any" ? t("Any product") : value === "auto" ? t("Recipe default") : name(product)}</span><span className="text-[9px] text-white/35">{value === "any" || value === "auto" ? t("Products") : `${t(product.category)} / ${product.id}`}</span></span><ChevronDown size={13} className="text-white/40" />
     </button>

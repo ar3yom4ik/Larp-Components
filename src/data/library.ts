@@ -176,7 +176,7 @@ export const COMPONENTS: ComponentDef[] = [
       { label: "Size", value: "1.2 x 0.8" },
       { label: "Slots", value: "24" },
     ],
-    defaults: { cols: 3, rows: 2, layers: 4, gap: 0.04, product: "carton", retainFull: false },
+    defaults: { cols: 3, rows: 2, layers: 4, gap: 0.04, product: "carton", retainFull: false, prefill: false, fillProducts: "[]" },
   },
   {
     kind: "fence",

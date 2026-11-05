@@ -36,10 +36,13 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const start = performance.now();
   const connectedIds = new Set(graph.links.flatMap((link) => [link.from.node, link.to.node]));
   const structure = (node:GraphNode) => ['part.platform','part.stairs','part.wall'].includes(node.type);
-  // Layout parts are standalone scene objects, not material-flow modules.
-  const activeGraph = { ...graph, nodes: graph.nodes.filter((node) => connectedIds.has(node.id) || structure(node)) };
+  // A robot's explicit inspection reference is a real use even when the
+  // sensor has no signal wire (for example, a single unsignalled output).
+  const inspectionIds = new Set(graph.nodes.filter(node => connectedIds.has(node.id) && node.type === 'part.robot').map(node => node.params.inspectSensor).filter((id):id is string => typeof id === 'string' && id !== 'none'));
+  const included = (node:GraphNode) => connectedIds.has(node.id) || structure(node) || (node.type === 'part.color-sensor' && inspectionIds.has(node.id));
+  const activeGraph = { ...graph, nodes: graph.nodes.filter(included) };
   const diagnostics = validateGraph(activeGraph);
-  for (const node of graph.nodes) if (!connectedIds.has(node.id) && !structure(node)) diagnostics.push({id:`inactive:${node.id}`,severity:'info',nodeId:node.id,message:'Disconnected part is inactive.'});
+  for (const node of graph.nodes) if (!included(node)) diagnostics.push({id:`inactive:${node.id}`,severity:'info',nodeId:node.id,message:'Disconnected part is inactive.'});
   const error = (message: string, nodeId?: string) => diagnostics.push({id:`component:${diagnostics.length}`,severity:'error',message,nodeId});
   const { byId, incoming, outgoing } = indexGraph(activeGraph);
   const { order } = topoSort(activeGraph);
@@ -49,16 +52,17 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const automation = (node: GraphNode) => ['part.laser','part.color-sensor','part.sensor','part.button','part.plc'].includes(node.type);
   if (graph.nodes.some((node) => !node.type.startsWith('part.'))) error('Physical modules cannot be mixed with legacy settings nodes.');
   const feeders = activeGraph.nodes.filter((node) => node.type === 'part.feeder');
-  if (!feeders.length) error('Add a feeder to start a production line.');
+  const sources = activeGraph.nodes.filter(node => node.type === 'part.feeder' || (node.type === 'part.pallet' && inFlow(node.id).length === 0 && outFlow(node.id).length > 0));
+  if (!sources.length) error('Add a feeder or source pallet to start a production line.');
 
-  const reachable = new Set(feeders.map((node) => node.id));
+  const reachable = new Set(sources.map((node) => node.id));
   for (const node of order) {
     if (automation(node) || structure(node)) continue;
     const ins = inFlow(node.id), outs = outFlow(node.id);
     const predecessors = ins.map((link) => byId.get(link.from.node));
     const nextTypes = outs.map(link => byId.get(link.to.node)?.type);
     const next = outs.length === 1 ? nextTypes[0] : undefined;
-    const sharedWorkers = node.type === 'part.conveyor' && outs.length > 1 && nextTypes.every(type => type === 'part.robot' || type === 'part.human');
+    const sharedWorkers = outs.length > 1 && ((node.type === 'part.conveyor' && nextTypes.every(type => type === 'part.robot' || type === 'part.human')) || (node.type === 'part.pallet' && predecessors.length === 0 && nextTypes.every(type => type === 'part.robot')));
     const palletFanout = node.type === 'part.robot' && outs.length > 1 && nextTypes.every(type => type === 'part.pallet');
     if (predecessors.some((parent) => parent && reachable.has(parent.id))) reachable.add(node.id);
     if (outs.length > 1 && !sharedWorkers && !palletFanout) error('Splitting material into multiple outputs is not supported yet.', node.id);
@@ -66,13 +70,13 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     if (node.type === 'part.conveyor') {
       if (predecessors.some((parent) => !parent || !['part.feeder','part.robot','part.human','part.conveyor'].includes(parent.type))) error('A conveyor must receive material from a feeder, robot or conveyor.', node.id);
       if (new Set(ins.map((link) => link.from.node)).size !== ins.length) error('A conveyor cannot merge the same source twice.', node.id);
-      if (!sharedWorkers && !['part.conveyor','part.robot','part.human'].includes(next ?? '')) error('A conveyor must feed another conveyor or a robot.', node.id);
+      if (outs.length && !sharedWorkers && !['part.conveyor','part.robot','part.human'].includes(next ?? '')) error('A conveyor must feed another conveyor or a robot.', node.id);
     }
     if (node.type === 'part.robot' || node.type === 'part.human') {
-      if (predecessors.length !== 1 || predecessors[0]?.type !== 'part.conveyor' || (!palletFanout && !['part.conveyor','part.pallet'].includes(next ?? ''))) error('A robot needs a source conveyor and a target conveyor or pallet.', node.id);
+      if (predecessors.length !== 1 || !['part.conveyor','part.pallet'].includes(predecessors[0]?.type ?? '') || (node.type === 'part.human' && predecessors[0]?.type === 'part.pallet') || (!palletFanout && !['part.conveyor','part.pallet'].includes(next ?? ''))) error('A robot needs a source conveyor or pallet and a target conveyor or pallet.', node.id);
       if ((next === 'part.pallet' || palletFanout) && machineIn(node.id).length) error('A palletizing robot cannot tend a machine. Connect a conveyor and another robot before the pallet.', node.id);
     }
-    if (node.type === 'part.pallet' && (predecessors.length !== 1 || !['part.robot','part.human'].includes(predecessors[0]?.type ?? ''))) error('A pallet must be connected to a robot.', node.id);
+    if (node.type === 'part.pallet' && !((predecessors.length === 0 && outs.length > 0 && nextTypes.every(type => type === 'part.robot')) || (predecessors.length === 1 && ['part.robot','part.human'].includes(predecessors[0]?.type ?? '') && outs.length === 0))) error('A pallet must supply a robot or receive material from a robot.', node.id);
   }
 
   const reachesPallet = new Set(activeGraph.nodes.filter((node) => node.type === 'part.pallet').map((node) => node.id));
@@ -99,7 +103,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   };
   // Keep independent networks apart and group the feeders of each merged line.
   const groups = new Map<string, GraphNode[]>();
-  for (const feeder of feeders) {
+  for (const feeder of sources) {
     let node = feeder;
     while (outFlow(node.id).length) node = byId.get(outFlow(node.id)[0].to.node)!;
     const group = groups.get(node.id);
@@ -124,6 +128,10 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       const z = lanes.get(part.id)!;
       item = makeItem('feeder', [0.85,0,z], 0, {name:'Feeder',props:{active:true,interval:number(part,'interval',5,0.5,60),product:String(value(part,'product','billet'))}});
       ends.set(part.id, {x:0,z});
+    } else if (part.type === 'part.pallet' && !ins.length) {
+      const z = lanes.get(part.id)!;
+      item = makeItem('crates',[0,0,z],0,{name:part.title || 'Source pallet',props:{product:String(value(part,'product','machined')),prefill:value(part,'prefill',false) === true,fillProducts:String(value(part,'fillProducts','[]')),cols:number(part,'cols',3,1,Number.MAX_SAFE_INTEGER),rows:number(part,'rows',2,1,Number.MAX_SAFE_INTEGER),layers:number(part,'layers',4,1,Number.MAX_SAFE_INTEGER),gap:.04}});
+      ends.set(part.id,{x:0,z});
     } else if (part.type === 'part.conveyor') {
       const requestedLength = number(part, 'length', 4, 2, 8);
       const consumers = outFlow(part.id);
@@ -137,7 +145,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       const next = byId.get(outFlow(part.id)[0].to.node)!;
       if (parents.length === 1) {
         const {x,z} = parents[0].end;
-        item = makeItem(kind, [x,0,z], 0, {name:`Conveyor ${instances.size}`,points:[[0,0],[beltLength/2,0],[beltLength,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed,width}});
+        item = makeItem(kind, [x,0,z], 0, {name:`Conveyor ${instances.size}`,points:[[0,0],[beltLength/2,0],[beltLength,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next?.type ?? ''),speed,width}});
         ends.set(part.id, {x:x+beltLength,z});
       } else {
         const sorted = [...parents].sort((a,b) => a.end.z - b.end.z);
@@ -150,7 +158,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
         const x = farthest + (side ? 3 : Math.max(3, spread * 0.8 + 1.5));
         const length = side ? Math.max(beltLength, 1.9 + secondary.length * 1.2) : beltLength;
         const entries: MergeEntry[] = [{sourceId:primary.node.id,along:0.2,side:0}, ...secondary.map((parent,index) => ({sourceId:parent.node.id,along:side ? 1.1 + index*1.2 : 0.2,side:Math.sign(parent.end.z-z)}))];
-        item = makeItem(kind, [x,0,z], 0, {name:`${side ? 'Side-entry' : 'Multi-head'} conveyor ${instances.size}`,points:[[0,0],[length/2,0],[length,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next.type),speed,width,mergeStyle:side?'side':'multi-head',mergeInputs:parents.length,mergeEntries:JSON.stringify(entries.map(({along,side:entrySide}) => ({along,side:entrySide})))}});
+        item = makeItem(kind, [x,0,z], 0, {name:`${side ? 'Side-entry' : 'Multi-head'} conveyor ${instances.size}`,points:[[0,0],[length/2,0],[length,0]],props:{active:true,stopper:['part.robot','part.human'].includes(next?.type ?? ''),speed,width,mergeStyle:side?'side':'multi-head',mergeInputs:parents.length,mergeEntries:JSON.stringify(entries.map(({along,side:entrySide}) => ({along,side:entrySide})))}});
         // Each incoming path is a real conveyor, so the viewport and simulation
         // use the same visible geometry rather than a decorative graph edge.
         for (const parent of [primary,...secondary]) {
@@ -173,20 +181,22 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       const parent = parents[0];
       const siblings = outFlow(parent.node.id);
       const station = siblings.findIndex(link => link.to.node === part.id);
+      const sharedPallet = parent.node.type === 'part.pallet' && siblings.length > 1;
       const shared = parent.node.type === 'part.conveyor' && siblings.length > 1;
       const side = shared && station % 2 === 1 ? -1 : 1;
       const pickupBack = shared ? 0.35 + Math.floor(station/2)*3 : undefined;
       const x = parent.end.x - (pickupBack === undefined ? 0 : pickupBack - 0.35);
       const z = parent.end.z;
+      const angle = sharedPallet ? station * Math.PI * 2 / siblings.length : 0;
       if (part.type === 'part.human') {
         item = makeItem('operator',[x+0.3,0,z+side*1.45],0,{name:`Operator ${instances.size}`,props:{task:'carry',walkSpeed:number(part,'walkSpeed',1,0.3,2),hat:'hardhat'}});
       } else {
         const kind = String(value(part,'kind','robot'));
         const robotKind = (['robot','cobot','kuka','fanuc'].includes(kind) ? kind : 'robot') as ComponentKind;
-        item = makeItem(robotKind,[x+0.3,0,z+side*1.45],0,{name:`Robot ${instances.size}`,props:{payload:robotKind==='cobot'?5:12,speed:number(part,'speed',70,1,100),gripper:String(value(part,'gripper','vacuum'))}});
+        item = makeItem(robotKind,sharedPallet ? [x+Math.sin(angle)*1.45,0,z+Math.cos(angle)*1.45] : [x+0.3,0,z+side*1.45],0,{name:`Robot ${instances.size}`,props:{payload:robotKind==='cobot'?5:12,speed:number(part,'speed',70,1,100),gripper:String(value(part,'gripper','vacuum'))}});
       }
       // Separate downstream branches from the shared source belt.
-      ends.set(part.id, shared ? {x:x+0.6,z:z+side*2.9,palletZ:z+side*2.9,pickupBack,side,station} : {x:x+0.6,z});
+      ends.set(part.id, sharedPallet ? {x:x+Math.sin(angle)*2.9+.3,z:z+Math.cos(angle)*2.9,palletZ:z+Math.cos(angle)*2.9,side:Math.cos(angle)>=0?1:-1,station} : shared ? {x:x+0.6,z:z+side*2.9,palletZ:z+side*2.9,pickupBack,side,station} : {x:x+0.6,z});
     } else {
       const {x,z,palletZ,side = 1} = parents[0].end;
       const siblings = outFlow(parents[0].node.id).filter(link => byId.get(link.to.node)?.type === 'part.pallet');
@@ -198,7 +208,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       const position: [number,number,number] = siblings.length > 1
         ? [robot.position[0] + Math.sin(angle)*1.85, 0, robot.position[2] + side*Math.cos(angle)*1.85]
         : [x-0.3,0,palletZ ?? z+2.9];
-      item = makeItem('crates',position,0,{name:siblings.length > 1 ? `Pallet ${index+1}` : 'Pallet',props:{product:String(value(part,'product','machined')),cols:number(part,'cols',3,1,8),rows:number(part,'rows',2,1,8),layers:number(part,'layers',4,1,10),gap:0.04}});
+      item = makeItem('crates',position,0,{name:siblings.length > 1 ? `Pallet ${index+1}` : 'Pallet',props:{product:String(value(part,'product','machined')),prefill:value(part,'prefill',false) === true,fillProducts:String(value(part,'fillProducts','[]')),cols:number(part,'cols',3,1,Number.MAX_SAFE_INTEGER),rows:number(part,'rows',2,1,Number.MAX_SAFE_INTEGER),layers:number(part,'layers',4,1,Number.MAX_SAFE_INTEGER),gap:0.04}});
     }
     instances.set(part.id,item);
     items.push(item);
@@ -237,7 +247,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       continue;
     }
     const mode = machine ? (machine.kind==='assembly' ? 'assemble' : machine.kind==='paint' ? 'paint' : 'tend') : target.kind==='crates' ? 'palletize' : 'transfer';
-    robot.program = {mode,sourceId:source.id,targetId:target.id,...(mode === 'palletize' && targetNodeIds.length > 1 ? {targetIds:targetNodeIds.map(id => instances.get(id)!.id)} : {}),machineId:machine?.id,repeat:true,delay:0,clearance:0.3,...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack} : {})};
+    robot.program = {mode,sourceId:source.id,...(source.kind === 'crates' ? {sourceKind:'pallet' as const} : {}),targetId:target.id,...(mode === 'palletize' && targetNodeIds.length > 1 ? {targetIds:targetNodeIds.map(id => instances.get(id)!.id)} : {}),machineId:machine?.id,repeat:true,delay:0,clearance:0.3,...(ends.get(part.id)?.pickupBack !== undefined ? {pickupBack:ends.get(part.id)!.pickupBack} : {})};
     robot.script = programToCode(robot.program);
   }
   // Automation nodes are real scene objects, not implicit compiler side effects.
@@ -246,7 +256,8 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     const kind = part.type.slice(5) as 'laser' | 'color-sensor' | 'sensor' | 'button' | 'plc';
     const signalIn = (incoming.get(part.id) ?? []).filter(link => signalPortNumber(link.to.port,'in') !== null);
     const signalOut = (outgoing.get(part.id) ?? []).filter(link => signalPortNumber(link.from.port,'out') !== null);
-    const robotNode = signalOut.map(link => byId.get(link.to.node)).find(node => node?.type === 'part.robot');
+    const inspectingRobot = activeGraph.nodes.find(node => node.type === 'part.robot' && node.params.inspectSensor === part.id);
+    const robotNode = inspectingRobot ?? signalOut.map(link => byId.get(link.to.node)).find(node => node?.type === 'part.robot');
     const robot = robotNode ? instances.get(robotNode.id) : undefined;
     const mountChoice = String(value(part,'mountedTo','auto'));
     let beltNode: GraphNode | undefined;
@@ -257,7 +268,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     }
     const belt = beltNode?.type === 'part.conveyor' ? instances.get(beltNode.id) : undefined;
     const neighbour = robot ?? signalOut.map(link => instances.get(link.to.node)).find(Boolean) ?? signalIn.map(link => instances.get(link.from.node)).find(Boolean);
-    const position: [number,number,number] = neighbour ? [neighbour.position[0]-.8,0,neighbour.position[2]-.8] : [0,0,0];
+    const position: [number,number,number] = inspectingRobot && robot ? [robot.position[0]-.9,0,robot.position[2]+.6] : neighbour ? [neighbour.position[0]-.8,0,neighbour.position[2]-.8] : [0,0,0];
     const props: SceneItem['props'] = {
       signal: value(part,'signal',false) === true,
       address: String(value(part,'address',kind === 'button' ? 'DI-01' : kind === 'laser' ? 'DI-02' : kind === 'sensor' ? 'DI-03' : 'PLC-01')),
@@ -297,6 +308,12 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
     // Per-input overrides reference graph nodes; resolve them to scene IDs only
     // after all physical instances have been created.
     if (part.type === 'part.robot') {
+      const inspectNode = typeof part.params.inspectSensor === 'string' ? part.params.inspectSensor : 'none';
+      if (item.program && inspectNode !== 'none') {
+        const sensor = instances.get(inspectNode);
+        if (sensor?.kind === 'color-sensor') { item.program.inspectSensorId = sensor.id; item.script = programToCode(item.program); }
+        else diagnostics.push({id:`inspection:${part.id}`,severity:'warning',nodeId:part.id,message:'The selected color sensor is not in the built factory.'});
+      }
       item.props.outputMode = channelMode(part,1);
       if (item.program) for (const [key,settings] of Object.entries(part.io ?? {})) {
         if (!settings.programSource && !settings.programTarget && !settings.programMode) continue;
@@ -306,7 +323,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
           diagnostics.push({id:`program:${part.id}:${key}`,severity:'warning',nodeId:part.id,message:`Input ${key} workflow refers to a component that is not in this factory.`});
           continue;
         }
-        (item.programs ??= {})[key] = {...item.program,sourceId:source?.id ?? item.program.sourceId,targetId:target?.id ?? item.program.targetId,...(target ? {targetIds:undefined} : {}),
+        (item.programs ??= {})[key] = {...item.program,sourceId:source?.id ?? item.program.sourceId,...(source ? {sourceKind:source.kind === 'crates' ? 'pallet' as const : undefined} : {}),targetId:target?.id ?? item.program.targetId,...(target ? {targetIds:undefined} : {}),
           mode:(settings.programMode as typeof item.program.mode | undefined) ?? item.program.mode,repeat:true};
       }
     }
@@ -321,6 +338,6 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const resolvedItems = resolveMountedSensors(items);
   const warnings = validateFactory(resolvedItems);
   warnings.forEach((message,index) => diagnostics.push({id:`reach:${index}`,severity:'warning',message}));
-  const plant: PlantResult = {options:{...DEFAULT_GEN},items:resolvedItems,summary:`${feeders.length} production line(s) · ${items.length} components`,warnings};
+  const plant: PlantResult = {options:{...DEFAULT_GEN},items:resolvedItems,summary:`${sources.length} production line(s) · ${items.length} components`,warnings};
   return {plant,diagnostics,results:new Map(),ms:Math.round((performance.now()-start)*10)/10};
 }

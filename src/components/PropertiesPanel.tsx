@@ -32,6 +32,7 @@ import { ModelMaterialEditor } from "./ModelMaterialEditor";
 import { WorkerEditor } from "./WorkerEditor";
 import { workerShirtColor } from "./RiggedHuman";
 import { PalletPattern } from "./PalletPattern";
+import { PalletFillPicker } from "./PalletFillPicker";
 import { importedProductId, MACHINE_KINDS } from "../data/products";
 import { t, useLanguage } from "../i18n";
 import { canSignalInput, isSignalSource, signalTargets, signalTargetsPatch, signalWireColor } from "../utils/signalPorts";
@@ -505,6 +506,9 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
         {selected.kind === "crates" && <Section title={t("Pallet pattern")}>
           <PalletPattern items={productItems} props={selected.props} onChange={(patch) => onUpdate(selected.id, { props: { ...selected.props, ...patch } })} />
           <div className="mt-3"><ProductPicker items={productItems} removableWorkpieces={removableWorkpieces} onRemoveWorkpiece={onRemoveWorkpiece} label={t("Product")} value={String(selected.props.product || "carton")} onChange={(product) => onUpdate(selected.id, { props: { ...selected.props, product } })} /></div>
+          <label className="mt-3 flex items-center gap-2 text-[11px] text-white/75"><input aria-label={t("Prefill pallet")} type="checkbox" checked={selected.props.prefill === true} disabled={selected.locked} onChange={event => onUpdate(selected.id, {props:{...selected.props,prefill:event.target.checked}})} />{t("Prefill pallet")}</label>
+          {selected.props.prefill === true && <p className="mt-2 text-[10px] text-white/40">{t("Reset applies changes to the pallet pattern and fill products. Replacing a pallet leaves it empty.")}</p>}
+          {selected.props.prefill === true && <div className="mt-3"><PalletFillPicker value={selected.props.fillProducts} fallback={String(selected.props.product || 'carton')} items={productItems} disabled={selected.locked} onChange={fillProducts => onUpdate(selected.id,{props:{...selected.props,fillProducts}})} /></div>}
           <label className="mt-3 flex items-center gap-2 text-[11px] text-white/75"><input type="checkbox" checked={selected.props.retainFull === true} disabled={selected.locked} onChange={(event) => onUpdate(selected.id, {props:{...selected.props, retainFull:event.target.checked}})} />{t("Keep full pallet and wait")}</label>
           <div className="mt-2 flex items-center justify-between gap-2"><span className="text-[10px] text-white/45">{t("Loaded")}: {sim.pallets.get(selected.id)?.cursor ?? 0} / {sim.pallets.get(selected.id)?.capacity ?? 0}</span><button type="button" onClick={() => sim.replacePallet(selected.id)} className="rounded border border-white/15 px-2 py-1 text-[10px] text-white/75 hover:bg-white/10">{t("Clear / replace pallet")}</button></div>
         </Section>}
@@ -640,7 +644,7 @@ function PropertiesTab({ selected, items, productItems = items, onRemoveWorkpiec
 
         {selected.kind !== "imported-model" && <Section title={t("Behaviour")}>
           <div className="space-y-3">
-            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "activeDuration", "mode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", "physicsMode", "physicsMass", "physicsRestitution", "physicsFriction", "collisionShape", "catalogBaseId", "surfaceMaterial", ...(['platform','stairs','wall'].includes(selected.kind) ? ['height','width','depth','length'] : []), "mountedTo", "mountPosition", "autoRange", ...(["conveyor", "roller"].includes(selected.kind) ? ["speed", "width"] : []), ...(selected.kind === "crates" ? ["cols", "rows", "layers", "retainFull"] : [])].includes(key)).map(([key, value]) => (
+            {Object.entries(selected.props).filter(([key]) => !["product", "inputProduct", "outputProduct", "gripper", "task", "hat", "glasses", "sourceId", "targetId", "machineId", "connectedTo", "signal", "address", "wireColor", "outputMode", "activeDuration", "mode", "paintColor", "lightType", "color", "castShadow", "ears", "headphones", "earrings", "requireSupply", "physicsMode", "physicsMass", "physicsRestitution", "physicsFriction", "collisionShape", "catalogBaseId", "surfaceMaterial", ...(['platform','stairs','wall'].includes(selected.kind) ? ['height','width','depth','length'] : []), "mountedTo", "mountPosition", "autoRange", ...(["conveyor", "roller"].includes(selected.kind) ? ["speed", "width"] : []), ...(selected.kind === "crates" ? ["cols", "rows", "layers", "retainFull", "prefill", "fillProducts"] : [])].includes(key)).map(([key, value]) => (
               <PropControl key={key} kind={selected.kind} propKey={key} value={value} onChange={(next) => onUpdate(selected.id, { props: { ...selected.props, [key]: next, ...((selected.kind === "laser" || selected.kind === "color-sensor") && key === "range" ? {autoRange:false} : {}) } }, false)} />
             ))}
             {Object.keys(selected.props).length === 0 && <p className="text-[10px] text-white/35">{t("No parameters.")}</p>}

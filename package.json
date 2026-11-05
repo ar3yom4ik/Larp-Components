@@ -1,6 +1,6 @@
 {
   "name": "larp-components",
-  "version": "3.0.0-alpha.8",
+  "version": "3.0.0-alpha.9",
   "description": "Browser-based React/Three.js factory layout editor and discrete-time simulator (Larp Components 5.1, V3 prerelease).",
   "private": true,
   "type": "module",
@@ -41,7 +41,14 @@
     "test:web-catalog-live": "node tests/web-catalog-live.mjs",
     "test:alpha7-browser": "node tests/alpha7-browser.mjs && node tests/factory-new-features-browser.mjs && node tests/import-placement-browser.mjs && node tests/render-theme-browser.mjs",
     "test:alpha8-browser": "node tests/material-surfaces-browser.mjs && node tests/multi-pallet-browser.mjs && node tests/port-snap-browser.mjs && node tests/emissive-mrt-browser.mjs",
-    "bench:beam": "node scripts/bench-beam.mjs"
+    "bench:beam": "node scripts/bench-beam.mjs",
+    "multiplayer": "node scripts/multiplayer/server.mjs",
+    "build:multiplayer": "node scripts/build-multiplayer.mjs",
+    "test:multiplayer-server": "node tests/multiplayer-server.mjs",
+    "test:multiplayer-browser": "node tests/multiplayer-browser.mjs",
+    "package:multiplayer": "node scripts/package-multiplayer.mjs",
+    "test:depalletize-browser": "node tests/depalletize-browser.mjs",
+    "test:multiplayer-standalone": "node tests/multiplayer-standalone.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
@@ -54,7 +61,9 @@
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tailwind-merge": "3.4.0",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "ws": "^8.22.1",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.17",
@@ -62,6 +71,7 @@
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@types/three": "^0.187.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "5.1.1",
     "esbuild": "0.28.2",
     "playwright": "^1.64.1",
