@@ -43,7 +43,7 @@ const PRESETS: { id: GraphicsQuality; label: string; note: string }[] = [
   { id: "low", label: "Low", note: "Basic shadows, no contact shadows or fog, adaptive resolution. Best for slow machines." },
   { id: "standard", label: "Standard", note: "The default look: soft directional shadows, contact shadows and distance fog." },
   { id: "enhanced", label: "Enhanced", note: "Adds approximate bounce light and screen-space occlusion on top of Standard." },
-  { id: "max", label: "Max", note: "Voxel global illumination (VXGI) on WebGPU, with TRAA. Falls back to the Enhanced approximation on WebGL." },
+  { id: "max", label: "Max", note: "Voxel global illumination (VXGI) on WebGPU, with TRAA. Falls back to a WebGL approximation." },
 ];
 
 const SHADOW_STEPS: { label: string; value: Partial<GraphicsSettings> }[] = [
@@ -243,7 +243,8 @@ export function SettingsWindow(props: SettingsWindowProps) {
               <StepRow label="Reflections" help="Strength of environment reflections on glossy surfaces." steps={REFLECTION_STEPS.map((step) => step.label)} value={nearest(REFLECTION_STEPS.map((step) => step.value), gfx.env)} onChange={(index) => setGfx({ env: REFLECTION_STEPS[index].value })} onHelp={sectionHelp} />
               {gfx.gi === "vxgi" && <>
                 <StepRow label="Voxel resolution" help="Resolution of the voxel volume used by VXGI. Higher keeps small details in the indirect light but costs more GPU time." steps={VXGI_RESOLUTIONS.map((size) => `${size}\u00b3`)} value={Math.max(0, VXGI_RESOLUTIONS.indexOf(gfx.vxgiResolution))} onChange={(index) => setGfx({ vxgiResolution: VXGI_RESOLUTIONS[index] })} onHelp={sectionHelp} />
-                <SliderRow label="Voxel refresh" help="Seconds between full voxel rebuilds while the simulation runs. Longer is cheaper; geometry changes rebuild immediately." min={0.25} max={30} step={0.25} value={gfx.vxgiRefresh} onChange={(value) => setGfx({ vxgiRefresh: value })} onHelp={sectionHelp} format={(value) => `${value.toFixed(2)}\u00a0s`} />
+                <SliderRow label="Indirect GI strength" help="Strength of voxel-traced indirect light, separate from the approximate bounce lights." min={0} max={4} step={0.05} value={gfx.vxgiStrength} onChange={(value) => setGfx({ vxgiStrength: value })} onHelp={sectionHelp} />
+                <SliderRow label="Voxel refresh" help="Seconds between full voxel rebuilds while the simulation runs. Longer is cheaper; editing rebuilds after changes settle." min={0.25} max={30} step={0.25} value={gfx.vxgiRefresh} onChange={(value) => setGfx({ vxgiRefresh: value })} onHelp={sectionHelp} format={(value) => `${value.toFixed(2)}\u00a0s`} />
               </>}
               <StepRow label="View distance" help="Distance at which fog hides geometry. Only applies while distance fog is enabled." steps={VIEW_STEPS.map((step) => step.label)} value={nearest(VIEW_STEPS.map((step) => step.value), gfx.fogFar)} onChange={(index) => setGfx({ fogFar: VIEW_STEPS[index].value })} onHelp={sectionHelp} />
             </Section>
@@ -256,9 +257,9 @@ export function SettingsWindow(props: SettingsWindowProps) {
                   {TONE_MAPPINGS.map((name) => <option key={name} value={name}>{TONE_LABEL[name]}</option>)}
                 </select>
               </label>
-              {(gfx.gi === "ao" || gfx.gi === "approx") && <>
-                <SliderRow label="Occlusion strength" help="How dark screen-space occlusion makes creases and corners." min={0} max={3} step={0.1} value={gfx.aoIntensity} onChange={(value) => setGfx({ aoIntensity: value })} onHelp={sectionHelp} />
-                <SliderRow label="Occlusion radius" help="Screen-space search radius for occlusion, in metres." min={0.1} max={2} step={0.05} value={gfx.aoRadius} onChange={(value) => setGfx({ aoRadius: value })} onHelp={sectionHelp} />
+              {gfx.gi !== "off" && <>
+                <SliderRow label="Occlusion strength" help="How dark occlusion makes creases and corners." min={0} max={3} step={0.1} value={gfx.aoIntensity} onChange={(value) => setGfx({ aoIntensity: value })} onHelp={sectionHelp} />
+                <SliderRow label="Occlusion radius" help={gfx.gi === "vxgi" ? "World-space occlusion falloff distance, in metres." : "Screen-space search radius for occlusion, in metres."} min={0.1} max={2} step={0.05} value={gfx.aoRadius} onChange={(value) => setGfx({ aoRadius: value })} onHelp={sectionHelp} />
               </>}
             </Section>
             {gfx.gi === "vxgi" && webgpu === false && <p className="px-3 text-[11px] text-[#f5c26b]">{t("VXGI needs WebGPU. This browser does not offer it, so the approximation is used instead.")}</p>}

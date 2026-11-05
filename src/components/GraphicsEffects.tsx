@@ -35,7 +35,7 @@ export function shadowMapType(gfx: GraphicsSettings): THREE.ShadowMapType {
 }
 
 /** Updates the live renderer, not merely its initial onCreated state. */
-export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
+export function RendererSettings({ gfx, pixelRatio }: { gfx: GraphicsSettings; pixelRatio: number }) {
   const { gl, scene, camera, invalidate } = useThree();
   useEffect(() => {
     setModelRenderer(gl);
@@ -57,7 +57,7 @@ export function RendererSettings({ gfx }: { gfx: GraphicsSettings }) {
     setGraphicsStatus({ pixelRatio: gl.getPixelRatio() });
     // In demand mode this makes every control visible immediately as well.
     invalidate();
-  }, [gl, invalidate, gfx.exposure, gfx.toneMapping, gfx.shadows, gfx.softShadows, gfx.shadowSize, gfx.shadowStrength]);
+  }, [gl, invalidate, gfx.exposure, gfx.toneMapping, gfx.shadows, gfx.softShadows, gfx.shadowSize, gfx.shadowStrength, pixelRatio]);
   return null;
 }
 

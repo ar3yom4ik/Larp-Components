@@ -22,12 +22,12 @@ export function CornellBenchmark() {
     green: new THREE.MeshStandardMaterial({ color: GREEN, roughness: 1, metalness: 0 }),
     tall: new THREE.MeshStandardMaterial({ color: WHITE, roughness: 1, metalness: 0 }),
     blue: new THREE.MeshPhysicalMaterial({ color: '#2058ff', roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05 }),
-    light: new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.96, 0.9).multiplyScalar(6) }),
+    light: new THREE.MeshStandardMaterial({ color: WHITE, emissive: new THREE.Color(1, 0.96, 0.9), emissiveIntensity: 6, toneMapped: false }),
   }), []);
 
   const { width: w, height: h, depth: d } = CORNELL_ROOM;
   return (
-    <group name="cornell-benchmark">
+    <group name="cornell-benchmark" userData={{giGeometry:true}}>
       {/* Walls, floor, ceiling. Plane normals face into the room. */}
       <mesh name="floor" receiveShadow material={materials.white} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} scale={[w, d, 1]}>
         <planeGeometry args={[1, 1]} />

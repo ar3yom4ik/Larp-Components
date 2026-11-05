@@ -120,7 +120,9 @@ export class SelectiveBloom {
   }
 
   resize(width:number,height:number,pixelRatio:number) {
-    this.composer.setPixelRatio(pixelRatio);
+    // A softly blurred glow does not need a full-resolution emissive mask.
+    // Three quarters linear resolution uses 44% fewer mask pixels.
+    this.composer.setPixelRatio(pixelRatio * .75);
     this.composer.setSize(width,height);
   }
 

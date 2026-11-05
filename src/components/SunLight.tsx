@@ -4,6 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { GraphicsSettings } from '../theme';
 import { setGraphicsStatus } from '../graphicsStatus';
+import { isWebGPURenderer } from '../utils/gpu';
 
 /**
  * Directional sun with a shadow frustum that stays sharp.
@@ -32,7 +33,7 @@ export function SunLight({ gfx, controlsRef, building }: {
   const target = useRef<THREE.Object3D>(null);
   const { gl, invalidate } = useThree();
   const centre = useMemo(() => new THREE.Vector3(), []);
-  const last = useMemo(() => ({ x: NaN, z: NaN, extent: -1, size: -1, focusX: NaN, focusZ: NaN }), []);
+  const last = useMemo(() => ({ x: NaN, z: NaN, extent: -1, size: -1, focusX: NaN, focusZ: NaN, reportedSize: -1 }), []);
 
   const direction = useMemo(() => {
     const azimuth = (gfx.sunAzimuth * Math.PI) / 180;
@@ -52,9 +53,18 @@ export function SunLight({ gfx, controlsRef, building }: {
     sun.shadow.intensity = gfx.shadowStrength;
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = Math.max(0.01, gfx.shadowExtent / 1400);
+    // WebGLShadowMap does not resize an existing map when mapSize changes.
+    // The common WebGPU shadow node owns and resizes its own target instead.
+    if (!isWebGPURenderer(gl) && sun.shadow.map && sun.shadow.map.width !== gfx.shadowSize) {
+      sun.shadow.map.depthTexture?.dispose();
+      sun.shadow.map.dispose();
+      sun.shadow.map = null;
+    }
+    if (!gfx.shadows) setGraphicsStatus({ shadowSize: 0, shadowTexelCm: 0 });
+    else setGraphicsStatus({ shadowSize: gfx.shadowSize, shadowExtent: gfx.shadowExtent, shadowTexelCm: Math.round(gfx.shadowExtent * 2000 / gfx.shadowSize) / 10 });
     gl.shadowMap.needsUpdate = true;
     invalidate();
-  }, [gl, gfx.shadowRadius, gfx.shadowStrength, gfx.shadowExtent, invalidate]);
+  }, [gl, gfx.shadowRadius, gfx.shadowStrength, gfx.shadowExtent, gfx.shadowSize, gfx.shadows, gfx.sunAzimuth, gfx.sunElevation, building.height, invalidate]);
 
   useFrame(() => {
     const sun = light.current;
@@ -82,7 +92,7 @@ export function SunLight({ gfx, controlsRef, building }: {
       sun.target = target.current;
     }
     const camera = sun.shadow.camera;
-    if (camera.left !== -extent || camera.right !== extent || camera.top !== extent || camera.bottom !== -extent) {
+    if (camera.left !== -extent || camera.right !== extent || camera.top !== extent || camera.bottom !== -extent || camera.near !== 1 || camera.far !== distance * 2.4) {
       camera.left = -extent;
       camera.right = extent;
       camera.top = extent;
@@ -100,7 +110,12 @@ export function SunLight({ gfx, controlsRef, building }: {
       last.x = x; last.z = z; last.extent = extent; last.size = size; last.focusX = centre.x; last.focusZ = centre.z;
       gl.shadowMap.needsUpdate = true;
       invalidate();
-      setGraphicsStatus({ shadowSize: size, shadowExtent: extent, shadowTexelCm: Math.round(texel * 1000) / 10 });
+      last.reportedSize = -1;
+    }
+    const actualSize = gfx.shadows ? (sun.shadow.map?.width ?? size) : 0;
+    if (last.reportedSize !== actualSize || last.extent !== extent) {
+      last.reportedSize = actualSize;
+      setGraphicsStatus({ shadowSize: actualSize, shadowExtent: extent, shadowTexelCm: actualSize ? Math.round(extent * 2000 / actualSize) / 10 : 0 });
     }
   });
 

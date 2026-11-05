@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { preferLowGraphics } from './utils/graphicsQuality';
 
 export type SkinId = 'larp' | 'vc' | 'rpro' | 'custom';
 /** Named presets. `standard`, `enhanced` and `max` keep their earlier meaning. */
@@ -36,6 +37,8 @@ export interface GraphicsSettings {
   contactShadows: boolean; contactOpacity: number;
   bloom: boolean; bloomStrength: number;
   gi: GiMode; aoIntensity: number; aoRadius: number; bounce: number;
+  /** Strength of voxel-traced irradiance; independent of approximate bounce lights. */
+  vxgiStrength: number;
   /** Voxel grid resolution per axis for VXGI (64 / 96 / 128). */
   vxgiResolution: 64 | 96 | 128;
   /** Seconds between VXGI re-voxelisations while the simulation runs. */
@@ -86,15 +89,15 @@ export const defaultGfx = (preset: GraphicsQuality): GraphicsSettings => {
   const common: GraphicsSettings = {
     preset, exposure: 1, ambient: 0.32, sun: 2.5, fill: 0.28, env: 0.5,
     shadows: true, shadowSize: 2048, shadowStrength: 1, softShadows: true,
-    shadowRadius: 3, shadowExtent: 26, sunFollowView: true,
+    shadowRadius: 1, shadowExtent: 22, sunFollowView: true,
     sunAzimuth: 230, sunElevation: 45, toneMapping: 'neutral',
     pixelRatio: 1.25, adaptive: false, fog: true, fogFar: 160, grid: true,
     productBoost: 0.15, background: '#e3e6e9', useSkinBackground: true,
-    contactShadows: true, contactOpacity: 0.50, bloom: true, bloomStrength: .65,
-    gi: 'off', aoIntensity: 1.0, aoRadius: 0.55, bounce: 0, vxgiResolution: 96, vxgiRefresh: 2,
+    contactShadows: true, contactOpacity: 0.4, bloom: true, bloomStrength: .65,
+    gi: 'off', aoIntensity: 1.0, aoRadius: 0.55, bounce: 0, vxgiStrength: 1, vxgiResolution: 96, vxgiRefresh: 2,
     showFps: false, antialias: 'msaa',
   };
-  if (preset === 'low') return { ...common, shadowSize: 1024, softShadows: false, shadowRadius: 1, shadowExtent: 20, contactShadows: false, bloom: false, pixelRatio: 1, fog: false, toneMapping: 'linear', adaptive: true, antialias: 'fxaa' };
+  if (preset === 'low') return { ...common, shadowSize: 1024, softShadows: false, shadowRadius: 1, shadowExtent: 20, contactShadows: false, bloom: false, pixelRatio: 0.85, fog: false, toneMapping: 'linear', adaptive: true, antialias: 'off' };
   if (preset === 'enhanced') return { ...common, exposure: 1.02, shadowSize: 2048, shadowRadius: 4, shadowExtent: 30, pixelRatio: 1.25, env: 0.55, gi: 'approx', bounce: 0.3, contactOpacity: 0.55, aoIntensity: 0.8, aoRadius: 0.42, vxgiResolution: 96, vxgiRefresh: 2 };
   // Max: WebGPU voxel cone-traced GI (r187 VXGI) with TRAA. The WebGL fallback is an
   // explicit approximation (bounce lights + screen-space GTAO + contact shadows), not path tracing.
@@ -148,6 +151,7 @@ export function sanitizeGfx(quality: GraphicsQuality, saved: Partial<Record<stri
   raw.fill = clampNumber(raw.fill, 0, 8, base.fill);
   raw.env = clampNumber(raw.env, 0, 4, base.env);
   raw.bounce = clampNumber(raw.bounce, 0, 4, base.bounce);
+  raw.vxgiStrength = clampNumber(raw.vxgiStrength, 0, 4, base.vxgiStrength);
   raw.bloomStrength = clampNumber(raw.bloomStrength, 0, 3, base.bloomStrength);
   if (typeof raw.bloom !== 'boolean') raw.bloom = base.bloom;
   raw.aoIntensity = clampNumber(raw.aoIntensity, 0, 4, base.aoIntensity);
@@ -165,7 +169,23 @@ export function sanitizeGfx(quality: GraphicsQuality, saved: Partial<Record<stri
   return { ...raw, preset: quality };
 }
 
+/** Upgrade untouched old presets without overwriting custom graphics. */
+export function migrateGraphicsPreset(quality: GraphicsQuality, saved: Partial<Record<string, unknown>> | undefined, revision: number): Partial<Record<string, unknown>> | undefined {
+  if (!saved || revision >= 5 || (quality !== 'standard' && quality !== 'low')) return saved;
+  const old = quality === 'standard'
+    ? { ...defaultGfx('standard'), shadowRadius: 3, shadowExtent: 26, contactOpacity: .5 }
+    : { ...defaultGfx('low'), contactOpacity: .5, pixelRatio: 1, antialias: 'fxaa' };
+  const untouched = (Object.keys(old) as (keyof GraphicsSettings)[]).every(key => saved[key] === undefined || saved[key] === old[key]);
+  return untouched ? { ...saved, ...defaultGfx(quality) } : saved;
+}
+
 let state: Appearance = defaults;
+// Device-memory and CPU hints are deliberately conservative and used only on
+// first launch; an explicit or saved quality is never changed automatically.
+if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
+  const memoryGb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  if (preferLowGraphics({ cores: navigator.hardwareConcurrency, memoryGb })) state = { ...defaults, graphics: 'low', gfx: defaultGfx('low') };
+}
 try {
   const saved = JSON.parse(localStorage.getItem('larp-appearance') || 'null');
   if (saved) {
@@ -174,7 +194,7 @@ try {
     const quality: GraphicsQuality = QUALITY_PRESETS.includes(stored) ? stored : 'standard';
     state = {
       ...defaults, ...saved, graphics: quality,
-      gfx: sanitizeGfx(quality, saved.gfx),
+      gfx: sanitizeGfx(quality, migrateGraphicsPreset(quality, saved.gfx, Number(saved.graphicsRevision) || 0)),
       building: { ...defaults.building, ...(saved.building || {}) },
       scheme: sanitizeScheme(saved.scheme),
       accent: typeof saved.accent === 'string' && HEX.test(saved.accent) ? saved.accent : undefined,
@@ -255,7 +275,7 @@ const listeners = new Set<() => void>();
 const emit = () => {
   try {
     applyDocument();
-    localStorage.setItem('larp-appearance', JSON.stringify({ ...state, graphicsRevision: 4 }));
+    localStorage.setItem('larp-appearance', JSON.stringify({ ...state, graphicsRevision: 5 }));
     localStorage.setItem('larp-graphics', state.graphics);
     localStorage.setItem('larp-building', JSON.stringify(state.building));
   } catch { /* storage can be unavailable in private browsing */ }

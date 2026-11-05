@@ -2,9 +2,11 @@ import { RemoteCameras } from './RemoteCameras';
 import { PtpLayer, PtpTeachingPanel, isRobot, type PtpMode } from './PtpTeaching';
 import type { MultiplayerClient } from '../multiplayer/client';
 import { surfaceUsesWorldProjection } from '../data/materials';
+import { ADAPTIVE_SCALE, adaptivePixelRatio } from '../utils/graphicsQuality';
+import { StableContactShadows } from './StableContactShadows';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { ContactShadows, Line, OrbitControls, PerformanceMonitor, TransformControls } from "@react-three/drei";
+import { Line, OrbitControls, PerformanceMonitor, TransformControls } from "@react-three/drei";
 import * as THREE from "three";
 import {
   Box as BoxIcon,
@@ -105,6 +107,7 @@ type DragState =
 const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const TEAL = "var(--teal)";
 const TEAL_3D = "#35c4d4"; // Three.js cannot resolve CSS custom properties in material colors.
+const adaptiveBounds = (): [number, number] => [32, 55];
 
 const VIEWS: Record<CameraPreset, { position: Vec3; target: Vec3 }> = {
   iso: { position: [13.5, 10.5, 15], target: [0, 0.3, 0.5] },
@@ -870,7 +873,7 @@ function SceneContent({
 
   return (
     <>
-      <FactoryEnvironment shell={shell} building={building} />
+      <group userData={{ giGeometry: true }}><FactoryEnvironment shell={shell} building={building} /></group>
       {items.map((item) => {
         if (item.visible === false) return null;
         const selected = selectedIdSet.has(item.id);
@@ -880,7 +883,7 @@ function SceneContent({
           <PhysicalItemGroup key={item.id} item={item} onPointerDown={startDrag} onDuplicate={onDuplicateItem} onClick={(event, clicked) => {
             if (event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && !suppressClick.current && tool === "select" && clicked.kind === "button") { event.stopPropagation(); sim.pressButton(clicked.id); }
           }}>
-            {item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} productItems={item.kind === "crates" || item.kind === "platform" || item.kind === "stairs" || item.kind === "wall" ? productItems : undefined} />}
+            <group userData={{ giGeometry: true }}>{item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} productItems={item.kind === "crates" || item.kind === "platform" || item.kind === "stairs" || item.kind === "wall" ? productItems : undefined} />}</group>
             {selected && <SelectionMarker item={item} />}
             {primary && isConveyor && (
               <ConveyorHandles item={item} selectedPoint={selectedPoint} onGrab={(event, index) => grabPoint(event, item.id, index)} />
@@ -897,7 +900,7 @@ function SceneContent({
         }
         return <ObjectGizmo item={selected} group={items.filter(item => selectedIdSet.has(item.id) && !item.locked)} tool={tool} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onUpdateItems={onUpdateItems} onActive={setGizmoActive} />;
       })()}
-      <BoxesLayer items={productItems} onProjectedWorkpiecesChange={onProjectedWorkpiecesChange} />
+      <group userData={{ giGeometry: true }}><BoxesLayer items={productItems} onProjectedWorkpiecesChange={onProjectedWorkpiecesChange} /></group>
       <WireLayer items={items} />
     </>
   );
@@ -1197,7 +1200,7 @@ export const Viewport = memo(function Viewport({
   // VXGI falls back to the approximation whenever WebGPU is missing, the renderer failed
   // to start, or the pipeline itself could not be created on this driver.
   const effectiveGi = gfx.gi === "vxgi" && !gpuMode ? "approx" : gfx.gi;
-  const makeRenderer = useCallback((defaults: GLFactoryProps) => createGpuRenderer(defaults, () => setGpuFailed(true)), []);
+  const makeRenderer = useCallback((defaults: GLFactoryProps) => createGpuRenderer(defaults, (message) => { setGiError(message); setGpuFailed(true); }), []);
   const onGiUnavailable = useCallback((message: string) => setGiError(message), []);
   // Leaving the Max preset retries VXGI next time it is selected.
   useEffect(() => { if (gfx.gi !== "vxgi") setGiError(null); }, [gfx.gi]);
@@ -1209,12 +1212,9 @@ export const Viewport = memo(function Viewport({
     void probeWebGPU().then((ok) => { if (alive) setGpuSupported(ok); });
     return () => { alive = false; };
   }, []);
-  // VXGI must re-voxelise when the geometry OR the lighting changes (lights are baked
-  // into the volume), but never on an unrelated re-render.
-  const voxelKey = useMemo(() => ({}), [
-    items, shell, buildingSettings.width, buildingSettings.depth, buildingSettings.height,
-    gfx.sun, gfx.sunAzimuth, gfx.sunElevation, gfx.fill, gfx.ambient, gfx.env, gfx.shadows,
-  ]);
+  // Geometry edits need re-voxelization; light edits only need light injection.
+  const voxelKey = useMemo(() => ({}), [items, shell, buildingSettings, benchmark]);
+  const lightKey = useMemo(() => ({}), [gfx.sun, gfx.sunAzimuth, gfx.sunElevation, gfx.fill, gfx.ambient, gfx.env, gfx.shadows, gfx.shadowStrength, buildingSettings.lights, benchmark]);
 
     const xs = items.map((i) => i.position[0]), zs = items.map((i) => i.position[2]);
   const building: BuildingStyle = { ...buildingSettings };
@@ -1243,20 +1243,14 @@ export const Viewport = memo(function Viewport({
   const [gridVisible, setGridVisible] = useState(true);
   const [hudVisible, setHudVisible] = useState(true);
   const [dragActive, setDragActive] = useState(false);
-  const [low, setLow] = useState(false);
+  const [adaptiveLevel, setAdaptiveLevel] = useState(0);
+  useEffect(() => { setAdaptiveLevel(0); }, [gfx.adaptive, gfx.pixelRatio, gfx.preset]);
+  const low = gfx.adaptive && adaptiveLevel > 0;
   // The side panels are part of the dockable layout, so this toggle opens and closes
   // them through the same store as the panel headers and the ribbon.
   const layout = useLayout();
   const panelsOpen = layout.catalog.open || layout.inspector.open;
   const setPanelsOpen = (open: boolean) => { setPanel("catalog", { open }); setPanel("inspector", { open }); };
-  // Contact shadows render the whole scene into their own target. While the plant is
-  // moving they are refreshed a few times per second instead of on every frame.
-  const [contactTick, setContactTick] = useState(0);
-  useEffect(() => {
-    if (!running || !gfx.contactShadows) return;
-    const id = window.setInterval(() => setContactTick((n) => (n + 1) % 100000), 250);
-    return () => window.clearInterval(id);
-  }, [running, gfx.contactShadows]);
   const wrapper = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const savedCamera = useRef<CameraSnapshot | null>(null);
@@ -1280,7 +1274,7 @@ export const Viewport = memo(function Viewport({
   const dark = schemeDark;
   const sceneBg = gfx.useSkinBackground ? (skin === "custom" ? scheme.viewportBg : dark ? "#29262a" : skin === "vc" ? "#f1f2f3" : "#e3e6e9") : gfx.background;
   // Below 1 renders fewer pixels than the screen has (faster, softer).
-  const renderDpr = gfx.adaptive && low ? Math.min(1, gfx.pixelRatio) : gfx.pixelRatio;
+  const renderDpr = gfx.adaptive ? adaptivePixelRatio(gfx.pixelRatio, adaptiveLevel) : gfx.pixelRatio;
   const aoActive = effectiveGi === "ao" || effectiveGi === "approx";
   const multiplayerActiveRef = useRef(multiplayerActive); multiplayerActiveRef.current = multiplayerActive;
   useEffect(() => { if (multiplayerActiveRef.current) return; setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1); }, [layoutName]);
@@ -1381,10 +1375,10 @@ export const Viewport = memo(function Viewport({
         // The antialias mode is a context attribute, so switching it recreates the context.
         key={`${gpuMode ? "renderer-webgpu" : "renderer-webgl"}-${gfx.antialias}-${gfx.shadows ? (gfx.softShadows ? "soft" : "hard") : "nosun"}`}
         shadows={gfx.shadows ? (gfx.softShadows ? "percentage" : "basic") : false}
-        // The WebGPU VXGI pipeline accumulates TRAA samples across frames, so it must keep rendering.
-        frameloop={running || gpuMode || multiplayerActive ? "always" : "demand"}
+        // VXGI requests a finite set of frames for TRAA convergence while paused.
+        frameloop={running || multiplayerActive ? "always" : "demand"}
         dpr={renderDpr}
-        gl={gpuMode ? makeRenderer : { antialias: gfx.antialias === "msaa", powerPreference: "high-performance", stencil: false }}
+        gl={gpuMode ? makeRenderer : { antialias: gfx.antialias === "msaa", powerPreference: quality === "low" ? "low-power" : "high-performance", stencil: false }}
         camera={{ position: VIEWS.iso.position, fov: 36, near: 0.1, far: 220 }}
         onPointerMissed={(event) => {
           if (event.button !== 0 || suppressClick.current || event.shiftKey || event.ctrlKey || event.metaKey) return;
@@ -1396,10 +1390,12 @@ export const Viewport = memo(function Viewport({
         {/* Image-based lighting that works on both renderers (drei's Environment only
             supports the WebGL renderer, which is why the Max preset lost its IBL). */}
         {!benchmark && <StudioEnvironment intensity={gfx.env} resolution={quality === "low" ? 32 : quality === "standard" ? 64 : 128} dark={dark} />}
-        <RendererSettings gfx={gfx} />
+        <RendererSettings gfx={gfx} pixelRatio={renderDpr} />
         <SelectionSceneBridge target={selectionScene} onViewCenterReady={onViewCenterReady} />
         <ambientLight intensity={benchmark ? 0 : gfx.ambient} color={dark ? "#ffd9d9" : "#ffffff"} />
-        {gfx.adaptive && <PerformanceMonitor onDecline={() => setLow(true)} onIncline={() => setLow(false)} flipflops={4} />}
+        {gfx.adaptive && (running || multiplayerActive) && <PerformanceMonitor iterations={6} ms={250} threshold={.67} bounds={adaptiveBounds}
+          onDecline={() => setAdaptiveLevel(level => Math.min(ADAPTIVE_SCALE.length - 1, level + 1))}
+          onIncline={() => setAdaptiveLevel(level => Math.max(0, level - 1))} />}
         <color attach="background" args={[sceneBg]} />
         {gfx.fog && <fog attach="fog" args={[sceneBg, gfx.fogFar * 0.45, gfx.fogFar]} />}
         {!benchmark && <hemisphereLight args={dark ? ["#ffc9cf", "#4a3036", 0.32] : ["#e8f2ff", "#778391", 0.38]} />}
@@ -1420,7 +1416,13 @@ export const Viewport = memo(function Viewport({
         <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} fitSelected={fitSelected} zoom={zoom} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} savedCamera={savedCamera} restoreCamera={restoreCamera} handledRestore={handledRestore} />
         {gpuMode && <GlobalIlluminationPipeline
           voxelKey={voxelKey}
+          lightKey={lightKey}
           running={running}
+          includeFloor={!benchmark}
+          floorColor={building.floorColor}
+          giStrength={gfx.vxgiStrength}
+          aoIntensity={gfx.aoIntensity}
+          aoDistance={gfx.aoRadius}
           resolution={gfx.vxgiResolution}
           refreshSeconds={gfx.vxgiRefresh}
           bloomEnabled={gfx.bloom}
@@ -1459,16 +1461,9 @@ export const Viewport = memo(function Viewport({
           {signalMode && <SignalPortLayer items={items} source={sourceItem ? signalSource : null} onSource={setSignalSource} onTarget={selectSignalTarget} onConnect={connectSignal} onReroute={rerouteSignal} />}
         </>}
         {gridVisible && gfx.grid && !benchmark && <gridHelper args={[Math.max(80, Math.ceil(Math.max(building.width, building.depth) * 1.4)), 40, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
-        {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <ContactShadows
-          key={`contact-${running ? contactTick : "still"}`}
-          position={[0, 0.015, 0]}
-          scale={[Math.max(24, building.width + 8), Math.max(24, building.depth + 8)]}
-          opacity={gfx.contactOpacity}
-          far={5}
-          blur={1.5}
-          resolution={160}
-          smooth={false}
-          frames={1}
+        {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <StableContactShadows
+          width={Math.max(24, building.width + 8)} height={Math.max(24, building.depth + 8)}
+          opacity={gfx.contactOpacity} running={running || multiplayerActive} sceneKey={voxelKey}
         />}
         <PostEffects gfx={gfx} pixelRatio={renderDpr} aoActive={aoActive} externalPipeline={gpuMode} />
       </Canvas>

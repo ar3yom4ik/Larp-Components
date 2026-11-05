@@ -61,6 +61,8 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ## [Unreleased]
 
+### Graphics overhaul for alpha.12
+
 ## [3.0.0-alpha.3] - 2026-11-02 (prerelease)
 
 - Fixed simulation-speed scaling for scripted and visual robots, conveyor workpieces, workers, feeders, machine cycles and rigid-body physics. JavaScript robot commands can resume between fixed substeps even when several substeps share one rendered frame.
@@ -204,6 +206,8 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ## [Unreleased]
 
+### Graphics overhaul for alpha.12
+
 - Added delayed button-name tooltips, deeper graph zoom and fit-to-view; collapsed nodes retain connected ports and physical node types have distinct colours.
 - Added box/shift selection, multi-node move/copy with internal wires, rearrangement and persistent named, custom-coloured group frames that become overview nodes at distant zoom. Inserting a node into a wire makes room automatically.
 - Feeders, robots and operators can feed a shared conveyor directly with automatically generated physical inlets. Multiple robots/operators can share a conveyor output with automatically placed stations, product reservations and queueing. General conveyor-to-conveyor splitters remain unsupported.
@@ -226,3 +230,5 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ### Notes
 - Application branding remains "Larp Components 5.1"; V2 is the numbered release.
+
+### alpha.12

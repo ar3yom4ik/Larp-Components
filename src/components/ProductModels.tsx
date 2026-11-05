@@ -7,6 +7,7 @@ import { getProduct, importedModelSize, importedProductId, type ProductShape } f
 import { useAppearance } from "../theme";
 import type { SceneItem } from "../types";
 import { ImportedModel } from "./ImportedModel";
+import { InstanceSlotCache } from "../utils/instanceSlots";
 
 const SHAPES: ProductShape[] = ["box", "cookie", "cylinder", "bottle", "sphere", "gear", "board", "frame"];
 const cache = new Map<ProductShape, THREE.BufferGeometry>();
@@ -77,6 +78,13 @@ function ImportedWorkpiece({ box, source }: { box: Box; source: SceneItem }) {
 export function BoxesLayer({ items = [], onProjectedWorkpiecesChange }: { items?: readonly SceneItem[]; onProjectedWorkpiecesChange?: (active: boolean) => void }) {
   const { gfx } = useAppearance();
   const meshes = useRef<Partial<Record<ProductShape, THREE.InstancedMesh>>>({});
+  const slots = useRef<Partial<Record<ProductShape, InstanceSlotCache>>>({});
+  const register = useMemo(() => Object.fromEntries(SHAPES.map(shape => [shape, (mesh: THREE.InstancedMesh | null) => {
+    if (!mesh) { delete meshes.current[shape]; delete slots.current[shape]; return; }
+    mesh.count = 0; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    meshes.current[shape] = mesh; slots.current[shape] = new InstanceSlotCache(mesh.instanceMatrix.count);
+  }])) as Record<ProductShape, (mesh: THREE.InstancedMesh | null) => void>, []);
+  const products = useMemo(() => new Map<string, ReturnType<typeof getProduct>>(), [items]);
   const sources = useMemo(() => new Map(items.filter((item) => item.kind === "imported-model" && item.imported).map((item) => [importedProductId(item), item])), [items]);
   const [imports, setImports] = useState<Box[]>([]);
   // Instance buffers grow with demand instead of imposing a simulation limit.
@@ -87,6 +95,7 @@ export function BoxesLayer({ items = [], onProjectedWorkpiecesChange }: { items?
   useFrame(() => {
     if (sim.boxes.length > capacity) setCapacity(2 ** Math.ceil(Math.log2(sim.boxes.length)));
     const counts = { box: 0, cookie: 0, cylinder: 0, bottle: 0, sphere: 0, gear: 0, board: 0, frame: 0 };
+    for (const shape of SHAPES) slots.current[shape]?.beginFrame();
     const imported = sources.size ? sim.boxes.filter((b) => b.state !== "inside" && b.state !== "dead" && sources.has(b.productId)) : [];
     const hasProjection = imported.some((box) => sources.get(box.productId)?.imported?.materials.some((material) => material.worldProjection === true));
     if (hasProjection !== projectedWorkpieces.current) { projectedWorkpieces.current = hasProjection; onProjectedWorkpiecesChange?.(hasProjection); }
@@ -95,27 +104,42 @@ export function BoxesLayer({ items = [], onProjectedWorkpiecesChange }: { items?
     for (const b of sim.boxes) {
       if (b.state === "inside" || b.state === "dead") continue;
       if (sources.has(b.productId)) continue;
-      const product = getProduct(b.productId, items), mesh = meshes.current[product.shape];
-      if (!mesh) continue;
+      let product = products.get(b.productId);
+      if (!product) { product = getProduct(b.productId, items); products.set(b.productId, product); }
+      const mesh = meshes.current[product.shape], cache = slots.current[product.shape];
+      if (!mesh || !cache) continue;
       const index = counts[product.shape]++;
       if (index >= capacity) continue;
       const fade = b.state === "dying" ? Math.max(0, b.fade) : 1;
-      kit.q.setFromAxisAngle(kit.up, b.yaw);
       const belt = b.state === "free" && b.support === 2 ? b.beltNormal : undefined;
-      if (belt) { kit.axis.set(...belt); kit.q2.setFromUnitVectors(kit.up, kit.axis); kit.q.premultiply(kit.q2); }
-      if (b.tilt) { kit.axis.set(b.ax, 0, b.az).normalize(); kit.q2.setFromAxisAngle(kit.axis, b.tilt); kit.q.premultiply(kit.q2); }
-      kit.p.set(b.x, b.y + (belt ? b.hy * (1 / Math.max(.2, belt[1]) - 1) : 0) + Math.abs(Math.sin(b.tilt)) * b.hz * 0.9, b.z);
-      kit.scale.set(b.hx * 2 * fade, b.hy * 2 * fade, b.hz * 2 * fade);
-      kit.m.compose(kit.p, kit.q, kit.scale); mesh.setMatrixAt(index, kit.m);
-      kit.color.setHex(b.color).multiplyScalar(1 + gfx.productBoost * 1.5); mesh.setColorAt(index, kit.color);
+      if (cache.matrixChanged(index, b, fade, belt)) {
+        kit.q.setFromAxisAngle(kit.up, b.yaw);
+        if (belt) { kit.axis.set(...belt); kit.q2.setFromUnitVectors(kit.up, kit.axis); kit.q.premultiply(kit.q2); }
+        if (b.tilt) { kit.axis.set(b.ax, 0, b.az).normalize(); kit.q2.setFromAxisAngle(kit.axis, b.tilt); kit.q.premultiply(kit.q2); }
+        kit.p.set(b.x, b.y + (belt ? b.hy * (1 / Math.max(.2, belt[1]) - 1) : 0) + Math.abs(Math.sin(b.tilt)) * b.hz * 0.9, b.z);
+        kit.scale.set(b.hx * 2 * fade, b.hy * 2 * fade, b.hz * 2 * fade);
+        kit.m.compose(kit.p, kit.q, kit.scale); mesh.setMatrixAt(index, kit.m);
+      }
+      if (cache.colorChanged(index, b.color, gfx.productBoost)) {
+        const initial = !mesh.instanceColor;
+        kit.color.setHex(b.color).multiplyScalar(1 + gfx.productBoost * 1.5); mesh.setColorAt(index, kit.color);
+        if (initial) mesh.instanceColor!.setUsage(THREE.DynamicDrawUsage);
+      }
     }
     for (const shape of SHAPES) {
-      const mesh = meshes.current[shape]; if (!mesh) continue;
-      mesh.count = Math.min(counts[shape], capacity); mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      const mesh = meshes.current[shape], cache = slots.current[shape]; if (!mesh || !cache) continue;
+      mesh.count = Math.min(counts[shape], capacity);
+      if (cache.matrixMax >= 0) {
+        mesh.instanceMatrix.addUpdateRange(cache.matrixMin * 16, (cache.matrixMax - cache.matrixMin + 1) * 16);
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+      if (cache.colorMax >= 0 && mesh.instanceColor) {
+        mesh.instanceColor.addUpdateRange(cache.colorMin * 3, (cache.colorMax - cache.colorMin + 1) * 3);
+        mesh.instanceColor.needsUpdate = true;
+      }
     }
   });
-  return <>{SHAPES.map((shape) => <instancedMesh key={`${shape}-${capacity}`} ref={(m) => { if (m) { m.count = 0; meshes.current[shape] = m; } }} args={[geometry(shape), undefined, capacity]} castShadow receiveShadow frustumCulled={false} raycast={() => null}><meshStandardMaterial color="#ffffff" roughness={0.7} metalness={shape === "gear" || shape === "frame" ? 0.5 : 0.04} vertexColors /></instancedMesh>)}
+  return <>{SHAPES.map((shape) => <instancedMesh key={`${shape}-${capacity}`} ref={register[shape]} args={[geometry(shape), undefined, capacity]} castShadow receiveShadow frustumCulled={false} raycast={() => null}><meshStandardMaterial color="#ffffff" roughness={0.7} metalness={shape === "gear" || shape === "frame" ? 0.5 : 0.04} vertexColors /></instancedMesh>)}
     {imports.map((box) => { const source = sources.get(box.productId); return source ? <ImportedWorkpiece key={box.id} box={box} source={source} /> : null; })}
   </>;
 }

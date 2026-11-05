@@ -715,7 +715,7 @@ function BuildingShell({ style }: { style: BuildingStyle }) {
     return parts;
   }), [width, depth, height, style.walls, style.roof, style.lights, style.wallColor]);
   return <group userData={{buildingSurface:true}}>
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.003, 0]} receiveShadow raycast={() => null}><planeGeometry args={[width, depth]} /><meshStandardMaterial color={style.floorColor} roughness={0.94} /></mesh>
+    <mesh userData={{giGround:true}} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.003, 0]} receiveShadow raycast={() => null}><planeGeometry args={[width, depth]} /><meshStandardMaterial color={style.floorColor} roughness={0.94} /></mesh>
     <primitive object={objects} />
     {style.lights && [-1, 1].map((s) => <pointLight key={s} position={[s * width * 0.26, height - 1.2, s * depth * 0.26]} intensity={26} distance={Math.max(width, depth) * 0.7} decay={2} color="#fff5e2" />)}
   </group>;
@@ -724,7 +724,7 @@ function BuildingShell({ style }: { style: BuildingStyle }) {
 export function FactoryEnvironment({ shell, building }: { shell: boolean; building: BuildingStyle }) {
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.002, 0]} receiveShadow raycast={() => null}>
+      <mesh userData={{giGround:true}} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.002, 0]} receiveShadow raycast={() => null}>
         <planeGeometry args={[240, 240]} />
         <meshStandardMaterial color={building.floorColor} roughness={0.92} metalness={0} />
       </mesh>

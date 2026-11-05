@@ -67,8 +67,9 @@ assert.ok(RESOLUTION_STEPS.some((step) => step < 1), "the 3D resolution offers v
 assert.ok(RESOLUTION_STEPS.every((step) => step > 0));
 assert.deepEqual([...ANTIALIAS_MODES], ["off", "fxaa", "msaa"]);
 assert.equal(sanitizeGfx("standard", { antialias: "bogus" }).antialias, "msaa", "unknown antialiasing falls back to the preset");
-assert.equal(sanitizeGfx("low", {}).antialias, "fxaa");
+assert.equal(sanitizeGfx("low", {}).antialias, "off", "a fresh Low preset now turns off antialiasing on low-end devices");
 assert.equal(sanitizeGfx("standard", { antialias: "off" }).antialias, "off");
+assert.equal(sanitizeGfx("low", {}).antialias, "off");
 assert.equal(sanitizeGfx("standard", { pixelRatio: 0.5 }).pixelRatio, 0.5, "sub-1 render scales survive a save");
 assert.equal(sanitizeGfx("standard", { pixelRatio: 0 }).pixelRatio, 1.25, "zero is rejected");
 assert.equal(sanitizeGfx("standard", { pixelRatio: 99 }).pixelRatio, 3);
