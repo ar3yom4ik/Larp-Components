@@ -73,10 +73,57 @@ jobs:
         run: npm run test:alpha7-browser
       - name: Alpha.8 materials, multi-pallet, snapping and MRT regressions
         run: npm run test:alpha8-browser
-      - name: Depalletizing and LAN multiplayer browser regressions
-        run: npm run test:depalletize-browser && npm run test:multiplayer-browser
+
+  # Run the new two-browser cases independently so failures surface early.
+  lan-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Start development preview
+        run: |
+          npm run dev -- --host 0.0.0.0 --port 4173 > /tmp/larp-vite.log 2>&1 &
+          for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/larp-vite.log
+          exit 1
+      - name: Depalletizing and LAN browser regressions
+        run: |
+          set -o pipefail
+          ( npm run test:depalletize-browser && npm run test:multiplayer-browser ) 2>&1 | tee /tmp/lan-browser.log || {
+            text=$(tail -n 60 /tmp/lan-browser.log); text=${text//'%'/'%25'}; text=${text//$'\n'/'%0A'}; text=${text//$'\r'/'%0D'}
+            echo "::error title=LAN browser regression::$text"
+            exit 1
+          }
       - name: Packaged LAN helper and standalone two-browser regression
-        run: npm run build && npm run package:multiplayer && npm run test:multiplayer-standalone
+        run: |
+          set -o pipefail
+          ( npm run build && npm run package:multiplayer && npm run test:multiplayer-standalone ) 2>&1 | tee /tmp/lan-package.log || {
+            text=$(tail -n 60 /tmp/lan-package.log); text=${text//'%'/'%25'}; text=${text//$'\n'/'%0A'}; text=${text//$'\r'/'%0D'}
+            echo "::error title=LAN package regression::$text"
+            exit 1
+          }
+
+  # Temporary diagnostic for the previous failed run; removed after triage.
+  inspect-previous-lan-failure:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Annotate the previous job's final lines
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/127101210432/logs" > /tmp/previous.log
+          text=$(tail -n 60 /tmp/previous.log); text=${text//'%'/'%25'}; text=${text//$'\n'/'%0A'}; text=${text//$'\r'/'%0D'}
+          echo "::warning title=Previous LAN failure::$text"
 
   catalog-diagnostic:
     runs-on: ubuntu-latest
@@ -109,7 +156,7 @@ jobs:
   # Only an already-published prerelease at this exact internal PR head is
   # eligible. Forks and unrelated PRs never receive a write-capable token.
   attach-prerelease:
-    needs: [build, browser, catalog-diagnostic]
+    needs: [build, browser, lan-browser, catalog-diagnostic]
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
