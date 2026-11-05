@@ -42,7 +42,9 @@ while (true) {
 
 export const API_DOC = `ROBOT API
   await robot.home()                      move to the home pose
-  await robot.moveTo(x, y, z)             move the tool tip (world metres)
+  await robot.moveTo(x, y, z)             Cartesian TCP motion (world metres)
+  ok = await robot.movePtp(x, y, z, speed) joint-space PTP (world metres; false if unreachable)
+  ok = await robot.movePtpLocal(x, y, z, speed) PTP in robot-local metres (speed 1–100%)
   box = await robot.waitForPart(zone)     wait for a box inside a zone
   box = await robot.waitForPalletPart(id) wait for occupied pallet stock
   await robot.inspectSensor(id)           present the held part to a color sensor
@@ -66,7 +68,9 @@ WORLD API
 
 export const API_DOC_RU = `API РОБОТА
   await robot.home()                      вернуться в исходное положение
-  await robot.moveTo(x, y, z)              переместить инструмент (мировые метры)
+  await robot.moveTo(x, y, z)              декартово движение TCP (мировые метры)
+  ok = await robot.movePtp(x, y, z, speed) PTP по осям (мировые метры; false вне зоны)
+  ok = await robot.movePtpLocal(x, y, z, speed) PTP локально (скорость 1–100%)
   part = await robot.waitForPart(zone)      ждать изделие в зоне
   part = await robot.waitForPalletPart(id)  ждать изделие на паллете
   await robot.inspectSensor(id)             поднести деталь к датчику цвета

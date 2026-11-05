@@ -15,6 +15,7 @@ import {
   Palette,
   Minus,
   Move3D,
+  Route,
   MousePointer2,
   Pause,
   Pencil,
@@ -381,6 +382,7 @@ export function AppChrome(props: ChromeProps) {
               <RibbonButton icon={<MousePointer2 size={22} className="text-[#f2c230]" />} label={t("Select")} active={props.tool === "select"} onClick={() => props.setTool("select")} title={t("Select (V)")} />
               <RibbonButton icon={<Move3D size={22} className="text-[var(--green)]" />} label={t("Move")} active={props.tool === "move"} onClick={() => props.setTool("move")} title={t("Move (M)")} />
               <RibbonButton icon={<Rotate3D size={22} className="text-[var(--app-accent)]" />} label={t("Rotate")} active={props.tool === "rotate"} onClick={() => props.setTool("rotate")} title={t("Rotate (R)")} />
+              <RibbonButton icon={<Route size={22} className="text-[#67e0e8]" />} label="PTP" active={props.tool === "ptp"} onClick={() => props.setTool("ptp")} title={t("PTP teaching")} />
             </Group>
             <Group label={t("Grid Snap")}>
               <Stack>

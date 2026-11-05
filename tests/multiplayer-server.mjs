@@ -46,5 +46,11 @@ try {
   await take(host,'members',m=>m.members.length===1);
   send(host,{type:'joinable',value:false}); await take(host,'members',m=>m.joinable===false);
   send(host,{type:'leave'}); assert.match((await take(host,'ended')).reason,/ended/i);
-  console.log('LAN helper: real UDP discovery, nickname, deny/accept, CRDT sync, chat, camera, simulation authority, kick and disconnect OK');
-} finally { for(const ws of sockets) ws.terminate(); for(const child of children) child.kill('SIGTERM'); await Promise.all(children.map(c=>new Promise(r=>c.once('exit',r)))); }
+  // Stopping the helper with a real guest sends an end notice and releases TCP.
+  send(host,{type:'host',nickname:'Alice again',joinable:true});await take(host,'hosted');send(guest,{type:'discover'});
+  listed=await take(guest,'sessions',m=>m.sessions.some(s=>s.nickname==='Alice again'));const session2=listed.sessions.find(s=>s.nickname==='Alice again');
+  send(guest,{type:'join',id:session2.id,nickname:'Bob'});await take(guest,'joining');await take(guest,'pending');request=await take(host,'request');send(host,{type:'approve',requestId:request.requestId,accept:true});await take(guest,'joined');
+  const stopped=new Promise(resolve=>children[0].once('exit',resolve));children[0].kill('SIGTERM');assert.match((await take(guest,'ended')).reason,/helper stopped|disconnected/i);await stopped;
+  const replacement=net.createServer();await new Promise((resolve,reject)=>{replacement.once('error',reject);replacement.listen(hostPort,'0.0.0.0',resolve)});await new Promise(resolve=>replacement.close(resolve));
+  console.log('LAN helper: real UDP discovery, nickname, deny/accept, CRDT sync, chat, camera, simulation authority, kick and active-session shutdown OK');
+} finally { for(const ws of sockets) ws.terminate(); for(const child of children) if(child.exitCode===null&&child.signalCode===null) child.kill('SIGTERM'); await Promise.all(children.map(c=>new Promise(r=>{if(c.exitCode!==null||c.signalCode!==null)r();else c.once('exit',r)}))); }

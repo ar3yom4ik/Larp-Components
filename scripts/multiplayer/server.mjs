@@ -38,10 +38,11 @@ const broadcastMembers = () => room && broadcast({ type: 'members', members: [..
 const listSessions = () => [...sessions.values()].map(({ lastSeen, ...rest }) => rest).sort((a, b) => a.nickname.localeCompare(b.nickname));
 const sendSessions = () => { for (const ws of localSockets) if (!ws.mode) json(ws, { type: 'sessions', sessions: listSessions() }); };
 
+let stopping = false, udpBound = false;
 const udp = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-udp.on('error', (error) => console.error('[LAN discovery]', error.message));
+udp.on('error', (error) => { console.error('[LAN discovery]', error.message); stop(1); });
 udp.on('message', (buffer, rinfo) => {
-  if (buffer.length > 2048) return;
+  if (stopping || buffer.length > 2048) return;
   let value; try { value = JSON.parse(buffer.toString('utf8')); } catch { return; }
   if (value.magic !== MAGIC) return;
   if (value.type === 'query') { advertise(); return; }
@@ -51,6 +52,8 @@ udp.on('message', (buffer, rinfo) => {
   sendSessions();
 });
 udp.bind(discoveryPort, '0.0.0.0', () => {
+  udpBound = true;
+  if (stopping) { udp.close(); return; }
   udp.setBroadcast(true);
   console.log(`[LAN discovery] UDP ${discoveryPort}`);
   query();
@@ -179,8 +182,12 @@ const server = http.createServer((req, res) => {
     fs.createReadStream(html).on('error', () => { if (!res.headersSent) res.writeHead(404, { 'content-type': 'text/plain' }); res.end(`Standalone HTML not found: ${html}. Put the release HTML next to the helper or pass --html.`); }).pipe(res);
   } else { res.writeHead(404); res.end('Not found'); }
 });
+// Track even upgraded/half-open sockets; server.close() alone does not close them.
+const connections = new Set();
+server.on('connection', socket => { connections.add(socket); socket.on('close', () => connections.delete(socket)); });
 const wss = new WebSocketServer({ noServer: true, maxPayload: LIMIT });
 server.on('upgrade', (req, socket, head) => {
+  if (stopping) { socket.destroy(); return; }
   const peer = req.url === '/multiplayer/peer';
   const local = req.url === '/multiplayer/socket';
   if ((!peer && !local) || (local && (!localAddress(req.socket.remoteAddress) || !validOrigin(req.headers.origin, req.headers.host)))) { socket.destroy(); return; }
@@ -191,6 +198,7 @@ wss.on('connection', (ws) => {
   ws.alive = true; ws.on('pong', () => { ws.alive = true; });
   if (!ws.peerEndpoint) { localSockets.add(ws); json(ws, { type: 'ready', sessions: listSessions() }); query(); }
   ws.on('message', (data, isBinary) => {
+    if (stopping) return;
     if (ws.peer && ws.peer.readyState === WebSocket.OPEN) {
       if (!isBinary && ws.mode === 'joining') {
         let command; try { command = JSON.parse(decoder.decode(data)); } catch {}
@@ -226,6 +234,25 @@ const timer = setInterval(() => {
   if (changed) sendSessions();
   for (const ws of wss.clients) { if (!ws.alive) { ws.terminate(); continue; } ws.alive = false; ws.ping(); }
 }, 2500);
+server.on('error', error => { console.error('[LARP Multiplayer]', error.message); stop(1); });
 server.listen(port, '0.0.0.0', () => console.log(`[LARP Multiplayer] http://localhost:${port}/ — standalone: ${html}`));
-function stop() { clearInterval(timer); closeRoom('The helper stopped.'); for (const ws of wss.clients) ws.terminate(); udp.close(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 1000).unref(); }
-process.on('SIGINT', stop); process.on('SIGTERM', stop);
+function stop(code = 0) {
+  if (stopping) return;
+  stopping = true;
+  clearInterval(timer);
+  // Notify connected peers first, then forcibly close any unresponsive clients.
+  closeRoom('The helper stopped.');
+  for (const ws of wss.clients) if (ws.readyState === WebSocket.OPEN) ws.close(1001, 'Helper stopped');
+  if (udpBound) { udpBound = false; try { udp.close(); } catch {} }
+  server.close(() => process.exit(code));
+  server.closeAllConnections?.(); // ordinary HTTP keep-alive sockets
+  const deadline = setTimeout(() => {
+    for (const ws of wss.clients) ws.terminate();
+    for (const socket of connections) socket.destroy();
+    process.exit(code);
+  }, 250);
+  deadline.unref();
+}
+process.on('SIGINT', () => stop());
+process.on('SIGTERM', () => stop());
+process.on('SIGHUP', () => stop());

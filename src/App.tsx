@@ -271,6 +271,10 @@ export default function App() {
       if (action === 'reset') { sim.setRunning(false); sim.reset(); setRunning(false); }
       if (action === 'pressButton' && typeof value === 'string') sim.pressButton(value);
       if (action === 'replacePallet' && typeof value === 'string') sim.replacePallet(value);
+      if (action === 'jogRobot' && value && typeof value === 'object') {
+        const request = value as {id?:unknown; target?:unknown};
+        if (typeof request.id === 'string' && Array.isArray(request.target) && request.target.length === 3 && request.target.every((n:unknown) => typeof n === 'number' && Number.isFinite(n))) sim.jogRobot(request.id, request.target as [number,number,number]);
+      }
     },
     onHistory: (past, future) => setHistoryCounts({past, future}),
     onEnded: (reason) => {
@@ -534,6 +538,7 @@ export default function App() {
         points: source.points ? source.points.map((p) => [...p] as [number, number]) : undefined,
         pointHeights: source.pointHeights ? [...source.pointHeights] : undefined,
         script: source.script,
+        ptp: source.ptp ? {...source.ptp, points:source.ptp.points.map(point => ({...point,position:[...point.position] as Vec3}))} : undefined,
         program: source.program ? { ...source.program } : undefined,
         programs: source.programs ? Object.fromEntries(Object.entries(source.programs).map(([key,program]) => [key,{...program}])) : undefined,
         imported: source.imported,
@@ -1171,7 +1176,7 @@ export default function App() {
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1">
-            <Viewport multiplayer={multiplayer} multiplayerActive={multiplayerStatus === "host" || multiplayerStatus === "guest"} mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectViewport} onSelectMany={setSelectedIds} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={changeSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onMoveLoading={moveLoading} onViewCenterReady={registerViewCenter} onUpdateItem={updateItem} onUpdateItems={updateMany} onBeginEdit={beginEdit} onDuplicateItem={duplicateItem} onCopy={copySelected} onCut={cutSelected} onPaste={paste} canPaste={hasClipboard} onDeleteSelected={deleteSelected} onDuplicateSelected={duplicateSelected} onShowFloorMap={() => setFloorMapOpen(true)} />
+            <Viewport multiplayer={multiplayer} multiplayerActive={multiplayerStatus === "host" || multiplayerStatus === "guest"} mobile={mobile} skin={appearance.skin} quality={appearance.graphics} building={appearance.building} items={items} productItems={productItems} selectedId={selectedId} selectedIds={selectedIds} onSelect={selectViewport} onSelectMany={setSelectedIds} selectedPoint={selectedPoint} onSelectPoint={setSelectedPoint} tool={tool} onToolChange={setTool} snap={snap} running={running} onToggleRun={toggleRun} onResetSim={resetSim} simSpeed={simSpeed} onSimSpeed={changeSimSpeed} layoutName={layoutName} onAddAt={addComponent} onAddCatalogAt={addCatalogModel} onImportFiles={(files,position) => openModelImport(files,undefined,position)} loadingPosition={loadingPosition} onMoveLoading={moveLoading} onViewCenterReady={registerViewCenter} onUpdateItem={updateItem} onUpdateItems={updateMany} onBeginEdit={beginEdit} onDuplicateItem={duplicateItem} onCopy={copySelected} onCut={cutSelected} onPaste={paste} canPaste={hasClipboard} onDeleteSelected={deleteSelected} onDuplicateSelected={duplicateSelected} onShowFloorMap={() => setFloorMapOpen(true)} />
             {!mobile && <div className="absolute bottom-3 left-[110px] z-20 flex gap-1.5 xl:hidden"><button type="button" onClick={() => setMobilePanel("inspector")} className="flex items-center gap-1.5 rounded border border-white/15 bg-[#2a2a2c]/95 px-2.5 py-1.5 text-[10px] text-white/80"><SlidersHorizontal size={12} className="text-[var(--teal)]" />{t("Properties")}</button></div>}
           </div>
           {dockNode}

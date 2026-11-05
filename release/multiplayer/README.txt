@@ -19,7 +19,10 @@ trusted network with trusted participants: shared scenes may contain runnable
 robot scripts and imported assets. Closing the host/helper ends the session.
 Cameras and graphics/UI settings stay local. Scene edits and the simulation
 are shared; the host runs the simulation. A disconnected guest keeps a local
-copy of the current scene, with the simulation reset.
+copy of the current scene, with the simulation reset. Stop the helper with
+Ctrl+C or close its terminal to release its TCP and UDP ports. If another
+process owns a required port, the helper reports the conflict and exits; it
+never kills that process.
 
 The standalone HTML still works offline on its own, without the helper, for
 single-player use. You can customize ports for special setups with

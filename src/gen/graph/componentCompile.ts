@@ -2,10 +2,12 @@ import './components';
 import { makeItem } from '../../data/library';
 import { DEFAULT_GEN, validateFactory } from '../../sim/generator';
 import { programToCode } from '../../sim/programCode';
+import { RobotRT } from '../../sim/engine';
+import { cleanPtpPoints } from '../../utils/ptp';
 import { samplePath } from '../../sim/spline';
 import { resolveMountedSensors } from '../../utils/sensorMount';
 import type { ComponentKind, SceneItem } from '../../types';
-import { indexGraph, makeNode, topoSort, uid, validateGraph } from './graph';
+import { indexGraph, isStandalonePtp, makeNode, topoSort, uid, validateGraph } from './graph';
 import { ensurePickupSensor, upgradePickupSensors } from './pickupSensors';
 import { channelMode, signalPortNumber, signalRows } from './signal';
 import { signalWireColor } from '../../utils/signalPorts';
@@ -39,7 +41,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   // A robot's explicit inspection reference is a real use even when the
   // sensor has no signal wire (for example, a single unsignalled output).
   const inspectionIds = new Set(graph.nodes.filter(node => connectedIds.has(node.id) && node.type === 'part.robot').map(node => node.params.inspectSensor).filter((id):id is string => typeof id === 'string' && id !== 'none'));
-  const included = (node:GraphNode) => connectedIds.has(node.id) || structure(node) || (node.type === 'part.color-sensor' && inspectionIds.has(node.id));
+  const included = (node:GraphNode) => connectedIds.has(node.id) || structure(node) || isStandalonePtp(node,graph.links) || (node.type === 'part.color-sensor' && inspectionIds.has(node.id));
   const activeGraph = { ...graph, nodes: graph.nodes.filter(included) };
   const diagnostics = validateGraph(activeGraph);
   for (const node of graph.nodes) if (!included(node)) diagnostics.push({id:`inactive:${node.id}`,severity:'info',nodeId:node.id,message:'Disconnected part is inactive.'});
@@ -53,7 +55,9 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   if (graph.nodes.some((node) => !node.type.startsWith('part.'))) error('Physical modules cannot be mixed with legacy settings nodes.');
   const feeders = activeGraph.nodes.filter((node) => node.type === 'part.feeder');
   const sources = activeGraph.nodes.filter(node => node.type === 'part.feeder' || (node.type === 'part.pallet' && inFlow(node.id).length === 0 && outFlow(node.id).length > 0));
-  if (!sources.length) error('Add a feeder or source pallet to start a production line.');
+  const standalone = (node:GraphNode) => isStandalonePtp(node,graph.links);
+  const motionOnly = activeGraph.nodes.some(standalone) && activeGraph.nodes.every(node => standalone(node) || automation(node) || structure(node));
+  if (!sources.length && !motionOnly) error('Add a feeder or source pallet to start a production line.');
 
   const reachable = new Set(sources.map((node) => node.id));
   for (const node of order) {
@@ -72,7 +76,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
       if (new Set(ins.map((link) => link.from.node)).size !== ins.length) error('A conveyor cannot merge the same source twice.', node.id);
       if (outs.length && !sharedWorkers && !['part.conveyor','part.robot','part.human'].includes(next ?? '')) error('A conveyor must feed another conveyor or a robot.', node.id);
     }
-    if (node.type === 'part.robot' || node.type === 'part.human') {
+    if ((node.type === 'part.robot' || node.type === 'part.human') && !standalone(node)) {
       if (predecessors.length !== 1 || !['part.conveyor','part.pallet'].includes(predecessors[0]?.type ?? '') || (node.type === 'part.human' && predecessors[0]?.type === 'part.pallet') || (!palletFanout && !['part.conveyor','part.pallet'].includes(next ?? ''))) error('A robot needs a source conveyor or pallet and a target conveyor or pallet.', node.id);
       if ((next === 'part.pallet' || palletFanout) && machineIn(node.id).length) error('A palletizing robot cannot tend a machine. Connect a conveyor and another robot before the pallet.', node.id);
     }
@@ -88,11 +92,20 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const machineIds = new Set<string>();
   for (const node of activeGraph.nodes) {
     if (node.type === 'part.robot' || node.type === 'part.human') for (const link of machineIn(node.id)) machineIds.add(link.from.node);
-    if (node.type !== 'part.machine' && !automation(node) && !structure(node) && !reachable.has(node.id)) error('This part is not connected to a production line.', node.id);
+    if (node.type !== 'part.machine' && !automation(node) && !structure(node) && !reachable.has(node.id) && !standalone(node)) error('This part is not connected to a production line.', node.id);
   }
   for (const node of activeGraph.nodes.filter((entry) => entry.type === 'part.machine')) {
     if (!machineIds.has(node.id)) error('This part is not connected to a production line.', node.id);
     if ((outgoing.get(node.id) ?? []).filter((link) => link.from.port === 'machine').length > 1) error('A machine can be attached to only one robot.', node.id);
+  }
+  for (const node of activeGraph.nodes.filter(node => node.type === 'part.robot' && node.params.ptpEnabled === true)) {
+    try {
+      const points = cleanPtpPoints(node.params.ptpPoints ?? '[]');
+      if (!points.length) error('Teach at least one PTP point.',node.id);
+      const kind = String(node.params.kind ?? 'robot');
+      const probe = new RobotRT(-1,makeItem((['robot','cobot','kuka','fanuc'].includes(kind) ? kind : 'robot') as ComponentKind));
+      for (const point of points) if (!probe.reach(probe.toWorld(point.position))) error(`PTP point "${point.name}" is outside robot reach.`,node.id);
+    } catch { error('Invalid PTP points.',node.id); }
   }
   if (diagnostics.some((entry) => entry.severity === 'error')) return {plant:null,diagnostics,results:new Map(),ms:performance.now()-start};
 
@@ -177,6 +190,11 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
         }
         ends.set(part.id, {x:x+length,z});
       }
+    } else if (standalone(part)) {
+      const kind = String(value(part,'kind','robot'));
+      const robotKind = (['robot','cobot','kuka','fanuc'].includes(kind) ? kind : 'robot') as ComponentKind;
+      item = makeItem(robotKind,[number(part,'ptpX',0,-200,200),number(part,'ptpY',0,-200,200),number(part,'ptpZ',0,-200,200)],number(part,'ptpRotation',0,-360,360),{name:part.title || 'PTP robot',props:{payload:robotKind==='cobot'?5:12,speed:number(part,'speed',70,1,100),gripper:String(value(part,'gripper','vacuum'))}});
+      ends.set(part.id,{x:item.position[0],z:item.position[2]});
     } else if (part.type === 'part.human' || part.type === 'part.robot') {
       const parent = parents[0];
       const siblings = outFlow(parent.node.id);
@@ -210,6 +228,10 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
         : [x-0.3,0,palletZ ?? z+2.9];
       item = makeItem('crates',position,0,{name:siblings.length > 1 ? `Pallet ${index+1}` : 'Pallet',props:{product:String(value(part,'product','machined')),prefill:value(part,'prefill',false) === true,fillProducts:String(value(part,'fillProducts','[]')),cols:number(part,'cols',3,1,Number.MAX_SAFE_INTEGER),rows:number(part,'rows',2,1,Number.MAX_SAFE_INTEGER),layers:number(part,'layers',4,1,Number.MAX_SAFE_INTEGER),gap:0.04}});
     }
+    if (part.type === 'part.robot' && (part.params.ptpEnabled === true || part.params.ptpPoints !== undefined)) {
+      try { item.ptp = {enabled:part.params.ptpEnabled === true,repeat:part.params.ptpRepeat === true,points:cleanPtpPoints(part.params.ptpPoints ?? '[]')}; }
+      catch { /* disabled invalid points are ignored; enabled points were diagnosed above */ }
+    }
     instances.set(part.id,item);
     items.push(item);
   }
@@ -226,7 +248,7 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   }
 
   for (const part of order) {
-    if (part.type !== 'part.robot' && part.type !== 'part.human') continue;
+    if ((part.type !== 'part.robot' && part.type !== 'part.human') || standalone(part)) continue;
     const robot = instances.get(part.id)!;
     const source = instances.get(inFlow(part.id)[0].from.node)!;
     const targetNodeIds = outFlow(part.id).map(link => link.to.node);
@@ -338,6 +360,6 @@ export function compileComponentGraph(graph: NodeGraph): CompileResult {
   const resolvedItems = resolveMountedSensors(items);
   const warnings = validateFactory(resolvedItems);
   warnings.forEach((message,index) => diagnostics.push({id:`reach:${index}`,severity:'warning',message}));
-  const plant: PlantResult = {options:{...DEFAULT_GEN},items:resolvedItems,summary:`${sources.length} production line(s) · ${items.length} components`,warnings};
+  const plant: PlantResult = {options:{...DEFAULT_GEN},items:resolvedItems,summary:`${sources.length} production line(s) · ${activeGraph.nodes.filter(standalone).length} PTP robot(s) · ${items.length} components`,warnings};
   return {plant,diagnostics,results:new Map(),ms:Math.round((performance.now()-start)*10)/10};
 }

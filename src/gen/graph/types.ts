@@ -45,7 +45,7 @@ export interface PortDef {
   help?: string;
 }
 
-export type ParamKind = 'number' | 'select' | 'boolean' | 'text' | 'string' | 'color' | 'nodeRef' | 'seed' | 'product' | 'multi' | 'product-list';
+export type ParamKind = 'number' | 'select' | 'boolean' | 'text' | 'string' | 'color' | 'nodeRef' | 'seed' | 'product' | 'multi' | 'product-list' | 'ptp-points';
 
 export interface ParamDef {
   key: string;

@@ -74,6 +74,22 @@ export interface RobotProgram {
   paintColor?: string;
 }
 
+/** Robot-base-relative position, in metres, for a joint-interpolated move. */
+export interface PtpPoint {
+  id: string;
+  name: string;
+  position: Vec3;
+  /** Percentage of the robot's configured speed. */
+  speed: number;
+  /** Dwell in simulation seconds after arrival. */
+  dwell: number;
+}
+export interface PtpProgram {
+  enabled: boolean;
+  repeat: boolean;
+  points: PtpPoint[];
+}
+
 export interface ComponentSpec {
   label: string;
   value: string;
@@ -171,6 +187,8 @@ export interface SceneItem {
   /** Robot program (JavaScript using the Larp robot API). */
   script?: string;
   program?: RobotProgram;
+  /** Teachable joint-space motion; enabling it suspends (but preserves) the task/code. */
+  ptp?: PtpProgram;
   /** Optional visual workflow overrides keyed by numbered robot input. */
   programs?: Record<string, RobotProgram>;
   /** Present only for imported-model components. */
@@ -190,4 +208,4 @@ export interface LayoutPreset {
 }
 
 export type CameraPreset = "iso" | "top" | "front" | "back" | "left" | "right" | "room";
-export type ToolMode = "select" | "move" | "rotate";
+export type ToolMode = "select" | "move" | "rotate" | "ptp";

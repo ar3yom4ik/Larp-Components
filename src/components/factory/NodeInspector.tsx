@@ -1,11 +1,13 @@
-import { RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { cleanPtpPoints, newPtpPoint } from '../../utils/ptp';
 import { getNodeDef } from '../../gen/graph/registry';
 import { channelColor, channelMode, signalRows } from '../../gen/graph/signal';
 import { signalAcceptsInput, signalFunction, signalFunctions } from '../../utils/signalChannels';
 import { MaterialChoice, SurfaceMaterialChoice } from '../MaterialChoice';
 import { ProductPicker } from '../ProductPicker';
 import { PalletFillPicker } from '../PalletFillPicker';
-import type { SceneItem } from '../../types';
+import { PtpNumberInput } from '../PtpNumberInput';
+import type { PtpPoint, SceneItem, Vec3 } from '../../types';
 import type { GraphNode, NodeGraph, ParamDef } from '../../gen/graph/types';
 import { t } from '../../i18n';
 import { cn } from '../../utils/cn';
@@ -144,6 +146,7 @@ export function NodeInspector({
 
               {param.key === 'surfaceMaterial' && <SurfaceMaterialChoice label={t(param.label)} value={String(value(param))} items={items} onChange={next=>onChange(param.key,next)} />}
 
+              {param.kind === 'ptp-points' && <NodePtpPoints value={value(param)} onChange={next=>onChange(param.key,next)} />}
               {param.kind === 'product-list' && <PalletFillPicker value={value(param)} fallback={String(node.params.product ?? 'carton')} items={items} onChange={next => onChange(param.key,next)} />}
               {param.kind === 'product' && (
                 <ProductPicker value={String(value(param))} onChange={(next) => onChange(param.key, next)} label={param.label} showLabel={false} allowAuto={param.default === 'auto'} allowAny={param.key === 'inputProduct'} items={items} />
@@ -187,4 +190,30 @@ export function NodeInspector({
       </div>
     </div>
   );
+}
+
+
+/** Numeric authoring in AI Factory; points are later editable with the 3D teach pendant. */
+function NodePtpPoints({value,onChange}:{value:unknown;onChange:(value:string)=>void}) {
+  let points:PtpPoint[]=[];let invalid=false;
+  try {points=cleanPtpPoints(value);} catch {invalid=true;}
+  const save=(next:PtpPoint[])=>onChange(JSON.stringify(next));
+  const edit=(index:number,patch:Partial<PtpPoint>)=>save(points.map((point,i)=>i===index?{...point,...patch}:point));
+  const reorder=(index:number,direction:number)=>{const other=index+direction;if(other<0||other>=points.length)return;const next=[...points];[next[index],next[other]]=[next[other],next[index]];save(next);};
+  const input='w-full min-w-0 rounded border border-white/12 bg-[#1e1e20] px-1 py-1 font-mono text-[10px] text-white/85';
+  const button='rounded border border-white/12 bg-white/5 px-1.5 py-1 text-white/65 hover:bg-white/10 disabled:opacity-30';
+  return <div className="space-y-2 rounded border border-white/10 bg-black/10 p-2" data-node-ptp-points>
+    <p className="text-[9px] leading-relaxed text-white/45">{t('Robot-local metres. Points execute in order using joint-space PTP.')}</p>
+    {invalid&&<p role="alert" className="text-[10px] text-amber-300">{t('Invalid PTP points.')}</p>}
+    {points.map((point,index)=><div key={point.id} className="space-y-1 rounded border border-white/10 p-1.5">
+      <div className="flex items-center gap-1"><span className="font-mono text-[9px] text-white/45">{index+1}</span><input aria-label={`${t('PTP point name')} ${index+1}`} className={input} value={point.name} maxLength={120} onChange={e=>edit(index,{name:e.target.value})}/>
+        <button type="button" aria-label={`${t('Move point up')} ${index+1}`} disabled={index===0} className={button} onClick={()=>reorder(index,-1)}><ArrowUp size={10}/></button>
+        <button type="button" aria-label={`${t('Move point down')} ${index+1}`} disabled={index===points.length-1} className={button} onClick={()=>reorder(index,1)}><ArrowDown size={10}/></button>
+        <button type="button" aria-label={`${t('Delete PTP point')} ${index+1}`} className={button} onClick={()=>save(points.filter((_,i)=>i!==index))}><Trash2 size={10}/></button>
+      </div>
+      <div className="grid grid-cols-3 gap-1">{(['X','Y','Z'] as const).map((axis,i)=><label key={axis} className="text-[9px] text-white/45">{axis}<PtpNumberInput aria-label={`Node PTP ${index+1} ${axis}`} step="0.01" value={point.position[i]} className={input} onValueChange={n=>{const position=[...point.position] as Vec3;position[i]=Math.max(-200,Math.min(200,n));edit(index,{position});}}/></label>)}</div>
+      <div className="grid grid-cols-2 gap-1"><label className="text-[9px] text-white/45">{t('Speed (%)')}<PtpNumberInput aria-label={`${t('PTP speed (%)')} ${index+1}`} className={input} min="1" max="100" value={point.speed} onValueChange={n=>edit(index,{speed:Math.max(1,Math.min(100,n))})}/></label><label className="text-[9px] text-white/45">{t('Dwell (s)')}<PtpNumberInput aria-label={`${t('PTP dwell (s)')} ${index+1}`} className={input} min="0" max="300" step=".1" value={point.dwell} onValueChange={n=>edit(index,{dwell:Math.max(0,Math.min(300,n))})}/></label></div>
+    </div>)}
+    <button type="button" onClick={()=>save([...points,newPtpPoint([1.2,1.4,0],points.length)])} className={`${button} flex w-full items-center justify-center gap-1 text-[10px]`}><Plus size={11}/>{t('Add PTP point')}</button>
+  </div>;
 }

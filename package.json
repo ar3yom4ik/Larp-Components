@@ -1,6 +1,6 @@
 {
   "name": "larp-components",
-  "version": "3.0.0-alpha.10",
+  "version": "3.0.0-alpha.11",
   "description": "Browser-based React/Three.js factory layout editor and discrete-time simulator (Larp Components 5.1, V3 prerelease).",
   "private": true,
   "type": "module",
@@ -48,7 +48,10 @@
     "test:multiplayer-browser": "node tests/multiplayer-browser.mjs",
     "package:multiplayer": "node scripts/package-multiplayer.mjs",
     "test:depalletize-browser": "node tests/depalletize-browser.mjs",
-    "test:multiplayer-standalone": "node tests/multiplayer-standalone.mjs"
+    "test:multiplayer-standalone": "node tests/multiplayer-standalone.mjs",
+    "test:multiplayer-ports": "node tests/multiplayer-ports.mjs",
+    "test:ptp-browser": "node tests/ptp-browser.mjs",
+    "test:ptp-standalone": "node tests/ptp-standalone.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

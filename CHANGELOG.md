@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.11] - 2026-11-05 (prerelease)
+
+- Added a resizable PTP teaching pendant beside the 3D gizmos on desktop and mobile. Jog the live TCP, teach/touch up and reorder robot-local waypoints, edit XYZ, speed and dwell, and run/repeat the sequence with signal gating and completion outputs. Programs persist, copy and synchronize; disabling PTP restores the previous task or script.
+- Implemented coordinated joint interpolation with forward kinematics and new world/local PTP script commands. The existing simplified four-joint arm constrains tool orientation to its local vertical; arm collision checks, real joint limits and full six-axis programming are not implemented.
+- Added AI Factory PTP point editing, standalone motion-only robots, placement and signal connections, while keeping material-flow validation for connected workflows. Guests jog through the host only while paused and within reach; concurrent edits to one PTP program are last-writer-wins.
+- Improved helper shutdown on termination and startup errors: active HTTP/WebSocket clients and UDP/TCP listeners are closed promptly without terminating unrelated processes. Added active-session, port-rebinding, transformed-robot, UI/mobile, offline and multiplayer regressions. Native Windows/macOS shutdown has not been separately tested.
+
 ## [3.0.0-alpha.10] - 2026-11-05 (prerelease)
 
 - Includes the alpha.9 LAN multiplayer, mixed-pallet depalletizing, sorting and AI Factory features.

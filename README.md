@@ -18,11 +18,19 @@ npm run dev
 
 Windows users can also double-click `start-larp.bat`, which installs dependencies on first run and starts the app.
 
+## PTP robot teaching
+
+Select a robot, then choose **HOME → Manipulation → PTP** beside Move and Rotate (or **PTP** in the mobile toolbar). Pause the simulation, choose **Jog TCP**, and drag the XYZ gizmo to move the tool. **Teach current TCP** adds a named point; jogging alone does not change saved points. Select a marker or list entry and use **Edit point** to move that waypoint independently, or **Touch up from TCP** to copy the current robot pose. Reorder points, set each speed and dwell, enable PTP, and press Play. The resizable panel shows unreachable points. Positions are robot-base-local, so they follow a moved, rotated or scaled robot. Dashed lines show sequence order, not the actual trajectory.
+
+With PTP enabled, the preserved visual task or script is suspended; disabling PTP restores it. A non-repeating sequence runs once (reset or edit it to run again). Wired robot inputs gate each sequence, and operation-end outputs pulse on completion; without an input it starts automatically. Jogging requires pause and an empty gripper and restarts any interrupted program on resume. Editing an active PTP program also restarts it. In AI Factory, enable PTP and add ordered numeric points to a robot node; a motion-only robot needs no material-flow connection, and signal-only connections remain supported. Shared programs synchronize in LAN sessions, but concurrent edits to the same PTP program use last-writer-wins.
+
+PTP is coordinated **joint-space** interpolation, not linear TCP movement. It uses the existing simplified four-joint arm with its tool constrained along the robot's local vertical; it is not six-axis robot programming, and it does not check arm collisions or manufacturer joint limits. Do not use it for real-world robot or safety planning. Scripts may use `await robot.movePtp(x,y,z,speed)` in world metres or `await robot.movePtpLocal(x,y,z,speed)` in robot-local metres; the existing `moveTo` remains Cartesian.
+
 ## Multiplayer and mixed pallets
 
 The single HTML file remains offline and zero-install for single-player. For LAN multiplayer, download **`Larp_Multiplayer.zip`** from the prerelease and extract it on **each computer**. Install Node.js LTS, run `Larp_Multiplayer.bat` on Windows or `sh Larp_Multiplayer.sh` on macOS/Linux, and open the helper's `http://localhost:4174/` page. In **Connectivity → Multiplayer**, enter a nickname and host or join a discovered session; the host approves or denies each request. The host can change joinability, kick players or end the session. Chat is beside Statistics. Each player has a private camera and visual settings; scene edits and simulation controls are shared, with the host running the simulation. On disconnect, a guest keeps a local scene copy and its simulation resets.
 
-Discovery uses UDP **43749**, and connections use TCP **4174** on the same subnet. Allow them through firewalls; isolated Wi-Fi or VPNs may block broadcasts. LAN traffic is unencrypted, and shared projects can contain executable robot scripts: approve only trusted people on a trusted network. Opening the HTML as `file://` cannot host or discover sessions. In development, run `npm run multiplayer` alongside Vite; the same-origin proxy connects to the helper.
+Discovery uses UDP **43749**, and connections use TCP **4174** on the same subnet. Allow them through firewalls; isolated Wi-Fi or VPNs may block broadcasts. LAN traffic is unencrypted, and shared projects can contain executable robot scripts: approve only trusted people on a trusted network. Opening the HTML as `file://` cannot host or discover sessions. In development, run `npm run multiplayer` alongside Vite; the same-origin proxy connects to the helper. Stop the helper with Ctrl+C or close its terminal: it closes active clients and releases its TCP/UDP listeners. If a port belongs to another process, the helper reports the conflict rather than terminating it.
 
 For depalletizing, select a pallet and enable **Prefill pallet**. Add one or more products to the shuffled mix; reset applies changed fill settings. In **Program → Visual builder**, choose the pallet as the robot's source, optionally choose a color sensor to inspect each held part, and connect sensor outputs to destination pallets for sorting. AI Factory's physical pallet nodes support the same stock and robot/sensor configuration, including multiple robots consuming the same source. Replacing a pallet leaves it empty until reset. Very large inventories consume corresponding memory and simulation time.
 
@@ -34,6 +42,9 @@ For depalletizing, select a pallet and enable **Prefill pallet**. Add one or mor
 | `npm run multiplayer` | Start the opt-in local LAN helper (UDP discovery and approved sessions). |
 | `npm run package:multiplayer` | Package the built standalone HTML, helper, launchers and notices. |
 | `npm run test:multiplayer-server` | Real UDP discovery and session protocol test. |
+| `npm run test:multiplayer-ports` | Shutdown, active sockets, startup conflicts and TCP/UDP rebinding. |
+| `npm run test:ptp-browser` | Real PTP gizmos, teaching, mobile and factory-node checks. |
+| `npm run test:ptp-standalone` | Offline PTP playback and teaching (after `npm run build`). |
 | `npm run test:multiplayer-browser` | Two-browser LAN collaboration, camera, chat and simulation test. |
 | `npm run test:multiplayer-standalone` | Test the extracted LAN package (after build and packaging). |
 | `npm run test:depalletize-browser` | Prefilled pallet, mixed stock, task and graph UI checks. |

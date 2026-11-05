@@ -74,6 +74,7 @@ export function cloneItems(items: SceneItem[]): SceneItem[] {
     signalTargets: item.signalTargets ? [...item.signalTargets] : undefined,
     points: item.points ? item.points.map((p) => [...p] as [number, number]) : undefined,
     pointHeights: item.pointHeights ? [...item.pointHeights] : undefined,
+    ptp: item.ptp ? {...item.ptp, points:item.ptp.points.map(point => ({...point, position:[...point.position] as Vec3}))} : undefined,
   }));
 }
 

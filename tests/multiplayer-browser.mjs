@@ -70,7 +70,27 @@ try {
  await bob.getByRole('button',{name:'Pause',exact:true}).first().click();
  for(const page of [alice,bob]) await page.waitForFunction(()=>!window.__larp.running);
  const times=await Promise.all([alice.evaluate(()=>window.__larp.time),bob.evaluate(()=>window.__larp.time)]);assert.ok(Math.abs(times[0]-times[1])<.5,`shared timeline ${times}`);
+ // A guest's teach pendant edits the shared program, but jogging is executed by the paused host.
+ const robotId=await alice.evaluate(async()=>{const {makeItem}=await import('/src/data/library.ts');const robot=makeItem('robot',[4,0,-3],55,{name:'Shared PTP arm',props:{speed:100}});window.__larpProject.setItems([...window.__larpProject.getItems(),robot]);return robot.id;});
+ await bob.waitForFunction(id=>!!window.__larp.robots.get(id),robotId);
+ await bob.evaluate(id=>window.__larpProject.select(id),robotId);await bob.getByRole('button',{name:'HOME',exact:true}).click();await bob.getByTitle('PTP teaching').click();
+ const pendant=bob.getByRole('dialog',{name:'PTP teaching'});await pendant.getByRole('button',{name:'Teach current TCP'}).click();
+ await alice.waitForFunction(id=>window.__larpProject.getItems().find(i=>i.id===id)?.ptp?.points.length===1,robotId);
+ const goal=await bob.evaluate(id=>{const robot=window.__larp.robots.get(id);const target=robot.toWorld([1.1,1.5,.4]);if(!window.__larp.jogRobot(id,target))throw Error('guest jog rejected');return target;},robotId);
+ await alice.waitForFunction(({id,goal})=>window.__larp.robots.get(id).tip.every((n,i)=>Math.abs(n-goal[i])<1e-6),{id:robotId,goal});
+ await bob.waitForFunction(({id,goal})=>window.__larp.robots.get(id).tip.every((n,i)=>Math.abs(n-goal[i])<1e-6),{id:robotId,goal});
+ await pendant.getByRole('button',{name:'Teach current TCP'}).click();await pendant.getByLabel('Enable PTP program').check();
+ await alice.waitForFunction(id=>{const ptp=window.__larpProject.getItems().find(i=>i.id===id)?.ptp;return ptp?.enabled&&ptp.points.length===2},robotId);
+ // Even a forged guest message cannot move the host to an unreachable/non-finite target.
+ await bob.evaluate(id=>window.__larpProject.multiplayer.action('jogRobot',{id,target:[100,100,100]}),robotId);
+ await new Promise(r=>setTimeout(r,400));const unchanged=await alice.evaluate(id=>window.__larp.robots.get(id).tip,robotId);assert.ok(unchanged.every((n,i)=>Math.abs(n-goal[i])<1e-6));
+ await pendant.getByRole('button',{name:'Close PTP teaching'}).click();
  await bob.getByRole('button',{name:'Play',exact:true}).first().click();for(const page of [alice,bob]) await page.waitForFunction(()=>window.__larp.running);
+ const runId=await alice.evaluate(id=>window.__larp.robots.get(id).runId,robotId);
+ await bob.evaluate(id=>window.__larpProject.multiplayer.action('jogRobot',{id,target:[4.5,1.5,-3]}),robotId);
+ await new Promise(r=>setTimeout(r,400));assert.equal(await alice.evaluate(id=>window.__larp.robots.get(id).runId,robotId),runId,'host rejects jogging while running');
+ await alice.waitForFunction(id=>window.__larp.robots.get(id).cycles>=1,robotId,{timeout:30000});
+ await bob.waitForFunction(id=>window.__larp.robots.get(id).cycles>=1,robotId,{timeout:30000});
  for(const page of [alice,bob]) await page.getByRole('button',{name:'Chat',exact:true}).last().click();
  await bob.getByLabel('Chat message',{exact:true}).fill('Hello Alice');await bob.getByRole('button',{name:'Send',exact:true}).click();
  await alice.getByLabel('Chat messages').getByText('Hello Alice').waitFor();
@@ -80,5 +100,5 @@ try {
  assert.equal(await alice.evaluate(()=>window.__larpProject.multiplayer.getState().status),'host');
  assert.equal(await bob.evaluate(()=>window.__larp.networkGuest),false);
  assert.deepEqual(errors,[]);
- console.log('multiplayer UI: discovery, approval/denial, shared edits, simulation, camera avatars, chat and kick PASS');
+ console.log('multiplayer UI: discovery, approval/denial, shared edits, host-validated PTP, simulation, camera avatars, chat and kick PASS');
 } finally {if(browser)await browser.close();for(const p of children)p.kill('SIGTERM');await Promise.all(children.map(p=>new Promise(r=>{if(p.exitCode!==null)r();else p.once('exit',r);})));}

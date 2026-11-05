@@ -30,10 +30,10 @@ jobs:
         run: npm run test:unit
 
       - name: LAN helper protocol and UDP discovery
-        run: npm run test:multiplayer-server
+        run: npm run test:multiplayer-server && npm run test:multiplayer-ports
 
       - name: Production build (standalone HTML and LAN package)
-        run: npm run build && npm run package:multiplayer
+        run: npm run build && npm run package:multiplayer && LARP_HELPER_ENTRY=dist/Larp_Multiplayer.cjs npm run test:multiplayer-ports
 
       - name: Upload standalone build
         uses: actions/upload-artifact@v4
@@ -68,7 +68,7 @@ jobs:
       - name: Factory graph and signal node regressions
         run: npm run test:factory-browser && npm run test:factory-signal-browser && npm run test:signals-browser
       - name: Selection, physics and web catalog regressions
-        run: npm run test:selection-browser && npm run test:web-catalog-browser && npm run test:gizmos-browser
+        run: npm run test:selection-browser && npm run test:web-catalog-browser && npm run test:gizmos-browser && npm run test:ptp-browser
       - name: Alpha.7 sensor, layout, placement and rendering regressions
         run: npm run test:alpha7-browser
       - name: Alpha.8 materials, multi-pallet, snapping and MRT regressions
@@ -104,7 +104,7 @@ jobs:
       - name: Packaged LAN helper and standalone two-browser regression
         run: |
           set -o pipefail
-          ( npm run build && npm run package:multiplayer && npm run test:multiplayer-standalone ) 2>&1 | tee /tmp/lan-package.log || {
+          ( npm run build && npm run package:multiplayer && npm run test:ptp-standalone && npm run test:multiplayer-standalone ) 2>&1 | tee /tmp/lan-package.log || {
             text=$(tail -n 60 /tmp/lan-package.log); text=${text//'%'/'%25'}; text=${text//$'\n'/'%0A'}; text=${text//$'\r'/'%0D'}
             echo "::error title=LAN package regression::$text"
             exit 1

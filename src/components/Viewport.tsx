@@ -1,4 +1,5 @@
 import { RemoteCameras } from './RemoteCameras';
+import { PtpLayer, PtpTeachingPanel, isRobot, type PtpMode } from './PtpTeaching';
 import type { MultiplayerClient } from '../multiplayer/client';
 import { surfaceUsesWorldProjection } from '../data/materials';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
@@ -70,6 +71,7 @@ interface ViewportProps {
   selectedPoint: number | null;
   onSelectPoint: (index: number | null) => void;
   tool: ToolMode;
+  onToolChange: (tool:ToolMode)=>void;
   snap: boolean;
   running: boolean;
   onToggleRun: () => void;
@@ -672,6 +674,10 @@ interface SceneContentProps {
   items: SceneItem[];
   productItems?: SceneItem[];
   onProjectedWorkpiecesChange: (active: boolean) => void;
+  ptpMode:PtpMode;
+  ptpPointId:string|null;
+  onPtpPoint:(id:string)=>void;
+  onPtpFeedback:(message:string)=>void;
   selectedId: string | null;
   selectedIds: string[];
   onSelect: ViewportProps["onSelect"];
@@ -692,6 +698,10 @@ function SceneContent({
   items,
   productItems = items,
   onProjectedWorkpiecesChange,
+  ptpMode,
+  ptpPointId,
+  onPtpPoint,
+  onPtpFeedback,
   selectedId,
   selectedIds,
   onSelect,
@@ -737,7 +747,7 @@ function SceneContent({
       onSelect(item.id, additive && event.button === 0 ? "toggle" : preserveGroup ? "preserve" : "replace");
       onSelectPoint(null);
       // Right click selects, middle drag only orbits; modifiers only change selection.
-      if (event.button !== 0 || additive || tool === "select" || item.locked) return;
+      if (event.button !== 0 || additive || tool === "select" || tool === "ptp" || item.locked) return;
       const hit = new THREE.Vector3();
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -item.position[1]);
       if (!event.ray.intersectPlane(plane, hit)) return;
@@ -762,7 +772,7 @@ function SceneContent({
       // In Select mode the same left drag belongs to the marquee, including
       // when it begins over a visible spline sphere. Move mode still supports
       // both the original sphere drag and its XYZ gizmo.
-      if (tool === "select") return;
+      if (tool === "select" || tool === "ptp") return;
       event.stopPropagation();
       if (gizmoActive.current) return;
       onSelect(id);
@@ -881,6 +891,7 @@ function SceneContent({
       {(() => {
         const selected = items.find((item) => item.id === selectedId && item.visible !== false && !item.locked);
         if (!selected || tool === 'select') return null;
+        if (tool === 'ptp') return isRobot(selected) ? <PtpLayer item={selected} mode={ptpMode} pointId={ptpPointId} onPoint={onPtpPoint} snap={snap} onUpdateItem={onUpdateItem} onBeginEdit={onBeginEdit} onActive={setGizmoActive} onFeedback={onPtpFeedback} /> : null;
         if (tool === 'move' && selectedPoint !== null && ['conveyor', 'roller', 'platform', 'wall'].includes(selected.kind) && (selected.points?.[selectedPoint] || (selected.kind === 'platform' && platformCorners(selected)[selectedPoint]))) {
           return <PointGizmo item={selected} index={selectedPoint} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} />;
         }
@@ -1083,6 +1094,7 @@ export const Viewport = memo(function Viewport({
   selectedPoint,
   onSelectPoint,
   tool,
+  onToolChange,
   snap,
   running,
   onToggleRun,
@@ -1253,6 +1265,11 @@ export const Viewport = memo(function Viewport({
   const handledRestore = useRef(0);
   const [restoreCamera, setRestoreCamera] = useState<CameraRestore | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  const [ptpMode,setPtpMode] = useState<PtpMode>('jog');
+  const [ptpPointId,setPtpPointId] = useState<string | null>(null);
+  const [ptpFeedback,setPtpFeedback] = useState('');
+  useEffect(() => {setPtpPointId(null);setPtpMode('jog');setPtpFeedback('');},[selectedId]);
+  useEffect(() => {setPtpFeedback('');},[ptpMode,ptpPointId]);
   // The custom skin owns the 3D viewport colour too; its brightness decides whether
   // grid, fog and helper colours use the dark or the light palette.
   const scheme = activeScheme(appearance);
@@ -1418,6 +1435,10 @@ export const Viewport = memo(function Viewport({
             items={items}
             productItems={productItems}
             onProjectedWorkpiecesChange={setProjectedWorkpieces}
+            ptpMode={ptpMode}
+            ptpPointId={ptpPointId}
+            onPtpPoint={setPtpPointId}
+            onPtpFeedback={setPtpFeedback}
             selectedId={selectedId}
             selectedIds={selectedIds}
             onSelect={onSelect}
@@ -1486,13 +1507,14 @@ export const Viewport = memo(function Viewport({
         <KpiChips running={running} items={items.length} />
       </div>
 
-      {hudVisible && selected && !mobile && (
+      {tool === 'ptp' && !benchmark && <PtpTeachingPanel item={selected} running={running} onPause={onToggleRun} onExit={()=>onToolChange('select')} mode={ptpMode} onMode={setPtpMode} pointId={ptpPointId} onPoint={setPtpPointId} onUpdateItem={onUpdateItem} feedback={ptpFeedback} onFeedback={setPtpFeedback} />}
+      {hudVisible && selected && !mobile && tool !== 'ptp' && (
         <div className="absolute left-3 top-[122px] z-10 max-w-[calc(100%-24px)]">
           <SelectionHud item={selected} onDuplicate={onDuplicateSelected} onDelete={onDeleteSelected} />
         </div>
       )}
 
-      {hudVisible && selected && mobile && <div className="absolute left-3 top-[63px] z-10 max-w-[calc(100%-24px)]"><SelectionHud item={selected} onDuplicate={onDuplicateSelected} onDelete={onDeleteSelected} /></div>}
+      {hudVisible && selected && mobile && tool !== 'ptp' && <div className="absolute left-3 top-[63px] z-10 max-w-[calc(100%-24px)]"><SelectionHud item={selected} onDuplicate={onDuplicateSelected} onDelete={onDeleteSelected} /></div>}
 
       {signalMode && <div className="absolute bottom-16 left-3 z-20 max-w-[280px] rounded border border-white/20 bg-[#20272c]/95 p-2 text-[11px] text-white shadow-lg" role="status">
         <p>{sourceItem ? `${t("Choose an IN port for")}: ${sourceItem.name}` : t("Choose an OUT port on a sensor, button, laser, PLC or robot.")}</p>
@@ -1588,7 +1610,7 @@ export const Viewport = memo(function Viewport({
       </div>
       <div className={cn("viewport-hint pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#2a2a2c]/85 px-3 py-1 shadow-lg backdrop-blur lg:flex", mobile && "!hidden")}>
         <span className="whitespace-nowrap font-mono text-[8.5px] uppercase tracking-[0.1em] text-white/55">
-          {t(tool === "select" ? "Left drag: box select · middle drag: orbit · wheel: zoom" : tool === "move" ? "Drag a component to move it" : "Drag around a component to rotate it")}
+          {t(tool === "select" ? "Left drag: box select · middle drag: orbit · wheel: zoom" : tool === "move" ? "Drag a component to move it" : tool === "rotate" ? "Drag around a component to rotate it" : "Teach PTP points with the robot gizmo")}
           {t(selected && (selected.kind === "conveyor" || selected.kind === "roller") ? (tool === "select" ? " · choose Move to bend the spline" : " · drag the white handles to bend the spline") : "")}
         </span>
       </div>

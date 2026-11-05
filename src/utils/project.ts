@@ -1,6 +1,7 @@
 import type { ImportedCollision, ImportedMaterial, ImportedModelData, ModelAsset, ModelUnits, RobotProgram, SceneItem, TextureOverride, TextureSlot, WorkerMotionRole, WorkerSettings } from "../types";
 import { COMPONENTS, getDef } from "../data/library";
 import { signalFunction, validSignalPort } from "./signalChannels";
+import { cleanPtpProgram } from "./ptp";
 
 export interface ProjectFile {
   version: "5.1";
@@ -179,6 +180,7 @@ export function parseProject(text: string): ProjectFile {
         return { mode:p.mode, sourceId:p.sourceId, ...(p.sourceKind === "pallet" ? {sourceKind:"pallet" as const} : {}), targetId:p.targetId, ...(p.targetIds?.length ? {targetIds:[...new Set(p.targetIds)]} : {}), machineId:typeof p.machineId === "string" ? p.machineId : undefined, inspectSensorId:typeof p.inspectSensorId === "string" && p.inspectSensorId.length <= 1024 ? p.inspectSensorId : undefined, repeat:p.repeat !== false, delay:Math.max(0,Math.min(60,Number(p.delay)||0)), clearance:Math.max(.05,Math.min(.6,Number(p.clearance)||.3)), pickupBack:finite(p.pickupBack) ? Math.max(0,Math.min(200,p.pickupBack)) : undefined, paintColor:/^#[0-9a-f]{6}$/i.test(p.paintColor || "") ? p.paintColor : "#d6534c" };
       };
       const program = item.program ? cleanProgram(item.program) : undefined;
+      const ptp = item.ptp ? cleanPtpProgram(item.ptp) : undefined;
       let programs:Record<string,RobotProgram> | undefined;
       if (item.programs !== undefined) {
         if (!item.programs || typeof item.programs !== 'object' || Array.isArray(item.programs)) throw new Error('Invalid robot input programs');
@@ -211,7 +213,7 @@ export function parseProject(text: string): ProjectFile {
         if (!route || !validSignalPort(route.output) || !validSignalPort(route.input) || typeof route.targetId !== "string" || !route.targetId || route.targetId.length > 1024 || route.targetId === item.id) throw new Error("Invalid signal route");
         return {output:route.output,targetId:route.targetId,input:route.input};
       });
-      return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, signalChannels, signalRoutes, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, programs, imported, worker };
+      return { id: item.id, kind: item.kind, name: String(item.name || getDef(item.kind).name).slice(0, 120), position: item.position.map((v) => Math.max(-200, Math.min(200, v))) as SceneItem["position"], rotation: finite(item.rotation) ? item.rotation : 0, rotationX: finite(item.rotationX) ? item.rotationX : undefined, rotationZ: finite(item.rotationZ) ? item.rotationZ : undefined, scale: Math.max(item.kind === "imported-model" ? .001 : .2, Math.min(item.kind === "imported-model" ? 1000 : 3, Number(item.scale) || 1)), color: color(item.color, getDef(item.kind).accent), locked: item.locked === true, visible: item.visible !== false, props: { ...getDef(item.kind).defaults, ...props }, signalTargets, signalChannels, signalRoutes, points, pointHeights, script: typeof item.script === "string" ? item.script.slice(0, 100_000) : undefined, program, programs, ptp, imported, worker };
     });
   };
   const items = parseItems(data.items);

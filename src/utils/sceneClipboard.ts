@@ -13,6 +13,7 @@ export function snapshotSceneItems(items: readonly SceneItem[]): SceneItem[] {
     signalRoutes: item.signalRoutes?.map(route => ({ ...route })),
     points: item.points?.map(point => [...point] as [number, number]),
     pointHeights: item.pointHeights ? [...item.pointHeights] : undefined,
+    ptp: item.ptp ? { ...item.ptp, points:item.ptp.points.map(point => ({...point, position:[...point.position] as Vec3})) } : undefined,
     program: item.program ? { ...item.program, targetIds:item.program.targetIds?.slice() } : undefined,
     programs: item.programs ? Object.fromEntries(Object.entries(item.programs).map(([key,program]) => [key,{...program,targetIds:program.targetIds?.slice()}])) : undefined,
   }));

@@ -1,6 +1,6 @@
 import { palletFillProducts, shuffledPalletProducts } from '../utils/palletFill';
 import { surfaceMaterialColor } from '../data/materials';
-import type { GripperKind, RobotProgram, SceneItem } from "../types";
+import type { GripperKind, PtpProgram, RobotProgram, SceneItem } from "../types";
 import { samplePath, type P2 } from "./spline";
 import { getProduct, importedModelSize, importedProductSource, MACHINE_KINDS, palletSize } from "../data/products";
 import { distanceToSegment, navigate, navigateLayers, pointIsFree, projectToFree, type Barrier, type WalkObstacle, type Point3 } from "./navigation";
@@ -521,6 +521,10 @@ export class HumanRT {
 interface Cmd {
   ok: boolean;
   idle?: boolean;
+  /** This command sets joints and derives the TCP, so do not overwrite with IK. */
+  preserveJoints?: boolean;
+  /** Finish the segment at this substep; the next command starts next tick. */
+  deferNext?: boolean;
   update(dt: number): boolean;
 }
 
@@ -564,6 +568,7 @@ export class RobotRT {
   warned = false;
   program?: RobotProgram;
   programs?: Record<string,RobotProgram>;
+  ptp?: PtpProgram;
   activeProgram?: RobotProgram;
   activeProgramPort: number | null = null;
   outputPulsePort: number | null = null;
@@ -603,6 +608,7 @@ export class RobotRT {
     this.payload = num(item.props.payload, 12);
     this.program = item.program;
     this.programs = item.programs;
+    this.ptp = item.ptp;
     const outputMode = item.props.outputMode === "moving" ? "moving" : "operation-end";
     if (outputMode !== this.outputMode) this.outputPulse = 0;
     this.outputMode = outputMode;
@@ -631,8 +637,8 @@ export class RobotRT {
     return r >= 0.3 && ly >= 0 && d <= L1 + L2 - 0.03 && d >= Math.abs(L1 - L2) + 0.08;
   }
 
-  solve() {
-    const [lx, ly, lz] = this.toLocal(this.tip);
+  inverse(p: V3) {
+    const [lx, ly, lz] = this.toLocal(p);
     const { shoulder, L1, L2, Lw } = this.spec;
     const r = Math.hypot(lx, lz);
     const wy = ly + Lw - shoulder;
@@ -647,11 +653,18 @@ export class RobotRT {
     const wxr = d * Math.cos(phi);
     const wyr = d * Math.sin(phi);
     const th2 = Math.atan2(wyr - ey, wxr - ex);
-    this.joints.waist = Math.atan2(-lz, lx);
-    this.joints.shoulder = th1;
-    this.joints.elbow = th2 - th1;
-    this.joints.wrist = -Math.PI / 2 - th2;
+    return {waist:Math.atan2(-lz, lx), shoulder:th1, elbow:th2 - th1, wrist:-Math.PI / 2 - th2};
   }
+
+  /** Forward kinematics for the same four-joint, vertically constrained model as inverse(). */
+  forward(joints = this.joints): V3 {
+    const {shoulder,L1,L2,Lw} = this.spec;
+    const second = joints.shoulder + joints.elbow;
+    const radius = L1 * Math.cos(joints.shoulder) + L2 * Math.cos(second);
+    const height = shoulder + L1 * Math.sin(joints.shoulder) + L2 * Math.sin(second) - Lw;
+    return this.toWorld([radius * Math.cos(joints.waist), height, -radius * Math.sin(joints.waist)]);
+  }
+  solve() { this.joints = this.inverse(this.tip); }
 }
 
 interface LogLine {
@@ -1041,13 +1054,17 @@ export class Engine {
             rt = new RobotRT(this.nextRobot++, item);
             rt.script = item.script ?? "";
           } else {
-            const programChanged = JSON.stringify([rt.program,rt.programs]) !== JSON.stringify([item.program,item.programs]);
+            const ptpActive = !!rt.ptp?.enabled || !!item.ptp?.enabled;
+            const ptpChanged = ptpActive && JSON.stringify(rt.ptp) !== JSON.stringify(item.ptp);
+            const taskChanged = JSON.stringify([rt.program,rt.programs]) !== JSON.stringify([item.program,item.programs]);
+            const scriptChanged = (item.script ?? "") !== rt.script;
             rt.applyItem(item);
-            if ((item.script ?? "") !== rt.script || programChanged) {
-              rt.script = item.script ?? "";
+            rt.script = item.script ?? "";
+            // Editing an inactive program must not interrupt the active task, or vice versa.
+            if (ptpChanged || (!ptpActive && (scriptChanged || taskChanged))) {
               this.stopProgram(rt);
               rt.needsStart = true;
-              rt.tip = rt.homeTip();
+              // Program edits must not discard a pose the user just jogged.
             }
           }
           robots.set(item.id, rt);
@@ -1618,6 +1635,21 @@ export class Engine {
     }
   }
 
+  /** Move the TCP only while paused; reject unreachable or malformed remote requests. */
+  jogRobot(itemId: string, target: V3): boolean {
+    const robot = this.robots.get(itemId);
+    if (this.running || !robot || this.itemById.get(itemId)?.locked || robot.held || !Array.isArray(target) || target.length !== 3 || !target.every(Number.isFinite) || !robot.reach(target)) return false;
+    if (target.every((n,i) => Math.abs(n - robot.tip[i]) < 1e-9)) return true;
+    if (this.networkGuest && this.networkAction) this.networkAction("jogRobot", {id:itemId, target});
+    // Cancel any partially executed motion. Resuming starts its program from the beginning.
+    this.stopProgram(robot);
+    robot.needsStart = true;
+    robot.tip = [...target];
+    robot.solve();
+    robot.status = 'stopped';
+    return true;
+  }
+
   setSpeed(speed: number) {
     const next = Number.isFinite(speed) ? Math.max(0.01, speed) : 1;
     // Pending demand belongs to the old rate. Keeping it could make a switch
@@ -1811,6 +1843,12 @@ export class Engine {
 
   private launch(robot: RobotRT) {
     robot.warned = false;
+    if (robot.ptp?.enabled) {
+      robot.status = "waiting";
+      robot.job = {gen:this.ptpProgramGen(robot), resolve:() => { if (robot.status !== "error") robot.status = "stopped"; }};
+      this.log(`${robot.name}: PTP program started`, "info");
+      return;
+    }
     if (robot.program) {
       robot.status = "waiting";
       robot.job = { gen: robot.programs && Object.keys(robot.programs).length ? this.visualDispatcher(robot) : this.visualGen(robot), resolve: () => { robot.status = "stopped"; } };
@@ -1861,6 +1899,8 @@ export class Engine {
       },
       home: () => run(this.homeGen(robot)),
       moveTo: (x: number, y: number, z: number) => run(this.moveGen(robot, [x, y, z])),
+      movePtp: (x: number, y: number, z: number, speed = 100) => run(this.ptpMoveGen(robot, [x, y, z], speed)),
+      movePtpLocal: (x: number, y: number, z: number, speed = 100) => run(this.ptpMoveGen(robot, robot.toWorld([x, y, z]), speed)),
       waitForPart: (zone: { x: number; y?: number; z: number; r?: number }) => run(this.waitPartGen(robot, zone)),
       waitForPalletPart: (id:string) => run(this.waitPalletPartGen(robot, id)),
       inspectSensor: (id:string) => { if (robot.held) robot.held.colorSignals = undefined; return run(this.inspectSensorGen(robot,id)); },
@@ -2908,6 +2948,66 @@ export class Engine {
     return true;
   }
 
+  /** Joint-space PTP: interpolate waist/shoulder/elbow together and derive TCP by FK. */
+  private *ptpMoveGen(robot: RobotRT, target: V3, speed = 100): Generator<Cmd, boolean, unknown> {
+    if (!target.every(Number.isFinite) || !robot.reach(target)) return false;
+    const goal = robot.inverse(target);
+    const start = {...robot.joints};
+    // The equivalent waist angle closest to the current configuration avoids a full turn at ±π.
+    const turn = Math.atan2(Math.sin(goal.waist - start.waist), Math.cos(goal.waist - start.waist));
+    const delta = {waist:turn, shoulder:goal.shoulder-start.shoulder, elbow:goal.elbow-start.elbow, wrist:goal.wrist-start.wrist};
+    const largest = Math.max(Math.abs(delta.waist),Math.abs(delta.shoulder),Math.abs(delta.elbow),Math.abs(delta.wrist));
+    const factor = Number.isFinite(speed) ? Math.max(1,Math.min(100,speed)) / 100 : 1;
+    const angularSpeed = Math.max(0.0001, robot.vmax * factor / (robot.spec.L1 + robot.spec.L2));
+    const duration = Math.max(DT, largest / angularSpeed * 1.5); // smoothstep's maximum derivative is 1.5
+    let elapsed = 0;
+    yield {
+      ok:true, preserveJoints:true, deferNext:true,
+      update:(dt) => {
+        elapsed = Math.min(duration, elapsed + dt);
+        const t = elapsed / duration, mix = t*t*(3-2*t);
+        robot.joints = {waist:start.waist+delta.waist*mix, shoulder:start.shoulder+delta.shoulder*mix, elbow:start.elbow+delta.elbow*mix, wrist:start.wrist+delta.wrist*mix};
+        robot.tip = robot.forward();
+        return elapsed >= duration;
+      },
+    };
+    return true;
+  }
+
+  private *ptpProgramGen(robot: RobotRT): Generator<Cmd, void, unknown> {
+    const program = robot.ptp;
+    if (!program?.enabled) return;
+    if (!program.points.length) throw new Error('PTP program has no points. Teach at least one point.');
+    do {
+      let input: number | null = null;
+      yield this.waiter(() => {
+        const bindings = this.robotInputs.get(robot.itemId) ?? [];
+        if (!bindings.length) return true;
+        for (const binding of bindings) {
+          if (this.triggerGate(robot.itemId, '', false, binding.input)) {
+            this.triggerGate(robot.itemId, '', true, binding.input);
+            input = binding.input;
+            return true;
+          }
+        }
+        return false;
+      });
+      robot.activeProgramPort = input;
+      const started = this.time;
+      for (const point of program.points) {
+        const target = robot.toWorld(point.position);
+        if (!(yield* this.ptpMoveGen(robot, target, point.speed))) throw new Error(`PTP point "${point.name}" is unreachable.`);
+        if (point.dwell > 0) yield* this.waitGen(Math.min(300,point.dwell));
+      }
+      robot.cycles += 1;
+      robot.lastCycle = this.time - started;
+      robot.lastCycleAt = this.time;
+      robot.outputPulsePort = input;
+      robot.outputPulse = 0.12;
+      robot.activeProgramPort = null;
+    } while (program.repeat);
+  }
+
   private *moveGen(robot: RobotRT, target: V3): Generator<Cmd, boolean, unknown> {
     const move = this.servo(robot, () => target, 0.01);
     yield move;
@@ -3397,6 +3497,7 @@ export class Engine {
     let guard = 0;
     let working = false;
     let waiting = false;
+    let preserveJoints = false;
     try {
     while (guard < 8) {
       guard += 1;
@@ -3417,9 +3518,11 @@ export class Engine {
       }
       const finished = robot.cur.update(dt);
       if (robot.cur.idle) waiting = true;
-      else working = true;
+      else { working = true; preserveJoints = robot.cur.preserveJoints === true; }
       if (finished) {
+        const deferNext = robot.cur.deferNext;
         robot.cur = null;
+        if (deferNext) break;
         continue;
       }
       break;
@@ -3435,7 +3538,7 @@ export class Engine {
     }
     if (robot.cur && !robot.cur.idle) robot.busyT += dt;
     else robot.vNow = Math.max(0, robot.vNow - robot.vmax * 6 * dt);
-    robot.solve();
+    if (!preserveJoints) robot.solve();
     const box = robot.held;
     if (box) {
       box.x = robot.tip[0];

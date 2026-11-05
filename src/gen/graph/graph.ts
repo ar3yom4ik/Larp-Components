@@ -187,6 +187,13 @@ export function findCycles(graph: NodeGraph): string[] {
   return topoSort(graph).cycle;
 }
 
+/** Only an enabled robot with no material/machine links can stand alone. Signal wires are independent. */
+export function isStandalonePtp(node:GraphNode, links:readonly GraphLink[]): boolean {
+  return node.type === 'part.robot' && node.params.ptpEnabled === true && !links.some(link =>
+    (link.to.node === node.id && (link.to.port === 'in' || link.to.port === 'machine')) ||
+    (link.from.node === node.id && link.from.port === 'out'));
+}
+
 /** Every diagnostic the editor can show before a build. */
 export function validateGraph(graph: NodeGraph): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
@@ -200,7 +207,7 @@ export function validateGraph(graph: NodeGraph): Diagnostic[] {
     const ins = incoming.get(node.id) ?? [];
     for (const input of def.inputs) {
       const wired = ins.filter((entry) => entry.to.port === input.key);
-      if (input.required && wired.length === 0) {
+      if (input.required && wired.length === 0 && !(input.key === 'in' && isStandalonePtp(node,graph.links))) {
         diagnostics.push({ id: `missing:${node.id}:${input.key}`, severity: 'error', nodeId: node.id, port: input.key, message: `${def.title}: "${input.label}" is required.` });
       }
       if (!input.many && wired.length > 1) {
@@ -231,7 +238,9 @@ export function validateGraph(graph: NodeGraph): Diagnostic[] {
   if (cycle.length) {
     diagnostics.push({ id: 'cycle', severity: 'error', message: `The graph has a loop through ${cycle.length} node(s). Remove one of the wires to continue.` });
   }
-  if (!graph.nodes.some((node) => node.type === 'output.factory' || node.type === 'part.pallet')) {
+  const motionOnly = graph.nodes.some(node => isStandalonePtp(node,graph.links)) && graph.nodes.every(node =>
+    isStandalonePtp(node,graph.links) || ['part.laser','part.color-sensor','part.sensor','part.button','part.plc','part.platform','part.stairs','part.wall'].includes(node.type));
+  if (!motionOnly && !graph.nodes.some((node) => node.type === 'output.factory' || node.type === 'part.pallet')) {
     diagnostics.push({ id: 'no-output', severity: 'error', message: 'The graph needs a Factory output node to build anything.' });
   }
   // Orphan nodes are allowed but worth pointing out, since users expect them to matter.
