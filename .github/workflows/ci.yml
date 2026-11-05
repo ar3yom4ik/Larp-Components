@@ -110,21 +110,6 @@ jobs:
             exit 1
           }
 
-  # Temporary diagnostic for the previous failed run; removed after triage.
-  inspect-previous-lan-failure:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Annotate the previous job's final lines
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/127101210432/logs" > /tmp/previous.log
-          text=$(tail -n 60 /tmp/previous.log); text=${text//'%'/'%25'}; text=${text//$'\n'/'%0A'}; text=${text//$'\r'/'%0D'}
-          echo "::warning title=Previous LAN failure::$text"
-
   catalog-diagnostic:
     runs-on: ubuntu-latest
     timeout-minutes: 15

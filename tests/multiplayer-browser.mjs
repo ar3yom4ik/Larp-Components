@@ -7,13 +7,16 @@ async function port() { const s=net.createServer(); await new Promise(r=>s.liste
 const [helperA,helperB,viteA,viteB,udp]=await Promise.all([port(),port(),port(),port(),port()]);
 const children=[];
 function start(args,env={}) { const p=spawn(process.execPath,args,{env:{...process.env,...env},stdio:['ignore','pipe','pipe']});let log='';p.stdout.on('data',d=>log+=d);p.stderr.on('data',d=>log+=d);p.logs=()=>log;children.push(p);return p; }
-const ha=start(['scripts/multiplayer/server.mjs','--port',String(helperA),'--discovery-port',String(udp)]),hb=start(['scripts/multiplayer/server.mjs','--port',String(helperB),'--discovery-port',String(udp)]);
+const ha=start(['scripts/multiplayer/server.mjs','--port',String(helperA),'--discovery-port',String(udp),'--html','__no_standalone_for_test__.html']),hb=start(['scripts/multiplayer/server.mjs','--port',String(helperB),'--discovery-port',String(udp),'--html','__no_standalone_for_test__.html']);
 const va=start(['node_modules/vite/bin/vite.js','--host','0.0.0.0','--port',String(viteA),'--strictPort'],{LARP_MULTIPLAYER_PORT:String(helperA)});
 const vb=start(['node_modules/vite/bin/vite.js','--host','0.0.0.0','--port',String(viteB),'--strictPort'],{LARP_MULTIPLAYER_PORT:String(helperB)});
 async function wait(fn,label,timeout=60000) {const end=Date.now()+timeout;while(Date.now()<end){if(await fn())return;await new Promise(r=>setTimeout(r,100));}throw Error(`${label}: timeout\n${children.map(p=>p.logs()).join('\n')}`)}
 let browser;
 try {
- await wait(()=>ha.logs().includes('LAN discovery')&&hb.logs().includes('LAN discovery')&&va.logs().includes('Local:')&&vb.logs().includes('Local:'),'servers ready');
+ // Probe actual endpoints instead of parsing Vite's console output: CI may
+ // insert ANSI colour sequences inside its "Local:" label.
+ const ready=async (port,path='/')=>{try{return (await fetch(`http://127.0.0.1:${port}${path}`)).ok}catch{return false}};
+ await wait(async()=>{const checks=await Promise.all([ready(helperA,'/multiplayer/health'),ready(helperB,'/multiplayer/health'),ready(viteA),ready(viteB)]);return checks.every(Boolean);},'servers ready');
  browser=await chromium.launch({args:['--enable-unsafe-swiftshader','--ignore-gpu-blocklist']});
  const errors=[];
  const makePage=async url=>{const context=await browser.newContext({viewport:{width:1500,height:900}});await context.addInitScript(()=>localStorage.setItem('larp-appearance',JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));const p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(url,{waitUntil:'networkidle',timeout:120000});return p;};

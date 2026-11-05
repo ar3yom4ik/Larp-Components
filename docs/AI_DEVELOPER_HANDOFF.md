@@ -1,12 +1,12 @@
 # Larp Factory V3 prerelease — independent AI/developer handoff
 
-**Current release:** V3.0.0-alpha.9, 2026-11-05
+**Current release:** V3.0.0-alpha.10, 2026-11-05
 **Audience:** a developer or another AI starting without any prior conversation.<br>
 **Identity:** independent simulator, not affiliated with Visual Components. The application itself still displays “Larp Components 5.1”; V3 is the current prerelease number.
 
 > **Current-state correction:** This document also records historical V2 work below. The default generator is now a physical component graph; linear and merged lines, direct multi-source conveyor inputs and shared robot/operator pickup stations work; general conveyor splitters and full viewport material I/O remain incomplete. Graph frames persist as editor-only metadata, and node drags/copies do not alter compilation unless links change. Explicit sensor/button/PLC graph nodes use numbered, independently configured signal channels; material topology stays separate from signal feedback. The Form tab owns prompt-based generation. The viewport signal editor supports drag/reroute, multiple destinations, signal-controlled feeders and queued robot inputs/outputs. XYZ gizmos, sloped conveyor points, elevated decks/stairs and dynamic/kinematic physics are available. Tilted supports and simplified colliders use 3D orientation; machines, robot arms, products and worker routing still have approximations. LCMX archives and their browser save limitations are described in `ROADMAP.md`. Continue in TypeScript. Historical descriptions below are not proof of current functionality. Multi-selection uses projected live bounds and a scene-local clipboard; the Select tool starts a left-drag marquee, middle-drag orbits, and group gizmos preserve relative poses. The resizable catalog editor has X/Y/Z-up, dimensions and a right-hand 3D preview. Poly Haven, Gobkit and the CC0 Kenney mirror share the Web search; imported bytes and provenance are saved, while other linked services require manual downloads.
 
-## Alpha.9 LAN and pallet additions
+## Alpha.10 LAN and pallet additions
 
 The opt-in `scripts/multiplayer/server.mjs` helper uses UDP broadcast discovery and approved WebSocket peers; `scripts/package-multiplayer.mjs` bundles it with the offline HTML and launchers. `src/multiplayer/client.ts` synchronizes per-field Yjs scene documents and local-only undo; `simulation.ts` distributes host-authoritative runtime snapshots. Guest simulation actions are forwarded to the host. Cameras and appearance are local. It is intentionally LAN-only, unencrypted, and trusts approved participants and their scripts. See `release/multiplayer/README.txt` for ports and setup. Tests: `test:multiplayer-server`, `test:multiplayer-browser`, and `test:multiplayer-standalone`.
 

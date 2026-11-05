@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.10] - 2026-11-05 (prerelease)
+
+- Includes the alpha.9 LAN multiplayer, mixed-pallet depalletizing, sorting and AI Factory features.
+- Replaced a console-colour-dependent browser test readiness check with HTTP health checks and isolated LAN browser/package regressions in CI.
+
 ## [3.0.0-alpha.9] - 2026-11-05 (prerelease)
 
 - Added opt-in LAN multiplayer: UDP session discovery, nickname and host approval, joinability, kick/disconnect, per-player 3D camera avatars, chat, field-merged shared scenes and host-authoritative simulation. Viewports and graphics settings remain local.

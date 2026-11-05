@@ -1,6 +1,6 @@
-# Larp Factory Simulator — V3 prerelease 9
+# Larp Factory Simulator — V3 prerelease 10
 
-An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.9** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
+An independent browser-based factory-layout and simulation workspace. Its Visual Components-inspired theme is not affiliated with Visual Components. **V3.0.0-alpha.10** is the prerelease number; the interface retains the existing **Larp Components 5.1** branding.
 
 
 ## LAN multiplayer and depalletizing
