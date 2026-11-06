@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: LAN helper protocol and UDP discovery
+        run: npm run test:multiplayer-server && npm run test:multiplayer-ports
+
+      - name: Production build (standalone HTML and LAN package)
+        run: npm run build && npm run package:multiplayer && LARP_HELPER_ENTRY=dist/Larp_Multiplayer.cjs npm run test:multiplayer-ports
+
+      - name: Upload standalone build
+        uses: actions/upload-artifact@v4
+        with:
+          name: larp-components-standalone
+          path: |
+            dist/index.html
+            dist/Larp_Multiplayer.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Start development preview
+        run: |
+          npm run dev -- --host 0.0.0.0 --port 4173 > /tmp/larp-vite.log 2>&1 &
+          for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/larp-vite.log
+          exit 1
+      - name: Catalog, camera and sensor regressions
+        run: npm run test:catalog-browser && npm run test:camera-browser && npm run test:sensor-browser
+      - name: Factory graph and signal node regressions
+        run: npm run test:factory-browser && npm run test:factory-signal-browser && npm run test:signals-browser
+      - name: Selection, physics and web catalog regressions
+        run: npm run test:selection-browser && npm run test:web-catalog-browser && npm run test:gizmos-browser && npm run test:ptp-browser
+      - name: Alpha.7 sensor, layout, placement and rendering regressions
+        run: npm run test:alpha7-browser
+      - name: Alpha.8 materials, multi-pallet, snapping and MRT regressions
+        run: npm run test:alpha8-browser
+
+  # Run the new two-browser cases independently so failures surface early.
+  lan-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Start development preview
+        run: |
+          npm run dev -- --host 0.0.0.0 --port 4173 > /tmp/larp-vite.log 2>&1 &
+          for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/larp-vite.log
+          exit 1
+      - name: Depalletizing and LAN browser regressions
+        run: |
+          set -o pipefail
+          ( npm run test:depalletize-browser && npm run test:multiplayer-browser ) 2>&1 | tee /tmp/lan-browser.log || {
+            text=$(tail -n 60 /tmp/lan-browser.log); text=${text//'%'/'%25'}; text=${text//$'\n'/'%0A'}; text=${text//$'\r'/'%0D'}
+            echo "::error title=LAN browser regression::$text"
+            exit 1
+          }
+      - name: Packaged LAN helper and standalone two-browser regression
+        run: |
+          set -o pipefail
+          ( npm run build && npm run package:multiplayer && npm run test:ptp-standalone && npm run test:multiplayer-standalone ) 2>&1 | tee /tmp/lan-package.log || {
+            text=$(tail -n 60 /tmp/lan-package.log); text=${text//'%'/'%25'}; text=${text//$'\n'/'%0A'}; text=${text//$'\r'/'%0D'}
+            echo "::error title=LAN package regression::$text"
+            exit 1
+          }
+
+  catalog-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build standalone for catalog checks
+        run: npm run build
+      - name: Standalone catalog regression (mocked providers)
+        run: MOCK_WEB_CATALOG=1 npm run test:web-catalog-live
+      - name: Start development preview
+        run: |
+          npm run dev -- --host 0.0.0.0 --port 4173 > /tmp/larp-vite.log 2>&1 &
+          for attempt in {1..60}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0; sleep 1; done
+          cat /tmp/larp-vite.log
+          exit 1
+      # Provider outages must not fail an otherwise offline editor. Check
+      # the annotations for each HTTP/file result, not just the green step.
+      - name: Live web catalog diagnostic (external services)
+        continue-on-error: true
+        run: npm run test:web-catalog-live
+
+  # Only an already-published prerelease at this exact internal PR head is
+  # eligible. Forks and unrelated PRs never receive a write-capable token.
+  attach-prerelease:
+    needs: [build, browser, lan-browser, catalog-diagnostic]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Find matching published prerelease
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          [[ "$tag" == *-* ]] || exit 0
+          published=$(gh release view "$tag" --json isPrerelease,isDraft --jq '.isPrerelease and (.isDraft | not)' 2>/dev/null) || exit 0
+          [[ "$published" == true ]] || exit 0
+          release_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)
+          [[ "$release_sha" == "$HEAD_SHA" ]] || exit 0
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.release.outputs.tag != ''
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Build exact tagged source
+        if: steps.release.outputs.tag != ''
+        run: |
+          npm ci
+          npm run build
+          npm run package:multiplayer
+          cp dist/index.html Larp_Factory_V3.html
+          cp dist/Larp_Multiplayer.zip Larp_Multiplayer.zip
+
+      - name: Attach standalone HTML and multiplayer bundle to prerelease
+        if: steps.release.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: gh release upload "$TAG" Larp_Factory_V3.html Larp_Multiplayer.zip --clobber

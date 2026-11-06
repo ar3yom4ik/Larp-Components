@@ -11,17 +11,23 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
-const tests = ["simulation", "v1-regression", "v1-navigation", "v2-project-size", "project-archive", "signal-ports", "settings", "ui-layout", "floor-plan-and-shirt", "ui-render", "performance", "speed-multiplier", "rust-kernel", "rust-feeder-parity", "rust-machine-clock", "rust-machine-workflow", "rust-logic", "rust-navigation-route", "rust-robot-kinematics", "rust-product-integration", "rust-combined-parity", "rust-memory-growth", "component-graph", "v3-graphics", "v4-nodegraph"];
+const tests = ["simulation", "v1-regression", "v1-navigation", "navigation-levels", "v2-project-size", "project-archive", "signal-ports", "signal-feeder", "button-conveyor", "conveyor-width-collision", "pallet-retention", "sensor-mount", "generator-sensors", "robot-signals", "input-workflows", "multi-pallet", "depalletize", "ptp", "new-features", "materials", "beam-blocker", "spatial-contacts", "selective-bloom", "emissive-mrt", "scene-transforms", "selection-tools", "web-catalog", "web-requests", "physics-3d", "bounce-physics", "continuous-physics", "imported-colliders", "catalog-models", "conveyor-merges", "settings", "ui-layout", "floor-plan-and-shirt", "ui-render", "performance", "no-component-cap", "speed-multiplier", "component-graph", "graph-signals", "graph-layout", "direct-conveyor-inputs", "v3-graphics", "graphics-pipeline", "v4-nodegraph"];
+const requested = process.argv.slice(2);
+if (requested.includes('--list')) { console.log(tests.join('\n')); process.exit(0); }
+const unknown = requested.filter(name => !tests.includes(name));
+if (unknown.length) { console.error(`Unknown unit test(s): ${unknown.join(', ')}. Use --list to see available names.`); process.exit(2); }
+const selected = requested.length ? tests.filter(name => requested.includes(name)) : tests;
 const outDir = await mkdtemp(path.join(tmpdir(), "larp-unit-"));
 let failed = 0;
 
 try {
-  for (const name of tests) {
+  for (const name of selected) {
     const outfile = path.join(outDir, `${name}.mjs`);
     await build({
       entryPoints: [path.join(root, "tests", `${name}.ts`)],
       bundle: true,
       platform: "node",
+      mainFields: ["module", "main"],
       format: "esm",
       outfile,
       logLevel: "warning",
@@ -44,4 +50,4 @@ if (failed > 0) {
   console.error(`${failed} unit test file(s) failed`);
   process.exit(1);
 }
-console.log(`All ${tests.length} unit test files passed`);
+console.log(`All ${selected.length} selected unit test files passed`);

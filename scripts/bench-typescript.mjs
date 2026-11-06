@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
-const baseline=process.env.TS_BENCH_BASELINE || 'a806f3b';
+const baseline=process.env.TS_BENCH_BASELINE || '88a60d3';
 const dir=await mkdtemp(path.join(tmpdir(),'larp-ts-bench-'));
 try {
   const outfile=path.join(dir,'bench.mjs');
@@ -17,7 +17,7 @@ try {
     build.onLoad({filter:/^engine$/,namespace:'baseline-ts'},()=>({contents:engine,loader:'ts',resolveDir:path.resolve('src/sim')}));
     build.onLoad({filter:/^spatial$/,namespace:'baseline-ts'},()=>({contents:spatial,loader:'ts',resolveDir:path.resolve('src/sim')}));
   }};
-  await build({plugins:[plugin],entryPoints:['benchmarks/typescript-perf.ts'],bundle:true,platform:'node',format:'esm',outfile,define:{'import.meta.env':'{}',__APP_VERSION__:JSON.stringify('benchmark'),__BUILD_TIME__:JSON.stringify('benchmark')}});
+  await build({plugins:[plugin],entryPoints:['benchmarks/typescript-perf.ts'],bundle:true,platform:'node',mainFields:['module','main'],format:'esm',outfile,define:{'import.meta.env':'{}',__APP_VERSION__:JSON.stringify('benchmark'),__BUILD_TIME__:JSON.stringify('benchmark')}});
   const result=spawnSync(process.execPath,[outfile,...process.argv.slice(2)],{stdio:'inherit',env:{...process.env,TS_BENCH_BASELINE:baseline}});
   if(result.error)throw result.error;
   process.exitCode=result.status??1;

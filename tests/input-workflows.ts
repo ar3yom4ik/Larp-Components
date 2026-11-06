@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import {makeItem} from '../src/data/library';
+import {Engine,BELT_TOP} from '../src/sim/engine';
+import {serializeProject,parseProject} from '../src/utils/project';
+import {signalChannelKey} from '../src/utils/signalChannels';
+import {defaultComponentGraph,compileComponentGraph} from '../src/gen/graph/componentCompile';
+import {setChannel} from '../src/gen/graph/signal';
+import {parseGraph,serializeGraph} from '../src/gen/graph/graph';
+import {copyGraphSelection,pasteGraphSelection} from '../src/gen/graph/layout';
+
+const belt=makeItem('conveyor',[-2,0,0],0,{points:[[0,0],[1,0],[2,0]],props:{speed:.6,active:false,stopper:true}});
+const a=makeItem('crates',[-.9,0,2.9],0,{props:{product:'carton',cols:3,rows:2,layers:4,gap:.04}});
+const b=makeItem('crates',[1,0,2.9],0,{props:{product:'carton',cols:3,rows:2,layers:4,gap:.04}});
+const defaultProgram={mode:'palletize' as const,sourceId:belt.id,targetId:a.id,repeat:true,delay:0,clearance:.3};
+const robot=makeItem('robot',[.3,0,1.45],0,{props:{gripper:'vacuum',speed:70},program:defaultProgram,programs:{'1':defaultProgram,'2':{...defaultProgram,targetId:b.id}},signalChannels:[{port:1,mode:'operation-end'},{port:2,mode:'operation-end'}]});
+const p=makeItem('button',[-5,0,0],0,{signalChannels:[{port:1,mode:'pressed'}],signalRoutes:[{output:1,targetId:robot.id,input:1}]});
+const q=makeItem('button',[-6,0,0],0,{signalChannels:[{port:1,mode:'pressed'}],signalRoutes:[{output:1,targetId:robot.id,input:2}]});
+const e=new Engine();e.sync([belt,a,b,robot,p,q]);e.setRunning(true);
+const tick=(seconds:number)=>{for(let i=0;i<seconds*60;i++)e.step(1/60)};
+e.spawn('carton',-.35,BELT_TOP+.13,0);tick(2);
+assert.equal(e.stats.placed,0);
+e.setButton(q.id,true);e.setButton(q.id,false);tick(15);
+assert.equal(e.pallets.get(b.id)?.cursor,1,'input 2 uses its own destination');
+assert.equal(e.pallets.get(a.id)?.cursor,0);
+assert.ok((e.signalActivations.get(signalChannelKey(robot.id,2)) ?? 0)>0,'only output 2 pulses for input 2');
+assert.equal(e.signalActivations.get(signalChannelKey(robot.id,1)) ?? 0,0);
+e.spawn('carton',-.35,BELT_TOP+.13,0);e.setButton(p.id,true);e.setButton(p.id,false);tick(15);
+assert.equal(e.pallets.get(a.id)?.cursor,1,'input 1 uses its own destination');
+assert.ok((e.signalActivations.get(signalChannelKey(robot.id,1)) ?? 0)>0);
+// Wire and edit workflows while running, including switching back to automatic
+// operation when the last input is detached.
+const liveButton={...q,signalRoutes:[]};
+const live=new Engine();live.sync([belt,a,b,robot,liveButton]);live.setRunning(true);
+const liveTick=(seconds:number)=>{for(let i=0;i<seconds*60;i++)live.step(1/60)};
+liveTick(2);live.sync([belt,a,b,robot,q]);
+live.spawn('carton',-.35,BELT_TOP+.13,0);live.setButton(q.id,true);live.setButton(q.id,false);liveTick(15);
+assert.equal(live.pallets.get(b.id)?.cursor,1,'input attached live dispatches its own program');
+const edited={...robot,programs:{...robot.programs,'2':{...defaultProgram,targetId:a.id}}};
+live.sync([belt,a,b,edited,q]);live.spawn('carton',-.35,BELT_TOP+.13,0);live.setButton(q.id,true);live.setButton(q.id,false);liveTick(15);
+assert.equal(live.pallets.get(a.id)?.cursor,1,'live workflow edit is used on the next input');
+live.sync([belt,a,b,edited,liveButton]);live.spawn('carton',-.35,BELT_TOP+.13,0);liveTick(15);
+assert.equal(live.pallets.get(a.id)?.cursor,2,'disconnecting the last wire restores automatic default workflow');
+const disk=serializeProject({projectName:'programs',layoutName:'programs',activeLayoutId:null,items:[belt,a,b,robot,p,q]});
+const loaded=parseProject(disk).items.find(item=>item.id===robot.id)!;
+assert.equal(loaded.programs?.['1'].targetId,a.id);assert.equal(loaded.programs?.['2'].targetId,b.id);
+
+let graph=defaultComponentGraph();const graphRobot=graph.nodes.find(node=>node.type==='part.robot')!;
+const sources=graph.nodes.filter(node=>node.type==='part.conveyor'), destinations=graph.nodes.filter(node=>node.type==='part.pallet');
+graph=setChannel(graph,graphRobot.id,2,{programSource:sources[0].id,programTarget:destinations[0].id,programMode:'palletize'});
+graph=parseGraph(serializeGraph(graph));
+assert.equal(graph.nodes.find(node=>node.id===graphRobot.id)?.io?.['2'].programTarget,destinations[0].id);
+const compiled=compileComponentGraph(graph).plant!;
+assert.ok(compiled.items.some(item=>item.programs?.['2']?.targetId));
+const selection=pasteGraphSelection(graph,copyGraphSelection(graph,[graphRobot.id,sources[0].id,destinations[0].id]));
+const copiedRobot=selection.nodes.find(node=>node.type==='part.robot')!, copiedTarget=selection.nodes.find(node=>node.type==='part.pallet')!;
+assert.equal(copiedRobot.io?.['2'].programTarget,copiedTarget.id,'copied workflows reference copied graph nodes');
+console.log('robot input workflows: routing, operation-end output, graph compilation, project and copy OK');

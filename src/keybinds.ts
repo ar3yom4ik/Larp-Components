@@ -1,0 +1,162 @@
+import { useSyncExternalStore } from 'react';
+
+/**
+ * Every keyboard shortcut in the app. App.tsx dispatches on these ids, the Keybinds settings
+ * page lists them, and the bindings are stored in localStorage and included in settings export.
+ * Binding strings look like "Ctrl+Shift+Z", "Space", "Delete", "Escape" or "V".
+ */
+export interface KeyAction {
+  id: string;
+  label: string;
+  group: 'Edit' | 'Tools' | 'Navigation' | 'Simulation' | 'View' | 'File' | 'Help';
+  key: string;
+}
+
+export const KEY_ACTIONS: KeyAction[] = [
+  { id: 'undo', label: 'Undo', group: 'Edit', key: 'Ctrl+Z' },
+  { id: 'redo', label: 'Redo', group: 'Edit', key: 'Ctrl+Shift+Z' },
+  { id: 'copy', label: 'Copy', group: 'Edit', key: 'Ctrl+C' },
+  { id: 'cut', label: 'Cut', group: 'Edit', key: 'Ctrl+X' },
+  { id: 'paste', label: 'Paste', group: 'Edit', key: 'Ctrl+V' },
+  { id: 'duplicate', label: 'Duplicate', group: 'Edit', key: 'Ctrl+D' },
+  { id: 'delete', label: 'Delete selected', group: 'Edit', key: 'Delete' },
+  { id: 'save', label: 'Save project', group: 'Edit', key: 'Ctrl+S' },
+  { id: 'deselect', label: 'Deselect / close panel', group: 'Edit', key: 'Escape' },
+  { id: 'toolSelect', label: 'Select tool', group: 'Tools', key: 'V' },
+  { id: 'toolMove', label: 'Move tool', group: 'Tools', key: 'M' },
+  { id: 'toolRotate', label: 'Rotate tool', group: 'Tools', key: 'R' },
+  { id: 'snap', label: 'Toggle grid snap', group: 'Tools', key: 'G' },
+  { id: 'search', label: 'Search components', group: 'Tools', key: 'Ctrl+F' },
+  { id: 'playPause', label: 'Play / pause simulation', group: 'Simulation', key: 'Space' },
+  // Visual Components navigation set: fit all, fit selection, centre of interest, zoom.
+  { id: 'fitAll', label: 'Fit all in view', group: 'Navigation', key: 'F' },
+  { id: 'fitSelection', label: 'Fit selection in view', group: 'Navigation', key: 'Ctrl+Alt+F' },
+  { id: 'setCoi', label: 'Centre of interest on selection', group: 'Navigation', key: 'Shift+R' },
+  { id: 'zoomIn', label: 'Zoom in', group: 'Navigation', key: '=' },
+  { id: 'zoomOut', label: 'Zoom out', group: 'Navigation', key: '-' },
+  { id: 'togglePanels', label: 'Show / hide side panels', group: 'View', key: 'Tab' },
+  { id: 'toggleGrid2', label: 'Toggle floor grid', group: 'View', key: 'Shift+G' },
+  { id: 'settings', label: 'Open settings', group: 'View', key: 'Ctrl+,' },
+  { id: 'help', label: 'Open help and shortcuts', group: 'Help', key: 'F1' },
+  // Visual Components "Help > About / Version to Output" shortcut.
+  { id: 'version', label: 'Print version to output', group: 'Help', key: 'Ctrl+Alt+J' },
+  { id: 'newProject', label: 'New factory', group: 'File', key: 'Ctrl+N' },
+  { id: 'openProject', label: 'Open project file', group: 'File', key: 'Ctrl+O' },
+];
+
+const STORAGE_KEY = 'larp-keybinds';
+let overrides: Record<string, string> = {};
+let capturing = false;
+let version = 0;
+const listeners = new Set<() => void>();
+
+try {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+  if (saved && typeof saved === 'object') {
+    const ids = new Set(KEY_ACTIONS.map((action) => action.id));
+    for (const [id, key] of Object.entries(saved)) if (ids.has(id) && typeof key === 'string' && key) overrides[id] = key;
+  }
+} catch { /* keybinds are optional */ }
+
+const emit = () => {
+  version += 1;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides)); } catch { /* storage unavailable */ }
+  listeners.forEach((fn) => fn());
+};
+
+export function bindingFor(id: string): string {
+  return overrides[id] ?? KEY_ACTIONS.find((action) => action.id === id)?.key ?? '';
+}
+
+export function allBindings(): Record<string, string> {
+  return Object.fromEntries(KEY_ACTIONS.map((action) => [action.id, bindingFor(action.id)]));
+}
+
+/** Assigns a key. If another action already uses it, that action is cleared so the key stays unique. */
+export function setBinding(id: string, key: string) {
+  const next = { ...overrides };
+  for (const action of KEY_ACTIONS) if (action.id !== id && bindingFor(action.id) === key) next[action.id] = '';
+  next[id] = key;
+  overrides = next;
+  emit();
+}
+
+export function resetBinding(id: string) {
+  const { [id]: _removed, ...rest } = overrides;
+  overrides = rest;
+  emit();
+}
+
+export function resetAllBindings() {
+  overrides = {};
+  emit();
+}
+
+/** Replaces all bindings with an imported set. Unknown ids and invalid values are ignored. */
+export function importBindings(input: unknown): number {
+  if (!input || typeof input !== 'object') return 0;
+  const ids = new Set(KEY_ACTIONS.map((action) => action.id));
+  const next: Record<string, string> = {};
+  for (const [id, key] of Object.entries(input as Record<string, unknown>)) {
+    if (ids.has(id) && typeof key === 'string' && isValidBinding(key)) next[id] = key;
+  }
+  overrides = next;
+  emit();
+  return Object.keys(next).length;
+}
+
+const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'OS']);
+const NAMED: Record<string, string> = { ' ': 'Space', Escape: 'Escape', Delete: 'Delete', Backspace: 'Backspace', Enter: 'Enter', Tab: 'Tab', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
+/** Map physical key codes to their US-layout characters for layout-independent shortcuts. */
+const CODE_TO_KEY: Record<string, string> = {
+  'KeyA': 'A', 'KeyB': 'B', 'KeyC': 'C', 'KeyD': 'D', 'KeyE': 'E', 'KeyF': 'F', 'KeyG': 'G', 'KeyH': 'H',
+  'KeyI': 'I', 'KeyJ': 'J', 'KeyK': 'K', 'KeyL': 'L', 'KeyM': 'M', 'KeyN': 'N', 'KeyO': 'O', 'KeyP': 'P',
+  'KeyQ': 'Q', 'KeyR': 'R', 'KeyS': 'S', 'KeyT': 'T', 'KeyU': 'U', 'KeyV': 'V', 'KeyW': 'W', 'KeyX': 'X',
+  'KeyY': 'Y', 'KeyZ': 'Z',
+  'Digit0': '0', 'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4',
+  'Digit5': '5', 'Digit6': '6', 'Digit7': '7', 'Digit8': '8', 'Digit9': '9',
+  'Minus': '-', 'Equal': '=', 'BracketLeft': '[', 'BracketRight': ']', 'Semicolon': ';',
+  'Quote': "'", 'Backquote': '`', 'Backslash': '\\', 'Comma': ',', 'Period': '.', 'Slash': '/',
+  'Space': 'Space', 'Escape': 'Escape', 'Delete': 'Delete', 'Backspace': 'Backspace',
+  'Enter': 'Enter', 'Tab': 'Tab', 'ArrowUp': 'Up', 'ArrowDown': 'Down', 'ArrowLeft': 'Left', 'ArrowRight': 'Right',
+  'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4', 'F5': 'F5', 'F6': 'F6',
+  'F7': 'F7', 'F8': 'F8', 'F9': 'F9', 'F10': 'F10', 'F11': 'F11', 'F12': 'F12',
+};
+
+/** Converts a keyboard event to a binding string, or null for modifier-only presses.
+ * Uses event.code for letters/numbers to work regardless of keyboard layout. */
+export function bindingFromEvent(event: KeyboardEvent): string | null {
+  if (MODIFIER_KEYS.has(event.key)) return null;
+  // Use event.code for physical key position (layout-independent)
+  const name = CODE_TO_KEY[event.code] ?? NAMED[event.key] ?? (event.key.length === 1 ? event.key.toUpperCase() : event.key);
+  const parts: string[] = [];
+  if (event.ctrlKey || event.metaKey) parts.push('Ctrl');
+  if (event.altKey) parts.push('Alt');
+  if (event.shiftKey && (name.length > 1 || /[A-Z]/.test(name))) parts.push('Shift');
+  parts.push(name);
+  return parts.join('+');
+}
+
+export function eventMatches(event: KeyboardEvent, id: string): boolean {
+  const binding = bindingFor(id);
+  return !!binding && bindingFromEvent(event) === binding;
+}
+
+export function isValidBinding(key: string): boolean {
+  if (typeof key !== 'string' || !key || key.length > 40) return false;
+  const parts = key.split('+');
+  const name = parts[parts.length - 1];
+  return name.length > 0 && parts.slice(0, -1).every((part) => ['Ctrl', 'Shift', 'Alt'].includes(part));
+}
+
+/** While the settings page is waiting for a new key, global shortcuts must not fire. */
+export function setCapturing(value: boolean) { capturing = value; }
+export function isCapturing() { return capturing; }
+
+export function useKeybindVersion(): number {
+  return useSyncExternalStore(
+    (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    () => version,
+    () => 0,
+  );
+}

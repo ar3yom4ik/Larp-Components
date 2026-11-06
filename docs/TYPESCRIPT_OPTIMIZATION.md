@@ -1,0 +1,109 @@
+# TypeScript simulation optimization
+
+The app continues to use the TypeScript simulation by default. No rendering,
+visual-quality, simulation timestep, or product limit settings were reduced.
+
+## What changed
+
+A Node CPU profile of a generated three-lane, three-stage factory with six staff
+and up to roughly 100 products indicated substantial time in product physics,
+including repeated scans for blocked conveyors, spatial queries, and contact
+checks. This is an investigative profile of one workload, not a browser profile.
+
+For scenes with at least 48 products, conveyor blocking now uses reusable groups
+of products by conveyor rather than scanning every product for each belt product.
+The groups are updated as products change conveyors within the same step, and
+stale entries still undergo the original state, support and ID checks. Smaller
+scenes retain the original scan. Contact testing avoids temporary axis arrays.
+Spatial query generations are shared across indexes, fixing a case where the
+same object in two indexes could be omitted when their local stamps coincided.
+
+## Checks and measurements
+
+The original optimization measured the TypeScript engine and spatial index
+from commit `a806f3b` against its then-current engine, checking selected state
+on every frame with a `1e-8` relative tolerance for 90 simulated seconds in four
+scenarios: a robot cell, a human cell, a three-lane plant, and 60 crowded products
+on connected conveyors. This passed. It is not universal parity for all projects
+or unobserved fields.
+
+`npm run bench:typescript` interleaves before/after engines on identical inputs,
+with three trials per scene, 20 simulated seconds of warm-up and 160 measured
+seconds. The baseline engine and spatial index are loaded from Git in memory and
+linked to the same current shared dependencies. The following figures are historical for `a806f3b`, not for the current default baseline. On Node 22.22.3, Linux, Intel Xeon
+@ 2.60 GHz, one run produced these medians of three total `Engine.step` times:
+
+| Scenario | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Robot cell | 187.43 ms | 180.86 ms | 3.5% lower |
+| Human cell | 329.91 ms | 331.98 ms | 0.6% higher |
+| Three-lane plant | 1140.84 ms | 1030.44 ms | 9.7% lower |
+| Crowded conveyors | 1444.35 ms | 1289.53 ms | 10.7% lower |
+
+These are short, noisy, single-process CPU timings, not browser FPS, GPU,
+rendering, memory, or real-device results. The timing excludes scene setup,
+comparison, and microtask yields. Another run showed different small-scene
+results; do not interpret these figures as guaranteed speedups. Browser and
+large-user-project profiling remain important next steps.
+
+## Subsequent audit (alpha.13)
+
+The benchmark baseline can be selected without checking out another branch, for
+example `TS_BENCH_BASELINE=73bbab3 npm run test:typescript-parity` or
+`TS_BENCH_BASELINE=73bbab3 npm run bench:typescript`. The referenced Git commit
+must be available locally. Only its engine and spatial index are loaded; all
+other simulation dependencies are shared from the working tree. The original default was `a806f3b`.
+
+A point-query specialization and reduced trigonometric calls were each evaluated
+against alpha.12 and not retained: neither showed a consistent improvement in
+the measured dense scenarios. The only simulation change in alpha.13 fixes stale
+fence collision candidates for products above the collision height; it is not a
+performance claim. Four-scenario selected-state parity against alpha.12 passed,
+while a dedicated regression test verifies the intentional behavioral fix.
+
+## Current 3D physics baseline
+
+The default benchmark baseline is now `88a60d3` (the pre-physics editor state);
+that commit must be available in the local Git history, so shallow checkouts may
+need to fetch history. `TS_BENCH_BASELINE` still overrides it. Per-frame parity
+for the four legacy scenes passes against this baseline. See `PHYSICS.md` for
+the separate dynamic-body benchmark and its limitations.
+
+For the current parity harness, robot outputs explicitly use the historical **moving or holding** mode. New projects default to the operation-end pulse, which is covered by separate signal tests and is intentionally not identical to the historical default.
+
+## Alpha.8 audit (2026-11-03)
+
+For workpiece contacts, the query radius now uses actual product half-extents
+and accounts for movement since the spatial index was rebuilt. A randomized
+regression checks that moving and oversized candidates are not lost. Laser
+blockers precompute their transformed bounds and only run precise shape tests
+for overlapping beam bounds. No timestep, quality or component caps changed.
+
+On Node 22.22.3, Linux, Intel Xeon @ 2.60 GHz, comparing against alpha.7
+(`TS_BENCH_BASELINE=24caa86137267e58a79c49f1e1531618ab346990`), one run
+of three trials gave these medians of the per-step medians:
+
+| Scenario | Alpha.7 | Alpha.8 | Change |
+| --- | ---: | ---: | ---: |
+| Robot cell | 0.030740 ms | 0.030910 ms | 0.6% higher |
+| Human cell | 0.040699 ms | 0.042448 ms | 4.3% higher |
+| Three-lane plant | 0.132837 ms | 0.128316 ms | 3.4% lower |
+| Crowded conveyors | 0.149472 ms | 0.134905 ms | 9.7% lower |
+
+Per-frame selected-state parity passed for all four legacy scenarios over 90
+simulated seconds; the newly fixed bounce and sorting behavior is tested
+separately. `npm run bench:beam` compares only the beam intersection routine
+against the alpha.7 Git source. In a sparse field of 120 equipment items and
+12 beams, three trials measured approximately 24–29x faster with identical
+hit counts. That deliberately sparse microbenchmark is not an overall
+simulation, rendering, or FPS result; real projects and devices will vary.
+
+### Rendering validation boundary
+
+The emissive-only MRT and bloom node pipeline is pixel-tested with Three.js's
+common renderer running its WebGL backend, including bright backgrounds,
+non-emissive materials, alpha blending, occlusion and halos. A Chromium
+SwiftShader WebGPU adapter was detected and the app mounted VXGI, but that
+software device was lost while rendering; the app returned to its WebGL GI
+approximation. This is fallback coverage, **not** validation of the full VXGI
+pipeline on physical WebGPU hardware.

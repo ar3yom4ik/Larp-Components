@@ -1,0 +1,1642 @@
+import { RemoteCameras } from './RemoteCameras';
+import { PtpLayer, PtpTeachingPanel, isRobot, type PtpMode } from './PtpTeaching';
+import type { MultiplayerClient } from '../multiplayer/client';
+import { surfaceUsesWorldProjection } from '../data/materials';
+import { ADAPTIVE_SCALE, adaptivePixelRatio } from '../utils/graphicsQuality';
+import { StableContactShadows } from './StableContactShadows';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Line, OrbitControls, PerformanceMonitor, TransformControls } from "@react-three/drei";
+import * as THREE from "three";
+import {
+  Box as BoxIcon,
+  Building2,
+  Eye,
+  Focus,
+  Grid3X3,
+  Layers3,
+  Cable,
+  Maximize2,
+  Pause,
+  Play,
+  RotateCcw,
+  RotateCw,
+  Settings2,
+} from "lucide-react";
+import type { OrbitControls as OrbitControlsImpl, TransformControls as TransformControlsImpl } from "three-stdlib";
+import type { CameraPreset, ComponentKind, SceneItem, ToolMode, Vec3 } from "../types";
+import type { BuildingSettings, GraphicsQuality, SkinId } from "../theme";
+import { activeScheme, useAppearance } from "../theme";
+import { COMPONENTS, getDef } from "../data/library";
+import { PartIcon, partAccent } from "./PartIcon";
+import { FactoryEnvironment, FactoryModel, MODEL_HEIGHTS, type BuildingStyle } from "./FactoryModels";
+import { ImportedModel } from "./ImportedModel";
+import { ViewportErrorBoundary } from "./ViewportErrorBoundary";
+import { SignalPortLayer, type OutputPort } from "./SignalPortLayer";
+import { canSignalInput, canSignalOutput, signalWireColor, signalOutputConnections, signalPortConnectionPatch } from "../utils/signalPorts";
+import { WireLayer } from "./WireLayer";
+import { WindowResizeHandle, type WindowSize } from "./WindowResizeHandle";
+import { BoxesLayer } from "./ProductModels";
+import { platformCorners, validPlatformCorners } from "../utils/upperFloor";
+import { PostEffects, RendererSettings } from "./GraphicsEffects";
+import { StudioEnvironment } from "./StudioEnvironment";
+import { SunLight } from "./SunLight";
+import { setGraphicsStatus } from "../graphicsStatus";
+import { onViewportCommand, sendViewportCommand } from "../viewportCommands";
+import { FloorPlanView } from "./FloorPlanView";
+import { setPanel, useLayout } from "../layout";
+import { GlobalIlluminationPipeline } from "./GpuGlobalIllumination";
+import { CornellBenchmark } from "./CornellBenchmark";
+import { useCornellRoom } from "../cornellRoom";
+import { createGpuRenderer, probeWebGPU, type GLFactoryProps } from "../utils/gpu";
+import { BELT_Y } from "./ModelKit";
+import { sim } from "../sim/engine";
+import { simulationFrameBudget, simulationRateSampleMs } from "../sim/frameBudget";
+import { formatClock, useSimSnapshot } from "../sim/hooks";
+import { cn } from "../utils/cn";
+import { sceneItemsInBox } from "../utils/boxSelection";
+import { t, useLanguage } from "../i18n";
+
+interface ViewportProps {
+  multiplayer: MultiplayerClient;
+  multiplayerActive: boolean;
+  mobile: boolean;
+  skin: SkinId;
+  quality: GraphicsQuality;
+  building: BuildingSettings;
+  items: SceneItem[];
+  productItems?: SceneItem[];
+  selectedId: string | null;
+  selectedIds: string[];
+  onSelect: (id: string | null, mode?: "replace" | "toggle" | "preserve") => void;
+  onSelectMany: (ids: string[]) => void;
+  selectedPoint: number | null;
+  onSelectPoint: (index: number | null) => void;
+  tool: ToolMode;
+  onToolChange: (tool:ToolMode)=>void;
+  snap: boolean;
+  running: boolean;
+  onToggleRun: () => void;
+  onResetSim: () => void;
+  simSpeed: number;
+  onSimSpeed: (speed: number) => void;
+  layoutName: string;
+  onAddAt: (kind: ComponentKind, position: Vec3) => void;
+  onAddCatalogAt: (id:string, position:Vec3) => void;
+  onImportFiles: (files: File[], position?:Vec3) => void;
+  loadingPosition: Vec3 | null;
+  onMoveLoading: (position: Vec3) => void;
+  onViewCenterReady: (getCenter: () => Vec3) => void;
+  onUpdateItem: (id: string, changes: Partial<SceneItem>, record?: boolean) => void;
+  onUpdateItems: (edits: {id:string; changes:Partial<SceneItem>}[], record?:boolean) => void;
+  onBeginEdit: () => void;
+  onDuplicateItem: (id: string) => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onPaste: () => void;
+  canPaste: boolean;
+  onDeleteSelected: () => void;
+  onDuplicateSelected: () => void;
+  onShowFloorMap: () => void;
+}
+
+type DragState =
+  | { type: "item"; id: string; startGround: THREE.Vector3; startPosition: Vec3; startRotation: number; startAngle: number; starts: SceneItem[] }
+  | { type: "point"; id: string; index: number };
+
+const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const TEAL = "var(--teal)";
+const TEAL_3D = "#35c4d4"; // Three.js cannot resolve CSS custom properties in material colors.
+const adaptiveBounds = (): [number, number] => [32, 55];
+
+const VIEWS: Record<CameraPreset, { position: Vec3; target: Vec3 }> = {
+  iso: { position: [13.5, 10.5, 15], target: [0, 0.3, 0.5] },
+  top: { position: [0, 38, 0.01], target: [0, 0, 0] },
+  front: { position: [0, 8, 30], target: [0, 1, 0] },
+  back: { position: [0, 8, -30], target: [0, 1, 0] },
+  left: { position: [-30, 8, 0], target: [0, 1, 0] },
+  right: { position: [30, 8, 0], target: [0, 1, 0] },
+  // Frames the DEV Cornell benchmark room (20 x 15 x 20) from its open side.
+  room: { position: [0, 8.5, 34], target: [0, 7, 0] },
+};
+
+interface CameraSnapshot { position: Vec3; target: Vec3; viewNonce: number; fitNonce: number; fitSelected: number; zoomNonce: number }
+type CameraRestore = { position: Vec3; target: Vec3; nonce: number };
+
+function CameraRig({
+  view,
+  viewNonce,
+  fitNonce,
+  fitSelected,
+  zoom,
+  focus,
+  focusId,
+  controlsRef,
+  items,
+  savedCamera,
+  restoreCamera,
+  handledRestore,
+}: {
+  view: CameraPreset;
+  viewNonce: number;
+  fitNonce: number;
+  fitSelected: number;
+  zoom: { nonce: number; direction: 1 | -1 };
+  focus: Vec3 | null;
+  focusId: string | null;
+  controlsRef: RefObject<OrbitControlsImpl | null>;
+  items: SceneItem[];
+  savedCamera: RefObject<CameraSnapshot | null>;
+  restoreCamera: CameraRestore | null;
+  handledRestore: RefObject<number>;
+}) {
+  const { camera, invalidate, size } = useThree();
+  const commands = useRef({ viewNonce, fitNonce, fitSelected, zoomNonce: zoom.nonce });
+  commands.current = { viewNonce, fitNonce, fitSelected, zoomNonce: zoom.nonce };
+  const captureCamera = () => {
+    const target = controlsRef.current?.target;
+    if (target) savedCamera.current = {position: camera.position.toArray() as Vec3, target: target.toArray() as Vec3, ...commands.current};
+  };
+  useFrame(captureCamera);
+  useEffect(() => () => captureCamera(), [camera, controlsRef, savedCamera]);
+  const appliedView = useRef<{viewNonce: number; fitNonce: number} | null>(null);
+  const appliedFit = useRef(savedCamera.current?.fitSelected ?? 0);
+  const appliedZoom = useRef(savedCamera.current?.zoomNonce ?? 0);
+  // Selection, scene edits and window resizes must not move the camera. They are read
+  // through refs so that only an explicit camera command (view button, Fit, new layout)
+  // re-frames the view. Depending on them directly reset the camera on every object click.
+  const itemsRef = useRef(items); itemsRef.current = items;
+  const focusRef = useRef(focus); focusRef.current = focus;
+  const focusIdRef = useRef(focusId); focusIdRef.current = focusId;
+  const sizeRef = useRef(size); sizeRef.current = size;
+
+  useEffect(() => {
+    if (appliedView.current?.viewNonce === viewNonce && appliedView.current.fitNonce === fitNonce) return;
+    const first = !appliedView.current;
+    appliedView.current = {viewNonce, fitNonce};
+    const saved = savedCamera.current;
+    // WebGL context settings require Canvas to remount. Restore the actual orbit
+    // instead of replaying a preset (or old fit/zoom commands) on that remount.
+    if (first && saved && saved.viewNonce === viewNonce && saved.fitNonce === fitNonce) {
+      camera.position.fromArray(saved.position);
+      controlsRef.current?.target.fromArray(saved.target);
+      controlsRef.current?.update();
+      invalidate();
+      return;
+    }
+    let { position, target } = VIEWS[view];
+    if (view === "iso") {
+      const points = itemsRef.current.flatMap((i) => {
+        if (!i.points) return [[i.position[0], i.position[2]]];
+        const r = i.rotation * Math.PI / 180;
+        return i.points.map((p) => [i.position[0] + p[0] * Math.cos(r) + p[1] * Math.sin(r), i.position[2] - p[0] * Math.sin(r) + p[1] * Math.cos(r)]);
+      });
+      const xs = points.map((p) => p[0]), zs = points.map((p) => p[1]);
+      const minX = Math.min(...xs, -3), maxX = Math.max(...xs, 3), minZ = Math.min(...zs, -3), maxZ = Math.max(...zs, 3);
+      const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+      const span = Math.max(maxX - minX, maxZ - minZ) + 3;
+      const aspect = Math.max(0.35, sizeRef.current.width / sizeRef.current.height);
+      const vFov = (36 * Math.PI) / 180;
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+      const dist = Math.max(14, (span * 0.62) / Math.tan(Math.min(vFov, hFov) / 2));
+      position = [cx + dist * 0.5, 0.5 + dist * 0.62, cz + dist * 0.66];
+      target = [cx, 0.6, cz];
+    }
+    const live = focusIdRef.current ? sim.humans.get(focusIdRef.current) : undefined;
+    const originalFocus = focusRef.current;
+    const f:Vec3 | null = live && originalFocus ? [live.x, originalFocus[1], live.z] : originalFocus;
+    if (fitNonce > 0 && f) {
+      position = [f[0] + 6, f[1] + 5, f[2] + 7];
+      target = [f[0], f[1] + 0.8, f[2]];
+    }
+    camera.position.set(...position);
+    if (controlsRef.current) {
+      controlsRef.current.target.set(...target);
+      controlsRef.current.update();
+    }
+    invalidate();
+  // Keyed only on explicit camera commands (see note above).
+  }, [camera, controlsRef, fitNonce, view, viewNonce, invalidate]);
+
+  // "Frame selection" (Ctrl+Alt+F in Visual Components). Frames the selected object — or
+  // the followed human — from the same three-quarter angle the iso view uses.
+  useEffect(() => {
+    if (!fitSelected || fitSelected === appliedFit.current) return;
+    appliedFit.current = fitSelected;
+    const f = focusRef.current;
+    if (!f) return;
+    const live = focusIdRef.current ? sim.humans.get(focusIdRef.current) : undefined;
+    const p: Vec3 = live ? [live.x, f[1], live.z] : f;
+    camera.position.set(p[0] + 3.2, p[1] + 2.6, p[2] + 3.8);
+    if (controlsRef.current) {
+      controlsRef.current.target.set(p[0], p[1] + 0.6, p[2]);
+      controlsRef.current.update();
+    }
+    invalidate();
+  }, [fitSelected, camera, controlsRef, invalidate]);
+
+  // Wheel-free zoom (Ctrl +/- shortcuts, ribbon buttons) keeps the orbit target fixed.
+  useEffect(() => {
+    if (!zoom.nonce || zoom.nonce === appliedZoom.current) return;
+    appliedZoom.current = zoom.nonce;
+    const target = controlsRef.current?.target ?? new THREE.Vector3();
+    const offset = camera.position.clone().sub(target);
+    const factor = zoom.direction > 0 ? 0.82 : 1.22;
+    const next = Math.min(80, Math.max(3, offset.length() * factor));
+    camera.position.copy(target.clone().add(offset.setLength(next)));
+    controlsRef.current?.update();
+    invalidate();
+  }, [zoom, camera, controlsRef, invalidate]);
+  useEffect(() => {
+    if (!restoreCamera || restoreCamera.nonce === handledRestore.current) return;
+    handledRestore.current = restoreCamera.nonce;
+    camera.position.fromArray(restoreCamera.position);
+    controlsRef.current?.target.fromArray(restoreCamera.target);
+    controlsRef.current?.update();
+    invalidate();
+  }, [restoreCamera, camera, controlsRef, handledRestore, invalidate]);
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      makeDefault
+      enableDamping
+      dampingFactor={0.09}
+      mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN }}
+      minDistance={3}
+      maxDistance={80}
+      minPolarAngle={0.02}
+      maxPolarAngle={Math.PI / 2.02}
+      target={[0, 0.4, 0]}
+    />
+  );
+}
+
+function DropTarget({ onAddAt, onAddCatalogAt, onImportFiles }: { onAddAt: (kind: ComponentKind, position: Vec3) => void; onAddCatalogAt:(id:string,position:Vec3)=>void; onImportFiles:(files:File[],position?:Vec3)=>void }) {
+  const { camera, gl } = useThree();
+
+  useEffect(() => {
+    const element = gl.domElement;
+    const raycaster = new THREE.Raycaster();
+    const point = new THREE.Vector3();
+    const pointer = new THREE.Vector2();
+    const over = (event: DragEvent) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const drop = (event: DragEvent) => {
+      event.preventDefault();
+      const kind = event.dataTransfer?.getData("application/x-factory-component") as ComponentKind;
+      const catalogId = event.dataTransfer?.getData("application/x-factory-catalog");
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if ((!kind || !COMPONENTS.some((component) => component.kind === kind)) && !catalogId && !files.length) return;
+      const rect = element.getBoundingClientRect();
+      pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(pointer, camera);
+      if (raycaster.ray.intersectPlane(GROUND, point)) {
+        const position:Vec3=[Math.round(point.x * 4) / 4, 0, Math.round(point.z * 4) / 4];
+        if (files.length) { event.stopPropagation(); onImportFiles(files,position); }
+        else if (catalogId) onAddCatalogAt(catalogId,position);
+        else onAddAt(kind,position);
+      }
+    };
+    element.addEventListener("dragover", over);
+    element.addEventListener("drop", drop);
+    return () => {
+      element.removeEventListener("dragover", over);
+      element.removeEventListener("drop", drop);
+    };
+  }, [camera, gl, onAddAt, onAddCatalogAt, onImportFiles]);
+
+  return null;
+}
+
+/** Steps the simulation in a bounded slice while keeping static shadows cheap. */
+function SimDriver({ items, shell, low }: { items: SceneItem[]; shell: boolean; low: boolean }) {
+  const { gl, invalidate } = useThree();
+  const frame = useRef(0);
+  const frameMs = useRef(16);
+
+  useEffect(() => {
+    gl.shadowMap.autoUpdate = false;
+  }, [gl]);
+  useEffect(() => {
+    gl.shadowMap.needsUpdate = true;
+    invalidate();
+  }, [items, shell, gl, invalidate]);
+
+  useFrame((_, delta) => {
+    if (!sim.running || sim.networkGuest) return;
+    // Exponential average of the real frame time, including the last simulation step.
+    const ms = Math.min(200, delta * 1000);
+    frameMs.current = frameMs.current * 0.85 + ms * 0.15;
+    if (frame.current % 20 === 0) setGraphicsStatus({ frameMs: Math.round(frameMs.current * 10) / 10 });
+    sim.stepBudgetMs = simulationFrameBudget(frameMs.current, sim.lastStepMs);
+    // Run after the current render so yielding between substeps does not include
+    // GPU/render work in the simulation budget. All visual callbacks in a frame
+    // then read one consistent, completed simulation state.
+    queueMicrotask(() => { void sim.stepAsync(delta); });
+    frame.current += 1;
+    // Shadows of a moving plant only need refreshing every other frame at most.
+    if (!low ? frame.current % 2 === 0 : frame.current % 3 === 0) gl.shadowMap.needsUpdate = true;
+  });
+  return null;
+}
+
+function LoadingGhost({ position, onMove, controlsRef, onDragStart }: {
+  position: Vec3; onMove: (position: Vec3) => void;
+  controlsRef: RefObject<OrbitControlsImpl | null>; onDragStart: () => void;
+}) {
+  const { camera, gl } = useThree();
+  const active = useRef(false);
+  const offset = useRef(new THREE.Vector3());
+  const current = useRef(position); current.current = position;
+  useEffect(() => {
+    const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(), hit = new THREE.Vector3();
+    const project = (event: PointerEvent) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      mouse.set((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2);
+      ray.setFromCamera(mouse, camera);
+      return ray.ray.intersectPlane(GROUND, hit);
+    };
+    const move = (event: PointerEvent) => {
+      if (!active.current || !project(event)) return;
+      onMove([hit.x + offset.current.x, 0, hit.z + offset.current.z]);
+    };
+    const end = () => { if (!active.current) return; active.current = false; if (controlsRef.current) controlsRef.current.enabled = true; gl.domElement.style.cursor = ''; };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+    return () => { end(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); };
+  }, [camera, gl, controlsRef, onMove]);
+  return <group position={position} name="import-loading-placeholder" onPointerDown={(event) => {
+    if (event.button !== 0) return;
+    event.stopPropagation(); onDragStart();
+    const hit = new THREE.Vector3();
+    if (!event.ray.intersectPlane(GROUND, hit)) return;
+    offset.current.set(current.current[0] - hit.x, 0, current.current[2] - hit.z);
+    active.current = true; if (controlsRef.current) controlsRef.current.enabled = false; gl.domElement.style.cursor = 'grabbing';
+  }}>
+    <mesh position={[0,0.6,0]}><boxGeometry args={[1.2,1.2,1.2]}/><meshBasicMaterial color="#68dbe5" wireframe transparent opacity={0.8}/></mesh>
+    <mesh position={[0,0.6,0]}><boxGeometry args={[1.2,1.2,1.2]}/><meshBasicMaterial color="#3fbfcf" transparent opacity={0.12} depthWrite={false}/></mesh>
+  </group>;
+}
+
+function ProximityRing({item}:{item:SceneItem}) {
+  const group=useRef<THREE.Group>(null), radius=Math.max(.2,Number(item.props.radius ?? .8));
+  useFrame(()=>{if(!group.current)return;const live=sim.getPhysicsPose(item.id) ?? (item.props.mountedTo ? sim.getLiveItem(item.id) : undefined) ?? item;group.current.position.set(live.position[0],live.position[1]+.04,live.position[2]);});
+  return <group ref={group} name={`proximity-radius-${item.id}`} position={[item.position[0],item.position[1]+.04,item.position[2]]}><mesh rotation={[-Math.PI/2,0,0]} raycast={()=>null}><ringGeometry args={[radius-.02,radius,64]}/><meshBasicMaterial color="#66c8ee" transparent opacity={.75} depthWrite={false} side={THREE.DoubleSide}/></mesh></group>;
+}
+
+function SelectionMarker({ item }: { item: SceneItem }) {
+  const ring = useRef<THREE.Group>(null);
+  const size = Math.max(0.9, Math.min(2.4, (MODEL_HEIGHTS[item.kind] ?? 1.5) * 0.55)) * (item.kind === "conveyor" || item.kind === "roller" ? 0.35 : 1);
+  useFrame(({ clock }) => {
+    if (!ring.current) return;
+    ring.current.scale.setScalar(1 + Math.sin(clock.elapsedTime * 2.6) * 0.03);
+    const rt=sim.humans.get(item.id);
+    if (rt) {
+      const rot=item.rotation*Math.PI/180, dx=rt.x-item.position[0], dz=rt.z-item.position[2];
+      ring.current.position.set((dx*Math.cos(rot)-dz*Math.sin(rot))/item.scale, .03, (dx*Math.sin(rot)+dz*Math.cos(rot))/item.scale);
+    }
+  });
+  if (item.kind === "conveyor" || item.kind === "roller") {
+    const points = (item.points ?? []).map((point, index) => [point[0], BELT_Y + .24 + (item.pointHeights?.[index] ?? 0), point[1]] as [number, number, number]);
+    return points.length > 1 ? <group userData={{selectionFor:item.id}}><Line points={points} color={TEAL_3D} lineWidth={3} depthTest={false} raycast={() => null} /></group> : null;
+  }
+  return (
+    <group ref={ring} userData={{selectionFor:item.id}} position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh>
+        <ringGeometry args={[size, size + 0.08, 56]} />
+        <meshBasicMaterial color={TEAL_3D} transparent opacity={0.95} toneMapped={false} />
+      </mesh>
+      <mesh>
+        <circleGeometry args={[size, 56]} />
+        <meshBasicMaterial color={TEAL_3D} transparent opacity={0.12} toneMapped={false} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function ConveyorHandles({
+  item,
+  selectedPoint,
+  onGrab,
+}: {
+  item: SceneItem;
+  selectedPoint: number | null;
+  onGrab: (event: ThreeEvent<PointerEvent>, index: number) => void;
+}) {
+  const pts = item.kind === 'platform' ? platformCorners(item) : item.points ?? [];
+  return (
+    <group>
+      {pts.map((p, index) => {
+        const active = selectedPoint === index;
+        return (
+          <group key={index} userData={{ splineHandleFor: item.id, pointIndex: index }} position={[p[0], ["fence","wall","platform"].includes(item.kind) ? Number(item.props.height ?? (item.kind === "wall" ? 4 : 2)) + 0.12 : BELT_Y + 0.2 + (item.pointHeights?.[index] ?? 0), p[1]]} onPointerDown={(event) => onGrab(event, index)}>
+            <mesh renderOrder={20}>
+              <sphereGeometry args={[active ? 0.2 : 0.15, 16, 12]} />
+              <meshBasicMaterial color={active ? TEAL_3D : "#ffffff"} depthTest={false} transparent opacity={0.96} toneMapped={false} />
+            </mesh>
+            <mesh renderOrder={19}>
+              <sphereGeometry args={[active ? 0.27 : 0.21, 16, 12]} />
+              <meshBasicMaterial color="#1b1b1b" depthTest={false} transparent opacity={0.55} toneMapped={false} />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/** Editing starts where an object is actually rendered, not at its stale
+ * authored pose after the physics solver or a moving conveyor has displaced it. */
+function itemAtLivePose(item: SceneItem): SceneItem {
+  const pose = item.props.mountedTo ? sim.getLiveItem(item.id) : sim.getPhysicsPose(item.id);
+  const current = pose ? { ...item, ...pose } : item;
+  return { ...current, position: [...current.position] as Vec3 };
+}
+
+/** Widen the visible transform handles without scaling their world-space
+ * endpoints. Three's controls bake each arrow into a separate mesh geometry. */
+function useWideGizmo(control: React.RefObject<TransformControlsImpl | null>) {
+  useEffect(() => {
+    const gizmo = (control.current as unknown as {gizmo?:{gizmo?:{translate?:THREE.Object3D;rotate?:THREE.Object3D}}} | null)?.gizmo?.gizmo;
+    if (!gizmo) return;
+    for (const child of gizmo.translate?.children ?? []) {
+      if (!(child instanceof THREE.Mesh) || !['X','Y','Z'].includes(child.name) || child.userData.larpWide) continue;
+      child.userData.larpWide = true;
+      child.geometry.scale(child.name === 'X' ? 1 : 2.2,child.name === 'Y' ? 1 : 2.2,child.name === 'Z' ? 1 : 2.2);
+    }
+    for (const child of gizmo.rotate?.children ?? []) {
+      if (!(child instanceof THREE.Mesh) || !['X','Y','Z','E'].includes(child.name) || child.userData.larpWide) continue;
+      child.userData.larpWide = true;
+      child.geometry.computeBoundingBox();const center=child.geometry.boundingBox?.getCenter(new THREE.Vector3());
+      if(center)child.geometry.translate(-center.x,-center.y,-center.z).scale(1.7,1.7,1.7).translate(center.x,center.y,center.z);
+    }
+  },[control]);
+}
+
+/** Three-axis transform controls use a world-space anchor separate from the
+ * model, so the original drag-to-move/rotate and spline spheres keep working. */
+function ObjectGizmo({ item, group, tool, snap, onBeginEdit, onUpdateItem, onUpdateItems, onActive }: {
+  item: SceneItem; group: SceneItem[]; tool: ToolMode; snap: boolean; onBeginEdit: () => void;
+  onUpdateItem: ViewportProps["onUpdateItem"]; onUpdateItems: ViewportProps["onUpdateItems"]; onActive: (active: boolean) => void;
+}) {
+  const anchor = useMemo(() => { const node = new THREE.Object3D(); node.name = `transform-anchor-${item.id}`; return node; }, [item.id]);
+  const active = useRef(false);
+  const wasPhysical = useRef(false);
+  const control = useRef<TransformControlsImpl>(null);
+  useWideGizmo(control);
+  const {scene,camera,gl} = useThree();
+  const snapshot = useRef<{items:SceneItem[]; origin:THREE.Vector3; orientation:THREE.Quaternion} | null>(null);
+  useEffect(() => {
+    const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(), floor=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+    const move=(event:PointerEvent) => {
+      const state=snapshot.current, axis=(control.current as unknown as {axis?:string} | null)?.axis;
+      if(!active.current || !state || tool !== 'move' || axis !== 'XYZ')return;
+      const rect=gl.domElement.getBoundingClientRect();
+      pointer.set((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);
+      raycaster.setFromCamera(pointer,camera);
+      const floorPoint=new THREE.Vector3(), floorHit=raycaster.ray.intersectPlane(floor,floorPoint);
+      const selected=new Set(state.items.map(entry=>entry.id));
+      const hit=raycaster.intersectObjects(scene.children,true).find(entry=>{
+        let node:THREE.Object3D | null=entry.object, sceneItem:string | undefined, buildingSurface=false;
+        while(node) {
+          if((node as unknown as {isTransformControls?:boolean}).isTransformControls || node.userData.signalWire)return false;
+          if(typeof node.userData.sceneItemId==='string')sceneItem=node.userData.sceneItemId;
+          if(node.userData.buildingSurface===true)buildingSurface=true;
+          node=node.parent;
+        }
+        return (buildingSurface || (!!sceneItem && !selected.has(sceneItem))) && (!floorHit || entry.distance < raycaster.ray.origin.distanceTo(floorPoint));
+      });
+      const point=hit?.point.clone() ?? (floorHit ? floorPoint : null); if(!point)return;
+      if(snap) {
+        const normal=hit?.face?.normal.clone().transformDirection(hit.object.matrixWorld) ?? new THREE.Vector3(0,1,0);
+        const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,point);
+        point.set(Math.round(point.x*4)/4,Math.round(point.y*4)/4,Math.round(point.z*4)/4);plane.projectPoint(point,point);
+      }
+      anchor.position.copy(point);
+      const clamp=(v:number)=>Math.max(-200,Math.min(200,Math.round(v*1000)/1000));
+      if(state.items.length>1) {
+        const delta=point.clone().sub(state.origin);
+        onUpdateItems(state.items.map(entry=>({id:entry.id,changes:{position:new THREE.Vector3(...entry.position).add(delta).toArray().map(clamp) as Vec3}})));
+      } else onUpdateItem(item.id,{position:point.toArray().map(clamp) as Vec3},false);
+    };
+    window.addEventListener('pointermove',move);
+    return()=>window.removeEventListener('pointermove',move);
+  },[scene,camera,gl,tool,snap,onUpdateItem,onUpdateItems,item.id,anchor]);
+  useEffect(() => {
+    if (active.current) return;
+    anchor.position.set(...item.position);
+    anchor.rotation.set((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+    anchor.updateMatrixWorld(true);
+  }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ]);
+  useEffect(() => () => { if (active.current) onActive(false); }, [onActive]);
+  useFrame(() => {
+    const pose = sim.getPhysicsPose(item.id) ?? (item.props.mountedTo ? sim.getLiveItem(item.id) : undefined);
+    if (active.current) return;
+    if (pose) {
+      wasPhysical.current = true;
+      anchor.position.set(...pose.position);
+      anchor.rotation.set((pose.rotationX ?? 0) * Math.PI / 180, pose.rotation * Math.PI / 180, (pose.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+    } else if (wasPhysical.current) {
+      wasPhysical.current = false;
+      anchor.position.set(...item.position);
+      anchor.rotation.set((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+    }
+  });
+  const degrees = (radians: number) => Math.round(radians * 1800 / Math.PI) / 10;
+  return <>
+    <primitive object={anchor} />
+    <TransformControls ref={control} object={anchor} mode={tool === 'rotate' ? 'rotate' : 'translate'} space="world" size={0.85}
+      onChange={() => { if (!active.current) onActive(!!(control.current as unknown as {axis: string | null} | null)?.axis); }}
+      translationSnap={snap ? 0.25 : null} rotationSnap={snap ? Math.PI / 12 : null}
+      onMouseDown={() => { active.current = true; onActive(true); onBeginEdit(); snapshot.current = {items:group.map(itemAtLivePose), origin:anchor.position.clone(), orientation:anchor.quaternion.clone()}; }}
+      onMouseUp={() => { active.current = false; snapshot.current = null; onActive(false); }}
+      onObjectChange={() => {
+        if (!active.current) return;
+        const start = snapshot.current;
+        if (start && start.items.length > 1) {
+          const deltaPosition = anchor.position.clone().sub(start.origin);
+          const deltaRotation = anchor.quaternion.clone().multiply(start.orientation.clone().invert());
+          const edits = start.items.map(entry => {
+            if (tool === 'move') {
+              const position = new THREE.Vector3(...entry.position).add(deltaPosition);
+              return {id:entry.id, changes:{position:position.toArray() as Vec3}};
+            }
+            const position = new THREE.Vector3(...entry.position).sub(start.origin).applyQuaternion(deltaRotation).add(start.origin);
+            const original = new THREE.Quaternion().setFromEuler(new THREE.Euler((entry.rotationX ?? 0)*Math.PI/180, entry.rotation*Math.PI/180, (entry.rotationZ ?? 0)*Math.PI/180, 'XYZ'));
+            const euler = new THREE.Euler().setFromQuaternion(deltaRotation.clone().multiply(original), 'XYZ');
+            return {id:entry.id, changes:{position:position.toArray() as Vec3, rotationX:degrees(euler.x), rotation:degrees(euler.y), rotationZ:degrees(euler.z)}};
+          });
+          onUpdateItems(edits);
+          return;
+        }
+        if (tool === 'move') {
+          const clamp = (v: number) => Math.max(-200, Math.min(200, Math.round(v * 1000) / 1000));
+          onUpdateItem(item.id, { position: [clamp(anchor.position.x), clamp(anchor.position.y), clamp(anchor.position.z)] }, false);
+        } else {
+          onUpdateItem(item.id, { rotationX: degrees(anchor.rotation.x), rotation: degrees(anchor.rotation.y), rotationZ: degrees(anchor.rotation.z) }, false);
+        }
+      }}
+    />
+  </>;
+}
+
+/** The selected spline handle has its own world-space gizmo; converting back
+ * through the item's full rotation keeps point editing correct on tilted belts. */
+function PointGizmo({ item, index, snap, onBeginEdit, onUpdateItem, onActive }: {
+  item: SceneItem; index: number; snap: boolean; onBeginEdit: () => void;
+  onUpdateItem: ViewportProps["onUpdateItem"]; onActive: (active: boolean) => void;
+}) {
+  const anchor = useMemo(() => { const node = new THREE.Object3D(); node.name = `spline-transform-anchor-${item.id}-${index}`; return node; }, [item.id, index]);
+  const active = useRef(false);
+  const wasPhysical = useRef(false);
+  const control = useRef<TransformControlsImpl>(null);
+  useWideGizmo(control);
+  const points = item.kind === 'platform' ? platformCorners(item) : item.points;
+  const point = points?.[index];
+  const pointScale = item.kind === 'platform' || item.kind === 'wall' ? item.scale : 1;
+  const pointY = item.kind === 'platform' || item.kind === 'wall' ? Number(item.props.height ?? 2) + .12 : BELT_Y + .2 + (item.pointHeights?.[index] ?? 0);
+  const rotation = (base: Pick<SceneItem, 'rotationX' | 'rotation' | 'rotationZ'> = item) => new THREE.Quaternion().setFromEuler(new THREE.Euler((base.rotationX ?? 0) * Math.PI / 180, base.rotation * Math.PI / 180, (base.rotationZ ?? 0) * Math.PI / 180, 'XYZ'));
+  useEffect(() => {
+    if (active.current || !point) return;
+    anchor.position.set(point[0]*pointScale,pointY*pointScale,point[1]*pointScale).applyQuaternion(rotation()).add(new THREE.Vector3(...item.position));
+    anchor.updateMatrixWorld(true);
+  }, [anchor, item.position, item.rotation, item.rotationX, item.rotationZ, item.points, item.pointHeights, item.props.height, item.scale, index]);
+  useEffect(() => () => { if (active.current) onActive(false); }, [onActive]);
+  useFrame(() => {
+    const pose = sim.getPhysicsPose(item.id);
+    if (active.current || !point) return;
+    if (pose) wasPhysical.current = true;
+    else if (!wasPhysical.current) return;
+    else wasPhysical.current = false;
+    const base = pose ?? item;
+    anchor.position.set(point[0]*pointScale,pointY*pointScale,point[1]*pointScale).applyQuaternion(rotation(base)).add(new THREE.Vector3(...base.position));
+  });
+  if (!point) return null;
+  const clamp = (value: number) => Math.max(-200, Math.min(200, Math.round(value * 1000) / 1000));
+  return <>
+    <primitive object={anchor} />
+    <TransformControls ref={control} object={anchor} mode="translate" space="world" size={0.85} translationSnap={snap ? 0.25 : null}
+      onChange={() => { if (!active.current) onActive(!!(control.current as unknown as {axis: string | null} | null)?.axis); }}
+      onMouseDown={() => { active.current = true; onActive(true); onBeginEdit(); }}
+      onMouseUp={() => { active.current = false; onActive(false); }}
+      onObjectChange={() => {
+        if (!active.current || !points) return;
+        const base = sim.getPhysicsPose(item.id) ?? item;
+        const local = anchor.position.clone().sub(new THREE.Vector3(...base.position)).applyQuaternion(rotation(base).invert()).divideScalar(pointScale);
+        const snapLocal = (value: number) => clamp(snap ? Math.round(value * 4) / 4 : value);
+        const next = points.map((p, i) => i === index ? [snapLocal(local.x), snapLocal(local.z)] as [number, number] : p);
+        if(item.kind === 'platform' && !validPlatformCorners(next))return;
+        if(item.kind === 'platform' || item.kind === 'wall') {
+          const raw=Math.max(0,Math.min(20,local.y-.12));
+          const height=item.kind === 'platform' ? (Math.abs(local.y-pointY) < .05 ? Number(item.props.height ?? 2) : Math.round(raw)) : snapLocal(raw);
+          onUpdateItem(item.id,{points:next,props:{...item.props,height}},false);
+        } else {
+          const pointHeights=points.map((_,i)=>i===index?snapLocal(local.y-BELT_Y-.2):item.pointHeights?.[i] ?? 0);
+          onUpdateItem(item.id,{points:next,pointHeights},false);
+        }
+      }} />
+  </>;
+}
+
+/** Renderer reads solver poses directly; the authored layout is left intact. */
+function PhysicalItemGroup({ item, onPointerDown, onClick, onDuplicate, children }: {
+  item: SceneItem; onPointerDown: (event: ThreeEvent<PointerEvent>, item: SceneItem) => void;
+  onClick: (event: ThreeEvent<MouseEvent>, item: SceneItem) => void;
+  onDuplicate: (id: string) => void; children: ReactNode;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  const wasPhysical = useRef(false);
+  useFrame(() => {
+    const node = ref.current, pose = sim.getPhysicsPose(item.id);
+    if (!node) return;
+    if (item.props.mountedTo) {
+      const live = sim.getLiveItem(item.id) ?? item;
+      node.position.set(...live.position); node.rotation.set((live.rotationX ?? 0) * Math.PI / 180, live.rotation * Math.PI / 180, (live.rotationZ ?? 0) * Math.PI / 180, 'XYZ'); return;
+    }
+    if (pose) wasPhysical.current = true;
+    else if (!wasPhysical.current) return;
+    else wasPhysical.current = false;
+    const base = pose ?? item;
+    node.position.set(...base.position);
+    node.rotation.set((base.rotationX ?? 0) * Math.PI / 180, base.rotation * Math.PI / 180, (base.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+  });
+  const isPath = ['conveyor', 'roller', 'fence'].includes(item.kind);
+  return <group ref={ref} userData={{ sceneItemId: item.id }} position={item.position}
+    rotation={[(item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180]}
+    scale={isPath ? 1 : item.scale}
+    onPointerDown={(event) => onPointerDown(event, itemAtLivePose(item))}
+    onClick={(event) => onClick(event, item)}
+    onDoubleClick={(event) => { if (!event.ctrlKey && !event.metaKey) return; event.stopPropagation(); if (!item.locked) onDuplicate(item.id); }}>
+    {children}
+  </group>;
+}
+
+interface SceneContentProps {
+  items: SceneItem[];
+  productItems?: SceneItem[];
+  onProjectedWorkpiecesChange: (active: boolean) => void;
+  ptpMode:PtpMode;
+  ptpPointId:string|null;
+  onPtpPoint:(id:string)=>void;
+  onPtpFeedback:(message:string)=>void;
+  selectedId: string | null;
+  selectedIds: string[];
+  onSelect: ViewportProps["onSelect"];
+  suppressClick: RefObject<boolean>;
+  selectedPoint: number | null;
+  onSelectPoint: (index: number | null) => void;
+  tool: ToolMode;
+  snap: boolean;
+  controlsRef: RefObject<OrbitControlsImpl | null>;
+  onUpdateItem: ViewportProps["onUpdateItem"];
+  onUpdateItems: ViewportProps["onUpdateItems"];
+  onBeginEdit: () => void;
+  shell: boolean;
+  building: BuildingStyle;
+}
+
+function SceneContent({
+  items,
+  productItems = items,
+  onProjectedWorkpiecesChange,
+  ptpMode,
+  ptpPointId,
+  onPtpPoint,
+  onPtpFeedback,
+  selectedId,
+  selectedIds,
+  onSelect,
+  suppressClick,
+  selectedPoint,
+  onSelectPoint,
+  tool,
+  snap,
+  controlsRef,
+  onUpdateItem,
+  onUpdateItems,
+  onBeginEdit,
+  shell,
+  building,
+  onDuplicateItem,
+}: SceneContentProps & { onDuplicateItem: (id: string) => void }) {
+  const { camera, gl } = useThree();
+  const drag = useRef<DragState | null>(null);
+  const gizmoActive = useRef(false);
+  const setGizmoActive = useCallback((active: boolean) => {
+    gizmoActive.current = active;
+    // Native TransformControls and the scene's legacy pointer handler see the
+    // same press. Whichever fires first, never run both drags at once.
+    // Selecting a spline sphere mounts its gizmo while that same sphere-drag
+    // is already in progress; a hover over the newly mounted arrows must not
+    // cancel the legacy drag. Gizmo presses suppress grabPoint before it starts.
+    if (active && drag.current?.type === "item") drag.current = null;
+  }, []);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  useEffect(() => {
+    gl.domElement.style.cursor = tool === "select" ? "" : "crosshair";
+  }, [gl, tool]);
+
+  const startDrag = useCallback(
+    (event: ThreeEvent<PointerEvent>, item: SceneItem) => {
+      event.stopPropagation();
+      if (gizmoActive.current || event.button === 1) return;
+      const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+      const preserveGroup = selectedIdSet.has(item.id) && (event.button === 2 || tool !== "select");
+      onSelect(item.id, additive && event.button === 0 ? "toggle" : preserveGroup ? "preserve" : "replace");
+      onSelectPoint(null);
+      // Right click selects, middle drag only orbits; modifiers only change selection.
+      if (event.button !== 0 || additive || tool === "select" || tool === "ptp" || item.locked) return;
+      const hit = new THREE.Vector3();
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -item.position[1]);
+      if (!event.ray.intersectPlane(plane, hit)) return;
+      onBeginEdit();
+      drag.current = {
+        type: "item",
+        id: item.id,
+        startGround: hit.clone(),
+        startPosition: [...item.position] as Vec3,
+        startRotation: item.rotation,
+        startAngle: Math.atan2(hit.z - item.position[2], hit.x - item.position[0]),
+        starts: (preserveGroup ? itemsRef.current.filter(candidate => selectedIdSet.has(candidate.id) && !candidate.locked) : [item]).map(itemAtLivePose),
+      };
+      if (controlsRef.current) controlsRef.current.enabled = false;
+      gl.domElement.style.cursor = "grabbing";
+    },
+    [controlsRef, gl, onBeginEdit, onSelect, onSelectPoint, selectedIdSet, tool],
+  );
+
+  const grabPoint = useCallback(
+    (event: ThreeEvent<PointerEvent>, id: string, index: number) => {
+      // In Select mode the same left drag belongs to the marquee, including
+      // when it begins over a visible spline sphere. Move mode still supports
+      // both the original sphere drag and its XYZ gizmo.
+      if (tool === "select" || tool === "ptp") return;
+      event.stopPropagation();
+      if (gizmoActive.current) return;
+      onSelect(id);
+      onSelectPoint(index);
+      const item = itemsRef.current.find((candidate) => candidate.id === id);
+      if (!item || item.locked) return;
+      onBeginEdit();
+      drag.current = { type: "point", id, index };
+      if (controlsRef.current) controlsRef.current.enabled = false;
+      gl.domElement.style.cursor = "grabbing";
+    },
+    [controlsRef, gl, onBeginEdit, onSelect, onSelectPoint, tool],
+  );
+
+  useEffect(() => {
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const hit = new THREE.Vector3();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+    const project = (event: PointerEvent) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(pointer, camera);
+      const current = drag.current;
+      const item = current?.type === "point" ? itemsRef.current.find((i) => i.id === current.id) : null;
+      if (item) {
+        const height = ["fence","wall","platform"].includes(item.kind) ? Number(item.props.height ?? 2) + .12 : BELT_Y + .2 + (item.pointHeights?.[current?.type === "point" ? current.index : 0] ?? 0);
+        const rotation = new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+        const q = new THREE.Quaternion().setFromEuler(rotation);
+        const origin = new THREE.Vector3(0, height * (item.kind === 'platform' || item.kind === 'wall' ? item.scale : 1), 0).applyQuaternion(q).add(new THREE.Vector3(...item.position));
+        plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0).applyQuaternion(q), origin);
+      } else plane.set(new THREE.Vector3(0, 1, 0), current?.type === 'item' ? -current.startPosition[1] : 0);
+      return raycaster.ray.intersectPlane(plane, hit) ? hit : null;
+    };
+
+    const move = (event: PointerEvent) => {
+      const state = drag.current;
+      if (!state) return;
+      const point = project(event);
+      if (!point) return;
+      if (state.type === "point") {
+        const item = itemsRef.current.find((candidate) => candidate.id === state.id);
+        if (!item) return;
+        const points = item.kind === 'platform' ? platformCorners(item) : item.points;
+        if (!points) return;
+        const rotation = new THREE.Euler((item.rotationX ?? 0) * Math.PI / 180, item.rotation * Math.PI / 180, (item.rotationZ ?? 0) * Math.PI / 180, 'XYZ');
+        const local = point.clone().sub(new THREE.Vector3(...item.position)).applyQuaternion(new THREE.Quaternion().setFromEuler(rotation).invert()).divideScalar(item.kind === 'platform' || item.kind === 'wall' ? item.scale : 1);
+        let lx = local.x;
+        let lz = local.z;
+        if (snap) {
+          lx = Math.round(lx * 4) / 4;
+          lz = Math.round(lz * 4) / 4;
+        }
+        const next = points.map((p, i) => (i === state.index ? ([Math.round(lx * 100) / 100, Math.round(lz * 100) / 100] as [number, number]) : p));
+        if(item.kind !== 'platform' || validPlatformCorners(next))onUpdateItem(state.id, { points: next }, false);
+        return;
+      }
+      if (tool === "move") {
+        const x = state.startPosition[0] + point.x - state.startGround.x;
+        const z = state.startPosition[2] + point.z - state.startGround.z;
+        const snapValue = (value: number) => (snap ? Math.round(value * 4) / 4 : value);
+        const dx = snapValue(x) - state.startPosition[0], dz = snapValue(z) - state.startPosition[2];
+        onUpdateItems(state.starts.map(start => ({id:start.id, changes:{position:[start.position[0] + dx, start.position[1], start.position[2] + dz] as Vec3}})));
+      } else if (tool === "rotate") {
+        const angle = Math.atan2(point.z - state.startPosition[2], point.x - state.startPosition[0]);
+        let degrees = state.startRotation - ((angle - state.startAngle) * 180) / Math.PI;
+        if (snap) degrees = Math.round(degrees / 15) * 15;
+        degrees = ((degrees % 360) + 360) % 360;
+        const delta = (degrees - state.startRotation) * Math.PI / 180;
+        const c = Math.cos(delta), s = Math.sin(delta), pivot = state.startPosition;
+        onUpdateItems(state.starts.map(start => {
+          const x = start.position[0] - pivot[0], z = start.position[2] - pivot[2];
+          return {id:start.id, changes:{position:[pivot[0] + x*c + z*s, start.position[1], pivot[2] - x*s + z*c] as Vec3, rotation:Math.round(start.rotation + degrees - state.startRotation)}};
+        }));
+      }
+    };
+
+    const end = () => {
+      if (!drag.current) return;
+      drag.current = null;
+      if (controlsRef.current) controlsRef.current.enabled = true;
+      gl.domElement.style.cursor = tool === "select" ? "" : "crosshair";
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [camera, controlsRef, gl, onUpdateItem, onUpdateItems, snap, tool]);
+
+  return (
+    <>
+      <group userData={{ giGeometry: true }}><FactoryEnvironment shell={shell} building={building} /></group>
+      {items.map((item) => {
+        if (item.visible === false) return null;
+        const selected = selectedIdSet.has(item.id);
+        const primary = item.id === selectedId;
+        const isConveyor = item.kind === "conveyor" || item.kind === "roller" || item.kind === "fence" || item.kind === "platform" || (item.kind === "wall" && !!item.points);
+        return (
+          <PhysicalItemGroup key={item.id} item={item} onPointerDown={startDrag} onDuplicate={onDuplicateItem} onClick={(event, clicked) => {
+            if (event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && !suppressClick.current && tool === "select" && clicked.kind === "button") { event.stopPropagation(); sim.pressButton(clicked.id); }
+          }}>
+            <group userData={{ giGeometry: true }}>{item.kind === "imported-model" && item.imported ? <ImportedModel model={item.imported} id={item.id} /> : <FactoryModel item={item} productItems={item.kind === "crates" || item.kind === "platform" || item.kind === "stairs" || item.kind === "wall" ? productItems : undefined} />}</group>
+            {selected && <SelectionMarker item={item} />}
+            {primary && isConveyor && (
+              <ConveyorHandles item={item} selectedPoint={selectedPoint} onGrab={(event, index) => grabPoint(event, item.id, index)} />
+            )}
+          </PhysicalItemGroup>
+        );
+      })}
+      {(() => {
+        const selected = items.find((item) => item.id === selectedId && item.visible !== false && !item.locked);
+        if (!selected || tool === 'select') return null;
+        if (tool === 'ptp') return isRobot(selected) ? <PtpLayer item={selected} mode={ptpMode} pointId={ptpPointId} onPoint={onPtpPoint} snap={snap} onUpdateItem={onUpdateItem} onBeginEdit={onBeginEdit} onActive={setGizmoActive} onFeedback={onPtpFeedback} /> : null;
+        if (tool === 'move' && selectedPoint !== null && ['conveyor', 'roller', 'platform', 'wall'].includes(selected.kind) && (selected.points?.[selectedPoint] || (selected.kind === 'platform' && platformCorners(selected)[selectedPoint]))) {
+          return <PointGizmo item={selected} index={selectedPoint} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onActive={setGizmoActive} />;
+        }
+        return <ObjectGizmo item={selected} group={items.filter(item => selectedIdSet.has(item.id) && !item.locked)} tool={tool} snap={snap} onBeginEdit={onBeginEdit} onUpdateItem={onUpdateItem} onUpdateItems={onUpdateItems} onActive={setGizmoActive} />;
+      })()}
+      <group userData={{ giGeometry: true }}><BoxesLayer items={productItems} onProjectedWorkpiecesChange={onProjectedWorkpiecesChange} /></group>
+      <WireLayer items={items} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  HTML overlays                                                      */
+/* ------------------------------------------------------------------ */
+
+function SelectionHud({ item, onDuplicate, onDelete }: { item: SceneItem; onDuplicate: () => void; onDelete: () => void }) {
+  const def = getDef(item.kind);
+  const accent = item.color || partAccent(item.kind);
+  return (
+    <div
+      className="pointer-events-auto flex w-fit max-w-[300px] items-stretch overflow-hidden rounded border border-white/15 bg-[#2a2a2c]/92 shadow-[0_8px_24px_rgba(0,0,0,.35)] backdrop-blur"
+      style={{ borderLeftColor: TEAL, borderLeftWidth: 3 }}
+    >
+      <div className="flex items-center gap-2 px-2.5 py-1.5">
+        <span className="flex h-7 w-8 items-center justify-center rounded border border-white/10 bg-[#3a3a3d]">
+          <PartIcon kind={item.kind} className="h-5 w-6" />
+        </span>
+        <div className="min-w-0 leading-none">
+          <div className="flex items-center gap-1.5">
+            <span className="max-w-[140px] truncate text-[10.5px] font-medium text-[#f0f0f0]">{t(item.name)}</span>
+            <span className="rounded px-1 py-px font-mono text-[6.5px] uppercase tracking-wider" style={{ color: accent, backgroundColor: `${accent}22` }}>
+              {t(def.category)}
+            </span>
+          </div>
+          <div className="mt-1 font-mono text-[8px] text-white/40"> {t("X")} {item.position[0].toFixed(2)} {t("· Z")} {item.position[2].toFixed(2)} · {Math.round(item.rotation)}°
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-px border-l border-white/10 px-1">
+        <button type="button" onClick={onDuplicate} title={t("Duplicate")} className="rounded p-1.5 text-white/45 transition hover:bg-white/10 hover:text-[var(--app-accent-bright)]">
+          <Layers3 size={11} />
+        </button>
+        <button type="button" onClick={onDelete} title={t("Delete")} className="rounded p-1.5 text-white/45 transition hover:bg-white/10 hover:text-[#ff9d89]">
+          <span className="text-[13px] leading-none">×</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ViewCube({ view, onPick }: { view: CameraPreset; onPick: (view: CameraPreset) => void }) {
+  const faces: { id: CameraPreset; label: string; d: string; lx: number; ly: number }[] = [
+    { id: "back", label: "B", d: "M0 0H96L72 24H24Z", lx: 48, ly: 14 },
+    { id: "left", label: "L", d: "M0 0L24 24V72L0 96Z", lx: 12, ly: 52 },
+    { id: "right", label: "R", d: "M96 0V96L72 72V24Z", lx: 84, ly: 52 },
+    { id: "front", label: "F", d: "M0 96L24 72H72L96 96Z", lx: 48, ly: 88 },
+    { id: "top", label: "T", d: "M24 24H72V72H24Z", lx: 48, ly: 54 },
+  ];
+  return (
+    <svg width="92" height="92" viewBox="0 0 96 96" className="drop-shadow-[0_6px_14px_rgba(0,0,0,.25)]" aria-label={t("View cube")}>
+      {faces.map((face) => {
+        const active = view === face.id;
+        return (
+          <g key={face.id} onClick={() => onPick(face.id)} className="cursor-pointer">
+            <path
+              d={face.d}
+              fill={active ? "#3ab7c8" : "#5a5a5d"}
+              stroke="#d9d9d9"
+              strokeWidth="2.4"
+              strokeLinejoin="round"
+              className="transition hover:fill-[var(--app-accent)]"
+              style={{ opacity: 0.94 }}
+            />
+            <text x={face.lx} y={face.ly} textAnchor="middle" fontSize="15" fontWeight="600" fill="#fff" style={{ pointerEvents: "none" }}>
+              {t(face.label)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Live frames-per-second readout, measured from requestAnimationFrame callbacks. */
+function FpsBadge() {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    let frames = 0, start = performance.now(), raf = 0, alive = true;
+    const tick = (now: number) => {
+      if (!alive) return;
+      frames += 1;
+      if (now - start >= 500) { setFps(Math.round((frames * 1000) / (now - start))); frames = 0; start = now; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { alive = false; cancelAnimationFrame(raf); };
+  }, []);
+  return <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded bg-black/55 px-2 py-0.5 font-mono text-[11px] text-white/85" aria-label="Frames per second">{fps} FPS</div>;
+}
+
+function SimPlayer({ running, onToggleRun, onReset, speed, onSpeed, onToggleFullscreen, onToggleViewExtras, onToggleGrid }: { running: boolean; onToggleRun: () => void; onReset: () => void; speed: number; onSpeed: (speed: number) => void; onToggleFullscreen: () => void; onToggleViewExtras: () => void; onToggleGrid: () => void }) {
+  const snap = useSimSnapshot(250);
+  const [menu, setMenu] = useState(false);
+  const menuFrame = useRef<HTMLDivElement>(null);
+  const [menuSize, setMenuSize] = useState<WindowSize | null>(null);
+  const [clockMode, setClockMode] = useState("hms");
+  const [mode, setMode] = useState("real");
+  const [runTime, setRunTime] = useState("Infinite");
+  const [actualSpeed, setActualSpeed] = useState<number | null>(null);
+  useEffect(() => {
+    setActualSpeed(null);
+    if (!running) return undefined;
+    let time = sim.time, wall = performance.now(), revision = sim.clockRevision;
+    const id = window.setInterval(() => {
+      const now = performance.now(), elapsed = (now - wall) / 1000;
+      const next = sim.clockRevision === revision && elapsed > 0 ? (sim.time - time) / elapsed : null;
+      setActualSpeed(next);
+      time = sim.time; wall = now; revision = sim.clockRevision;
+    }, simulationRateSampleMs(speed));
+    return () => window.clearInterval(id);
+  }, [speed, running]);
+  return (
+    <div className="sim-player pointer-events-auto relative">
+      <div className="flex items-center gap-2 rounded-sm border border-[#ffffff18] bg-[#272729]/95 px-2 py-1.5 shadow-[0_5px_16px_rgba(0,0,0,.4)] backdrop-blur">
+        <button type="button" onClick={() => setMenu(!menu)} aria-label={t("Simulation settings")} className={cn("rounded p-1 text-white/60 hover:bg-white/10", menu && "bg-white/10 text-white")}><Settings2 size={15} /></button>
+        <button type="button" onClick={onReset} title={t("Reset simulation")} className="rounded p-1 text-white/70 hover:bg-white/10"><RotateCcw size={15} /></button>
+        <button type="button" onClick={onToggleRun} title={t(running ? "Pause (Space)" : "Play (Space)")} className={cn("flex h-7 w-7 items-center justify-center rounded-full border-2 transition", running ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10 text-[var(--app-accent)]" : "border-white/55 text-white/90 hover:border-white")}>{running ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" className="ml-0.5" />}</button>
+        <span className="ml-1 w-[72px] font-mono text-[17px] font-light tracking-wide text-[#e9eef0]">{clockMode === "seconds" ? snap.time.toFixed(1) : formatClock(snap.time)}</span>
+        <span className="font-mono text-[10px] text-[var(--app-accent-bright)]">x</span>
+        <input aria-label={t("Simulation speed multiplier")} type="number" min={0.01} step={0.25} inputMode="decimal" value={speed} onChange={(e) => { const value = Number(e.target.value); if (Number.isFinite(value) && value > 0) onSpeed(value); }} className="w-[58px] rounded-sm border border-[#ffffff18] bg-[#1d1d1f] px-1.5 py-1 font-mono text-[11px] text-right text-white outline-none focus:border-[var(--app-accent)]" />
+        {running && actualSpeed !== null && actualSpeed < speed * 0.8 && <span role="status" title={t("Simulation is limited by device performance; the displayed rate is the actual speed.")} className="whitespace-nowrap font-mono text-[10px] text-amber-300">~{actualSpeed.toFixed(1)}x</span>}
+        <button type="button" aria-label={t("Slower")} title={t("Slower")} className="player-step rounded px-1 font-mono text-[12px] text-white/60 hover:bg-white/10 hover:text-white" onClick={() => onSpeed(Math.max(0.25, Math.round((speed - 0.25) * 100) / 100))}>−</button>
+        <input aria-label={t("Simulation speed")} title={t("Double-click to reset to 1.0")} type="range" min={0.25} max={Math.max(8, Math.ceil(speed * 2))} step={0.25} value={Math.min(Math.max(8, Math.ceil(speed * 2)), speed)} onChange={(e) => onSpeed(Number(e.target.value))} onDoubleClick={() => onSpeed(1)} className="player-slider accent-range w-[88px]" />
+        <button type="button" aria-label={t("Faster")} title={t("Faster")} onClick={() => onSpeed(Math.round((speed + 0.25) * 100) / 100)} className="player-step rounded px-1 font-mono text-[12px] text-white/60 hover:bg-white/10 hover:text-white">+</button>
+        <div className="player-viewbtns ml-1 flex items-center gap-0.5 border-l border-white/10 pl-1.5"><button type="button" aria-label={t("Fullscreen")} title={t("Fullscreen")} onClick={onToggleFullscreen} className="rounded p-1 text-white/60 hover:bg-white/10 hover:text-white"><Maximize2 size={13} /></button><button type="button" aria-label={t("Toggle side panels")} title={t("Toggle side panels")} onClick={onToggleViewExtras} className="rounded p-1 text-white/45 hover:bg-white/10 hover:text-white"><Eye size={13} /></button><button type="button" aria-label={t("Toggle grid")} title={t("Toggle grid")} onClick={onToggleGrid} className="rounded p-1 text-white/35 hover:bg-white/10 hover:text-white"><Grid3X3 size={13} /></button></div>
+      </div>
+      {menu && <div ref={menuFrame} data-sim-menu role="dialog" aria-label={t("Simulation settings")} style={menuSize ? { width: menuSize.width, height: menuSize.height } : undefined} className="simulation-settings-menu absolute left-0 top-[calc(100%+8px)] z-40 flex max-h-[calc(100dvh-140px)] w-[330px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-sm border border-[#ffffff1f] bg-[#2b2b2d] text-[11px] text-white/75 shadow-[0_14px_38px_rgba(0,0,0,.55)]">
+        <div className="thin-scroll min-h-0 flex-1 overflow-y-auto p-3">
+        <div className="mb-3 flex items-center justify-between pr-5"><span className="text-[12px]">{t("Simulation settings")}</span><button type="button" onClick={() => setMenu(false)} aria-label={t("Close")} className="text-white/40">✕</button></div>
+        <label className="mb-2 flex items-center justify-between gap-3">{t("Clock Display Mode")}<select value={clockMode} onChange={(e) => setClockMode(e.target.value)} className="w-[165px] rounded-sm border border-white/10 bg-[#1e1e20] p-1"><option value="hms">Hours : Minutes : Seconds</option><option value="seconds">Seconds</option></select></label>
+        <label className="mb-2 flex items-center justify-between gap-3">{t("Simulation Run Time")}<span className="flex w-[165px] gap-1"><input value={runTime} onChange={(e) => setRunTime(e.target.value)} className="min-w-0 flex-1 rounded-sm border border-white/10 bg-[#1e1e20] px-2 py-1" /><button type="button" className="rounded-sm border border-white/15 bg-[#3b3b3e] px-2">Custom</button></span></label>
+        <div className="mb-2 flex items-center justify-between gap-3">{t("Warm Up Time")}<span className="flex w-[165px] gap-1">{[0, 0, 0].map((n, i) => <input key={i} defaultValue={n} aria-label={`${t("Warm Up Time")} ${i + 1}`} className="w-full rounded-sm border border-white/10 bg-[#1e1e20] px-1.5 py-1 text-center" />)}<button type="button" onClick={onReset} className="rounded-sm border border-white/15 bg-[#3b3b3e] px-2">{t("Reset")}</button></span></div>
+        <div className="mb-2 flex items-center gap-4"><label className="flex items-center gap-2"><input type="checkbox" className="accent-[var(--app-accent)]" />{t("Repeat")}</label><label className="ml-auto flex items-center gap-1.5">{t("Simulation Level")}<select className="rounded-sm border border-white/10 bg-[#1e1e20] p-1"><option>Default</option><option>Detailed</option><option>Fast</option></select></label></div>
+        <div className="flex items-center gap-4 border-t border-white/10 pt-2"><span>{t("Simulation Mode")}</span><label className="flex items-center gap-1.5"><input type="radio" name="sim-mode" checked={mode === "real"} onChange={() => setMode("real")} className="accent-[var(--app-accent)]" />{t("Real Time")}</label><label className="flex items-center gap-1.5"><input type="radio" name="sim-mode" checked={mode === "virtual"} onChange={() => setMode("virtual")} className="accent-[var(--app-accent)]" />{t("Virtual Time")}</label></div>
+        </div>
+        <WindowResizeHandle className="sim-menu-resize-bottom" frame={menuFrame} minWidth={260} minHeight={160} onResize={setMenuSize} />
+        <WindowResizeHandle className="sim-menu-resize-top" edge="top-right" frame={menuFrame} minWidth={260} minHeight={160} onResize={setMenuSize} />
+      </div>}
+    </div>
+  );
+}
+
+/** Corner mini-map. Uses the same plan geometry as the AI Factory preview. */
+function FloorMap({ items, selectedId, onSelect, onExpand }: { items: SceneItem[]; selectedId: string | null; onSelect: (id: string | null) => void; onExpand: () => void }) {
+  return (
+    <div className="w-[186px] overflow-hidden rounded border border-white/10 bg-[#2a2a2c]/90 shadow-lg backdrop-blur" data-floor-map>
+      <div className="flex items-center justify-between border-b border-white/10 px-2.5 py-1">
+        <span className="font-mono text-[8px] uppercase tracking-[0.18em] text-white/50">{t("Floor map")}</span>
+        <span className="flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
+          <button type="button" onClick={onExpand} aria-label={t("Open floor map")} title={t("Open floor map")} className="rounded p-0.5 text-white/45 hover:bg-white/10 hover:text-white"><Maximize2 size={9} /></button>
+        </span>
+      </div>
+      <div className="relative h-[112px] w-full">
+        <FloorPlanView items={items} selectedId={selectedId} onSelect={onSelect} width={186} height={112} />
+      </div>
+    </div>
+  );
+}
+
+type SelectionScene = {scene: THREE.Scene; camera: THREE.Camera; canvas: HTMLCanvasElement};
+function SelectionSceneBridge({ target, onViewCenterReady }: { target: RefObject<SelectionScene | null>; onViewCenterReady: (getCenter: () => Vec3) => void }) {
+  const { scene, camera, gl } = useThree();
+  useEffect(() => {
+    const state = {scene, camera, canvas:gl.domElement}; target.current = state;
+    const ray = new THREE.Raycaster(), hit = new THREE.Vector3(), center = new THREE.Vector2(0, 0);
+    onViewCenterReady(() => {
+      camera.updateMatrixWorld(); ray.setFromCamera(center, camera);
+      if (ray.ray.intersectPlane(GROUND, hit)) return [hit.x, 0, hit.z];
+      return [camera.position.x, 0, camera.position.z];
+    });
+    return () => { if (target.current === state) target.current = null; };
+  }, [scene, camera, gl, target, onViewCenterReady]);
+  return null;
+}
+
+export const Viewport = memo(function Viewport({
+  multiplayer,
+  multiplayerActive,
+  mobile,
+  skin,
+  quality,
+  building: buildingSettings,
+  items,
+  productItems = items,
+  selectedId,
+  selectedIds,
+  onSelect,
+  onSelectMany,
+  selectedPoint,
+  onSelectPoint,
+  tool,
+  onToolChange,
+  snap,
+  running,
+  onToggleRun,
+  onResetSim,
+  simSpeed,
+  onSimSpeed,
+  layoutName,
+  onAddAt,
+  onAddCatalogAt,
+  onImportFiles,
+  loadingPosition,
+  onMoveLoading,
+  onViewCenterReady,
+  onUpdateItem,
+  onUpdateItems,
+  onBeginEdit,
+  onDuplicateItem,
+  onCopy,
+  onCut,
+  onPaste,
+  canPaste,
+  onDeleteSelected,
+  onDuplicateSelected,
+  onShowFloorMap,
+}: ViewportProps) {
+  useLanguage();
+  const appearance = useAppearance();
+  const gfx = appearance.gfx;
+  const [view, setView] = useState<CameraPreset>("iso");
+  const [fitNonce, setFitNonce] = useState(0);
+  const [fitSelected, setFitSelected] = useState(0);
+  const [zoom, setZoom] = useState<{ nonce: number; direction: 1 | -1 }>({ nonce: 0, direction: 1 });
+  const [viewNonce, setViewNonce] = useState(0);
+  const [viewMenu, setViewMenu] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{x:number;y:number} | null>(null);
+  const rightStart = useRef<{x:number;y:number;moved:boolean;shift:boolean} | null>(null);
+  const selectionScene = useRef<SelectionScene | null>(null);
+  const selectionGesture = useRef<{pointerId:number; x:number; y:number; moved:boolean; add:boolean; initial:string[]} | null>(null);
+  const suppressClick = useRef(false);
+  const [marquee, setMarquee] = useState<{x:number;y:number;endX:number;endY:number} | null>(null);
+  const visibleIds = useRef(items); visibleIds.current = items;
+  useEffect(() => {
+    const move = (event:PointerEvent) => {
+      const start = selectionGesture.current;
+      if (!start || event.pointerId !== start.pointerId) return;
+      if (Math.hypot(event.clientX-start.x, event.clientY-start.y) > 5) start.moved = true;
+      if (start.moved) setMarquee({x:start.x, y:start.y, endX:event.clientX, endY:event.clientY});
+    };
+    const finish = (event:PointerEvent) => {
+      const start = selectionGesture.current;
+      if (!start || event.pointerId !== start.pointerId) return;
+      selectionGesture.current = null; setMarquee(null);
+      if (!start.moved || event.type === 'pointercancel') return;
+      const view = selectionScene.current;
+      if (!view) return;
+      const canvas = view.canvas.getBoundingClientRect();
+      const selected = sceneItemsInBox(view.scene, view.camera, canvas, {
+        left:Math.min(start.x,event.clientX), top:Math.min(start.y,event.clientY),
+        right:Math.max(start.x,event.clientX), bottom:Math.max(start.y,event.clientY),
+      }, new Set(visibleIds.current.filter(item => item.visible !== false).map(item => item.id)));
+      onSelectMany(start.add ? [...new Set([...start.initial, ...selected])] : selected);
+      onSelectPoint(null);
+      // R3F's click/missed handlers run after pointerup; do not clear the new
+      // selection or fire a physical button as the drag is released.
+      suppressClick.current = true;
+      window.setTimeout(() => { suppressClick.current = false; }, 0);
+    };
+    const cancel = () => { selectionGesture.current = null; setMarquee(null); };
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', finish, true);
+    window.addEventListener('blur', cancel);
+    return () => { window.removeEventListener('pointermove', move, true); window.removeEventListener('pointerup', finish, true); window.removeEventListener('pointercancel', finish, true); window.removeEventListener('blur', cancel); };
+  }, [onSelectMany, onSelectPoint]);
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close=()=>setContextMenu(null);
+    const key=(event:KeyboardEvent)=>{if(event.key === "Escape")close();};
+    window.addEventListener("pointerdown",close); window.addEventListener("keydown",key);
+    return ()=>{window.removeEventListener("pointerdown",close);window.removeEventListener("keydown",key);};
+  },[contextMenu]);
+  const [shell, setShell] = useState(false);
+  // Max preset uses WebGPU VXGI when the browser has an adapter and the renderer starts.
+  // `gpuFailed` latches after a failed start so the app falls back to WebGL for the session.
+  const [gpuSupported, setGpuSupported] = useState<boolean | null>(null);
+  const [gpuFailed, setGpuFailed] = useState(false);
+  const cornellRoom = useCornellRoom();
+  const benchmark = cornellRoom;
+  const [giError, setGiError] = useState<string | null>(null);
+  // World projection uses the WebGL material shader. Switching the canvas to
+  // WebGL while it is active is preferable to silently showing unprojected
+  // UVs in Max/VXGI; returning to VXGI is automatic when projection is off.
+  const [projectedWorkpieces, setProjectedWorkpieces] = useState(false);
+  const projectedMaterials = !benchmark && (projectedWorkpieces || items.some(item => item.visible !== false && (
+    item.imported?.materials.some(material => material.worldProjection === true) ||
+    surfaceUsesWorldProjection(item,productItems) ||
+    (item.worker?.appearance === "custom" && item.worker.model?.materials.some(material => material.worldProjection === true))
+  )));
+  const gpuMode = gfx.gi === "vxgi" && gpuSupported === true && !gpuFailed && !giError && !projectedMaterials;
+  // VXGI falls back to the approximation whenever WebGPU is missing, the renderer failed
+  // to start, or the pipeline itself could not be created on this driver.
+  const effectiveGi = gfx.gi === "vxgi" && !gpuMode ? "approx" : gfx.gi;
+  const makeRenderer = useCallback((defaults: GLFactoryProps) => createGpuRenderer(defaults, (message) => { setGiError(message); setGpuFailed(true); }), []);
+  const onGiUnavailable = useCallback((message: string) => setGiError(message), []);
+  // Leaving the Max preset retries VXGI next time it is selected.
+  useEffect(() => { if (gfx.gi !== "vxgi") setGiError(null); }, [gfx.gi]);
+  useEffect(() => {
+    if (effectiveGi !== "vxgi") setGraphicsStatus({ gi: effectiveGi, giDetail: gfx.gi === "vxgi" ? (projectedMaterials ? "World projection uses WebGL; approximate GI active" : giError ?? "WebGPU unavailable") : "" });
+  }, [effectiveGi, gfx.gi, giError, projectedMaterials]);
+  useEffect(() => {
+    let alive = true;
+    void probeWebGPU().then((ok) => { if (alive) setGpuSupported(ok); });
+    return () => { alive = false; };
+  }, []);
+  // Geometry edits need re-voxelization; light edits only need light injection.
+  const voxelKey = useMemo(() => ({}), [items, shell, buildingSettings, benchmark]);
+  const lightKey = useMemo(() => ({}), [gfx.sun, gfx.sunAzimuth, gfx.sunElevation, gfx.fill, gfx.ambient, gfx.env, gfx.shadows, gfx.shadowStrength, buildingSettings.lights, benchmark]);
+
+    const xs = items.map((i) => i.position[0]), zs = items.map((i) => i.position[2]);
+  const building: BuildingStyle = { ...buildingSettings };
+  building.width = Math.max(building.width, Math.max(...xs, 8) - Math.min(...xs, -8) + 8);
+  building.depth = Math.max(building.depth, Math.max(...zs, 6) - Math.min(...zs, -6) + 8);
+  const [signalMode, setSignalMode] = useState(false);
+  const [signalSource, setSignalSource] = useState<OutputPort | null>(null);
+  const sourceItem = items.find(item => item.id === signalSource?.id && canSignalOutput(item));
+  const connections = sourceItem && signalSource ? signalOutputConnections(sourceItem,signalSource.port) : [];
+  const connectSignal = (source:OutputPort,target:{id:string;port:number}, connect = true) => {
+    const item=items.find(i=>i.id===source.id), destination=items.find(i=>i.id===target.id);
+    if(!item||!destination||!canSignalOutput(item)||!canSignalInput(destination,item.id))return;
+    onUpdateItem(item.id,signalPortConnectionPatch(item,source.port,target.id,target.port,connect)); setSignalSource(null);
+  };
+  const selectSignalTarget = (target:{id:string;port:number}) => {
+    if(!signalSource)return;
+    connectSignal(signalSource,target,!connections.some(c=>c.targetId===target.id&&c.input===target.port));
+  };
+  const rerouteSignal = (source:OutputPort,oldTarget:{id:string;port:number},newTarget:{id:string;port:number}|null) => {
+    const item=items.find(i=>i.id===source.id); if(!item||!canSignalOutput(item))return;
+    let patch=signalPortConnectionPatch(item,source.port,oldTarget.id,oldTarget.port,false);
+    const destination=items.find(i=>i.id===newTarget?.id);
+    if(newTarget&&destination&&canSignalInput(destination,item.id)) patch=signalPortConnectionPatch({...item,...patch},source.port,newTarget.id,newTarget.port,true);
+    onUpdateItem(item.id,patch);setSignalSource(null);
+  };
+  const [gridVisible, setGridVisible] = useState(true);
+  const [hudVisible, setHudVisible] = useState(true);
+  const [dragActive, setDragActive] = useState(false);
+  const [adaptiveLevel, setAdaptiveLevel] = useState(0);
+  useEffect(() => { setAdaptiveLevel(0); }, [gfx.adaptive, gfx.pixelRatio, gfx.preset]);
+  const low = gfx.adaptive && adaptiveLevel > 0;
+  // The side panels are part of the dockable layout, so this toggle opens and closes
+  // them through the same store as the panel headers and the ribbon.
+  const layout = useLayout();
+  const panelsOpen = layout.catalog.open || layout.inspector.open;
+  const setPanelsOpen = (open: boolean) => { setPanel("catalog", { open }); setPanel("inspector", { open }); };
+  const wrapper = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const savedCamera = useRef<CameraSnapshot | null>(null);
+  const factoryCamera = useRef<CameraSnapshot | null>(null);
+  const wasBenchmark = useRef(false);
+  const handledRestore = useRef(0);
+  const [restoreCamera, setRestoreCamera] = useState<CameraRestore | null>(null);
+  const selected = items.find((item) => item.id === selectedId) ?? null;
+  const [ptpMode,setPtpMode] = useState<PtpMode>('jog');
+  const [ptpPointId,setPtpPointId] = useState<string | null>(null);
+  const [ptpFeedback,setPtpFeedback] = useState('');
+  useEffect(() => {setPtpPointId(null);setPtpMode('jog');setPtpFeedback('');},[selectedId]);
+  useEffect(() => {setPtpFeedback('');},[ptpMode,ptpPointId]);
+  // The custom skin owns the 3D viewport colour too; its brightness decides whether
+  // grid, fog and helper colours use the dark or the light palette.
+  const scheme = activeScheme(appearance);
+  const schemeDark = skin === "custom" && (() => {
+    const n = parseInt(scheme.viewportBg.slice(1), 16);
+    return (((n >> 16) & 255) * 0.299 + ((n >> 8) & 255) * 0.587 + (n & 255) * 0.114) / 255 < 0.5;
+  })();
+  const dark = schemeDark;
+  const sceneBg = gfx.useSkinBackground ? (skin === "custom" ? scheme.viewportBg : dark ? "#29262a" : skin === "vc" ? "#f1f2f3" : "#e3e6e9") : gfx.background;
+  // Below 1 renders fewer pixels than the screen has (faster, softer).
+  const renderDpr = gfx.adaptive ? adaptivePixelRatio(gfx.pixelRatio, adaptiveLevel) : gfx.pixelRatio;
+  const aoActive = effectiveGi === "ao" || effectiveGi === "approx";
+  const multiplayerActiveRef = useRef(multiplayerActive); multiplayerActiveRef.current = multiplayerActive;
+  useEffect(() => { if (multiplayerActiveRef.current) return; setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1); }, [layoutName]);
+  useEffect(() => {
+    if (benchmark) {
+      if (!wasBenchmark.current) factoryCamera.current = savedCamera.current;
+      setFitNonce(0); setView("room"); setViewNonce((n) => n + 1);
+    } else if (wasBenchmark.current) {
+      setFitNonce(0); setView("iso"); setViewNonce((n) => n + 1);
+      if (factoryCamera.current) setRestoreCamera((previous) => ({position: factoryCamera.current!.position, target: factoryCamera.current!.target, nonce: (previous?.nonce ?? 0) + 1}));
+    }
+    wasBenchmark.current = benchmark;
+  }, [benchmark]);
+
+  const pickView = (next: CameraPreset) => {
+    setFitNonce(0);
+    setView(next);
+    setViewNonce((value) => value + 1);
+  };
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) void wrapper.current?.requestFullscreen?.();
+    else void document.exitFullscreen?.();
+  };
+
+  // Shortcuts and the ribbon talk to the camera through a tiny command bus.
+  // `selected` is read through a ref so the subscription never re-registers.
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const panelsOpenRef = useRef(panelsOpen);
+  panelsOpenRef.current = panelsOpen;
+  useEffect(() => onViewportCommand((command) => {
+    switch (command.type) {
+      case "fit": setFitNonce((value) => value + 1); break;
+      case "fit-selected": if (selectedRef.current) setFitSelected((value) => value + 1); break;
+      case "view": setFitNonce(0); setView(command.preset); setViewNonce((value) => value + 1); break;
+      case "zoom": setZoom((value) => ({ nonce: value.nonce + 1, direction: command.direction })); break;
+      case "toggle-grid": setGridVisible((value) => !value); break;
+      case "toggle-fullscreen": toggleFullscreen(); break;
+      case "center-selected": {
+        const item = selectedRef.current;
+        if (!item || !controlsRef.current) break;
+        controlsRef.current.target.set(item.position[0], item.position[1] + 0.6, item.position[2]);
+        controlsRef.current.update();
+        break;
+      }
+    }
+  // toggleFullscreen only touches refs, so it is safe to omit from the dependency list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  const viewButtons: { id: CameraPreset; label: string }[] = [
+    { id: "iso", label: "Iso" },
+    { id: "top", label: "Top" },
+    { id: "front", label: "Front" },
+    { id: "right", label: "Side" },
+  ];
+
+  return (
+    <div
+      ref={wrapper}
+      className={cn("app-viewport factory-viewport relative min-h-0 min-w-0 flex-1 overflow-hidden", mobile && "mobile-viewport")}
+      style={{ background: sceneBg }}
+      // Visual Components: Shift + right-click sets the centre of interest to the
+      // selection, so orbiting afterwards happens around that object.
+      onPointerDownCapture={(event) => {
+        if (event.button === 0 && event.pointerType === 'mouse' && event.target instanceof HTMLCanvasElement && tool === 'select' && !benchmark) {
+          selectionGesture.current = {pointerId:event.pointerId, x:event.clientX, y:event.clientY, moved:false, add:event.shiftKey || event.ctrlKey || event.metaKey, initial:[...selectedIds]};
+        }
+        if (event.button === 2 && event.target instanceof HTMLCanvasElement) rightStart.current = {x:event.clientX,y:event.clientY,moved:false,shift:event.shiftKey};
+        if (event.button === 2 && event.shiftKey && selected) {
+          event.preventDefault();
+          event.stopPropagation();
+          sendViewportCommand({ type: "center-selected" });
+        }
+      }}
+      onPointerMoveCapture={(event) => {if(rightStart.current && Math.hypot(event.clientX-rightStart.current.x,event.clientY-rightStart.current.y)>5)rightStart.current.moved=true;}}
+      onPointerUpCapture={(event) => {
+        if(event.button !== 2) return;
+        const start=rightStart.current;rightStart.current=null;
+        if(!start || start.moved || start.shift || event.shiftKey || !(event.target instanceof HTMLCanvasElement)) return;
+        const rect=event.currentTarget.getBoundingClientRect();
+        setContextMenu({x:Math.max(4,Math.min(rect.width-190,event.clientX-rect.left)),y:Math.max(4,Math.min(rect.height-345,event.clientY-rect.top))});
+      }}
+      onPointerCancelCapture={() => {rightStart.current=null;}}
+      onContextMenu={(event) => {if(event.target instanceof HTMLCanvasElement)event.preventDefault();}}
+      onDragOver={(event) => {
+        event.preventDefault();
+        if (!dragActive) setDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setDragActive(false);
+      }}
+      onDrop={(event) => { setDragActive(false); const files = Array.from(event.dataTransfer.files); if (files.length) { event.preventDefault(); onImportFiles(files); } }}
+    >
+      <ViewportErrorBoundary>
+      <Canvas
+        // The antialias mode is a context attribute, so switching it recreates the context.
+        key={`${gpuMode ? "renderer-webgpu" : "renderer-webgl"}-${gfx.antialias}-${gfx.shadows ? (gfx.softShadows ? "soft" : "hard") : "nosun"}`}
+        shadows={gfx.shadows ? (gfx.softShadows ? "percentage" : "basic") : false}
+        // VXGI requests a finite set of frames for TRAA convergence while paused.
+        frameloop={running || multiplayerActive ? "always" : "demand"}
+        dpr={renderDpr}
+        gl={gpuMode ? makeRenderer : { antialias: gfx.antialias === "msaa", powerPreference: quality === "low" ? "low-power" : "high-performance", stencil: false }}
+        camera={{ position: VIEWS.iso.position, fov: 36, near: 0.1, far: 220 }}
+        onPointerMissed={(event) => {
+          if (event.button !== 0 || suppressClick.current || event.shiftKey || event.ctrlKey || event.metaKey) return;
+          onSelect(null);
+          onSelectPoint(null);
+        }}
+
+      >
+        {/* Image-based lighting that works on both renderers (drei's Environment only
+            supports the WebGL renderer, which is why the Max preset lost its IBL). */}
+        {!benchmark && <StudioEnvironment intensity={gfx.env} resolution={quality === "low" ? 32 : quality === "standard" ? 64 : 128} dark={dark} />}
+        <RendererSettings gfx={gfx} pixelRatio={renderDpr} />
+        <SelectionSceneBridge target={selectionScene} onViewCenterReady={onViewCenterReady} />
+        <ambientLight intensity={benchmark ? 0 : gfx.ambient} color={dark ? "#ffd9d9" : "#ffffff"} />
+        {gfx.adaptive && (running || multiplayerActive) && <PerformanceMonitor iterations={6} ms={250} threshold={.67} bounds={adaptiveBounds}
+          onDecline={() => setAdaptiveLevel(level => Math.min(ADAPTIVE_SCALE.length - 1, level + 1))}
+          onIncline={() => setAdaptiveLevel(level => Math.max(0, level - 1))} />}
+        <color attach="background" args={[sceneBg]} />
+        {gfx.fog && <fog attach="fog" args={[sceneBg, gfx.fogFar * 0.45, gfx.fogFar]} />}
+        {!benchmark && <hemisphereLight args={dark ? ["#ffc9cf", "#4a3036", 0.32] : ["#e8f2ff", "#778391", 0.38]} />}
+        {/* Bounce lights stand in for indirect light. In WebGPU VXGI mode the GI pipeline
+            computes indirect light, so keeping them would double-count it. */}
+        {effectiveGi === "approx" && gfx.bounce > 0 && !benchmark && <>
+          <hemisphereLight args={["#dcecff", "#c0a27c", gfx.bounce * 0.5]} />
+          <directionalLight position={[-12, 8, -9]} intensity={gfx.bounce * 0.42} color="#c7dfff" />
+          <directionalLight position={[10, 5, -12]} intensity={gfx.bounce * 0.32} color="#ffe4c2" />
+          <directionalLight position={[-7, 4, 12]} intensity={gfx.bounce * 0.28} color="#e6f2ff" />
+        </>}
+        {/* Sun with a tight, texel-snapped frustum that follows the orbit target. */}
+        {!benchmark && <SunLight gfx={gfx} controlsRef={controlsRef} building={building} />}
+        {benchmark && <directionalLight position={[10, 14, 8]} intensity={0} />}
+        <directionalLight position={[-14, 10, -10]} intensity={benchmark ? 0 : gfx.fill} color="#dbe8ff" />
+
+        {multiplayerActive && <RemoteCameras client={multiplayer} />}
+        <CameraRig items={items} view={view} viewNonce={viewNonce} fitNonce={fitNonce} fitSelected={fitSelected} zoom={zoom} focus={selected ? selected.position : null} focusId={selected?.id ?? null} controlsRef={controlsRef} savedCamera={savedCamera} restoreCamera={restoreCamera} handledRestore={handledRestore} />
+        {gpuMode && <GlobalIlluminationPipeline
+          voxelKey={voxelKey}
+          lightKey={lightKey}
+          running={running}
+          includeFloor={!benchmark}
+          floorColor={building.floorColor}
+          giStrength={gfx.vxgiStrength}
+          aoIntensity={gfx.aoIntensity}
+          aoDistance={gfx.aoRadius}
+          resolution={gfx.vxgiResolution}
+          refreshSeconds={gfx.vxgiRefresh}
+          bloomEnabled={gfx.bloom}
+          bloomStrength={gfx.bloomStrength}
+          onUnavailable={onGiUnavailable}
+        />}
+        {benchmark ? <CornellBenchmark /> : <>
+          <DropTarget onAddAt={onAddAt} onAddCatalogAt={onAddCatalogAt} onImportFiles={onImportFiles} />
+        {loadingPosition && <LoadingGhost position={loadingPosition} onMove={onMoveLoading} controlsRef={controlsRef} onDragStart={() => { selectionGesture.current = null; setMarquee(null); }} />}
+          <SimDriver items={items} shell={shell} low={low || gfx.shadowSize === 1024} />
+          <SceneContent
+            items={items}
+            productItems={productItems}
+            onProjectedWorkpiecesChange={setProjectedWorkpieces}
+            ptpMode={ptpMode}
+            ptpPointId={ptpPointId}
+            onPtpPoint={setPtpPointId}
+            onPtpFeedback={setPtpFeedback}
+            selectedId={selectedId}
+            selectedIds={selectedIds}
+            onSelect={onSelect}
+            suppressClick={suppressClick}
+            selectedPoint={selectedPoint}
+            onSelectPoint={onSelectPoint}
+            tool={tool}
+            snap={snap}
+            controlsRef={controlsRef}
+            onUpdateItem={onUpdateItem}
+            onUpdateItems={onUpdateItems}
+            onBeginEdit={onBeginEdit}
+            shell={shell}
+            building={building}
+            onDuplicateItem={onDuplicateItem}
+          />
+          {signalMode && items.filter(item => item.visible !== false && item.kind === "sensor").map(item => <ProximityRing key={`radius-${item.id}`} item={item}/>)}
+          {signalMode && <SignalPortLayer items={items} source={sourceItem ? signalSource : null} onSource={setSignalSource} onTarget={selectSignalTarget} onConnect={connectSignal} onReroute={rerouteSignal} />}
+        </>}
+        {gridVisible && gfx.grid && !benchmark && <gridHelper args={[Math.max(80, Math.ceil(Math.max(building.width, building.depth) * 1.4)), 40, dark ? "#51353b" : "#b4bbc2", dark ? "#3d2c31" : "#d3d8dc"]} position={[0, 0.004, 0]} raycast={() => null} />}
+        {gfx.shadows && gfx.contactShadows && !gpuMode && !benchmark && <StableContactShadows
+          width={Math.max(24, building.width + 8)} height={Math.max(24, building.depth + 8)}
+          opacity={gfx.contactOpacity} running={running || multiplayerActive} sceneKey={voxelKey}
+        />}
+        <PostEffects gfx={gfx} pixelRatio={renderDpr} aoActive={aoActive} externalPipeline={gpuMode} />
+      </Canvas>
+      </ViewportErrorBoundary>
+
+      {marquee && wrapper.current && <div data-selection-marquee aria-hidden="true" className="pointer-events-none absolute z-[75] border border-[#78e7f2] bg-[#35c4d4]/20" style={{left:Math.min(marquee.x,marquee.endX)-wrapper.current.getBoundingClientRect().left, top:Math.min(marquee.y,marquee.endY)-wrapper.current.getBoundingClientRect().top, width:Math.abs(marquee.endX-marquee.x), height:Math.abs(marquee.endY-marquee.y)}} />}
+      {contextMenu && <div role="menu" aria-label={t("Layout context menu")} onPointerDown={event=>event.stopPropagation()} style={{left:contextMenu.x,top:contextMenu.y}} className="absolute z-[90] w-[185px] rounded border border-white/20 bg-[#252a2e] p-1 text-[11px] text-white/80 shadow-xl">
+        <div className="truncate border-b border-white/10 px-2 py-1.5 text-white/45">{selectedIds.length > 1 ? `${selectedIds.length} ${t("selected")}` : selected?.name ?? t("Layout")}</div>
+        <button role="menuitem" type="button" disabled={!selected} onClick={()=>{onCopy();setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10 disabled:opacity-30">{t("Copy")} <span className="float-right text-white/35">Ctrl+C</span></button>
+        <button role="menuitem" type="button" disabled={!selected} onClick={()=>{onCut();setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10 disabled:opacity-30">{t("Cut")} <span className="float-right text-white/35">Ctrl+X</span></button>
+        <button role="menuitem" type="button" disabled={!canPaste} onClick={()=>{onPaste();setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10 disabled:opacity-30">{t("Paste")} <span className="float-right text-white/35">Ctrl+V</span></button>
+        {selected && <><button role="menuitem" type="button" onClick={()=>{onDuplicateSelected();setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t("Duplicate")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onUpdateItems(selectedIds.map(id => ({id, changes:{locked:!selected.locked}})), true);setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t(selected.locked?"Unlock":"Lock")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onUpdateItems(selectedIds.map(id => ({id, changes:{visible:selected.visible===false}})), true);setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t(selected.visible===false?"Show":"Hide")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onDeleteSelected();setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left text-red-300 hover:bg-white/10">{t("Delete")}</button></>}
+        <button role="menuitem" type="button" onClick={()=>{sendViewportCommand({type:"fit"});setContextMenu(null)}} className="w-full rounded border-t border-white/10 px-2 py-1.5 text-left hover:bg-white/10">{t("Fit layout")}</button>
+        <button role="menuitem" type="button" onClick={()=>{onImportFiles([]);setContextMenu(null)}} className="w-full rounded px-2 py-1.5 text-left hover:bg-white/10">{t("Import 3D model")}</button>
+      </div>}
+      {gfx.showFps && <FpsBadge />}
+      {/* Floating simulation player (top centre) */}
+      <div className="sim-player-wrap pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+        <SimPlayer running={running} onToggleRun={onToggleRun} onReset={onResetSim} speed={simSpeed} onSpeed={onSimSpeed} onToggleFullscreen={toggleFullscreen} onToggleViewExtras={() => setPanelsOpen(!panelsOpen)} onToggleGrid={() => setGridVisible((v) => !v)} />
+      </div>
+
+      {/* Scene identity */}
+      <div className={cn("scene-identity pointer-events-none absolute left-3 top-3 flex flex-col gap-2", "max-md:hidden")}>
+        <div className="flex items-center gap-2 rounded border border-white/10 bg-[#2a2a2c]/88 px-2.5 py-1.5 shadow-lg backdrop-blur">
+          <span className="flex h-5 w-5 items-center justify-center rounded-[3px] bg-[var(--app-accent)]/25 text-[var(--app-accent-bright)]">
+            <BoxIcon size={12} />
+          </span>
+          <div className="leading-none">
+            <div className="font-mono text-[8px] uppercase tracking-[0.18em] text-white/40">{t("Layout")}</div>
+            <div className="mt-1 text-[11px] font-medium text-[#f0f0f0]">{t(layoutName)}</div>
+          </div>
+        </div>
+        <KpiChips running={running} items={items.length} />
+      </div>
+
+      {tool === 'ptp' && !benchmark && <PtpTeachingPanel item={selected} running={running} onPause={onToggleRun} onExit={()=>onToolChange('select')} mode={ptpMode} onMode={setPtpMode} pointId={ptpPointId} onPoint={setPtpPointId} onUpdateItem={onUpdateItem} feedback={ptpFeedback} onFeedback={setPtpFeedback} />}
+      {hudVisible && selected && !mobile && tool !== 'ptp' && (
+        <div className="absolute left-3 top-[122px] z-10 max-w-[calc(100%-24px)]">
+          <SelectionHud item={selected} onDuplicate={onDuplicateSelected} onDelete={onDeleteSelected} />
+        </div>
+      )}
+
+      {hudVisible && selected && mobile && tool !== 'ptp' && <div className="absolute left-3 top-[63px] z-10 max-w-[calc(100%-24px)]"><SelectionHud item={selected} onDuplicate={onDuplicateSelected} onDelete={onDeleteSelected} /></div>}
+
+      {signalMode && <div className="absolute bottom-16 left-3 z-20 max-w-[280px] rounded border border-white/20 bg-[#20272c]/95 p-2 text-[11px] text-white shadow-lg" role="status">
+        <p>{sourceItem ? `${t("Choose an IN port for")}: ${sourceItem.name}` : t("Choose an OUT port on a sensor, button, laser, PLC or robot.")}</p>
+        {sourceItem && signalSource && <label className="mt-2 flex items-center gap-2 text-white/70">{t("Wire colour")}
+          <input type="color" aria-label={t("Wire colour")} value={signalWireColor((signalSource.port ? sourceItem.signalChannels?.find(c=>c.port===signalSource.port)?.color : undefined) ?? sourceItem.props.wireColor)} onChange={event => signalSource.port ? onUpdateItem(sourceItem.id,{signalChannels:sourceItem.signalChannels?.map(c=>c.port===signalSource.port?{...c,color:event.target.value}:c)}) : onUpdateItem(sourceItem.id,{props:{...sourceItem.props,wireColor:event.target.value}})} className="h-7 w-10 cursor-pointer rounded border border-white/20 bg-transparent" />
+        </label>}
+        {sourceItem && signalSource && connections.length > 0 && <div className="mt-2 space-y-1">
+          {connections.map(({targetId,input}) => <div key={`${targetId}-${input}`} className="flex items-center justify-between gap-2 text-white/70"><span className="truncate">→ {items.find(i=>i.id===targetId)?.name ?? targetId}{input!==1 ? ` IN ${input}` : ''}</span><button type="button" aria-label={`${t("Remove connection")}: ${items.find(i=>i.id===targetId)?.name ?? targetId}`} onClick={() => connectSignal(signalSource,{id:targetId,port:input},false)} className="rounded px-1.5 text-white/60 hover:bg-white/10">×</button></div>)}
+        </div>}
+        {sourceItem && signalSource && <div className="mt-2 flex gap-2">
+          <button type="button" onClick={() => setSignalSource(null)} className="rounded border border-white/20 px-2 py-1">{t("Cancel")}</button>
+          {connections.length > 0 && <button type="button" onClick={() => {let item=sourceItem;for(const connection of connections)item={...item,...signalPortConnectionPatch(item,signalSource.port,connection.targetId,connection.input,false)};onUpdateItem(item.id,item);setSignalSource(null);}} className="rounded border border-white/20 px-2 py-1">{t("Disconnect signal")}</button>}
+        </div>}
+        <p className="mt-1 text-white/50">{t("Drag OUT to IN. Drag a connected IN away to disconnect or reroute; for a shared IN, select its source first. You can also click ports. Material flow is separate.")}</p>
+      </div>}
+
+      {/* View controls */}
+      <div className="view-controls absolute right-3 top-3 flex max-w-[calc(100%-24px)] items-center gap-1.5">
+        <button type="button" aria-label={t("Edit signal connections")} aria-pressed={signalMode} title={t("Edit signal connections")} onClick={() => { setSignalMode(value => !value); setSignalSource(null); }} className={cn("rounded border border-white/10 bg-[#2a2a2c]/90 p-1.5 shadow-lg", signalMode ? "text-[#f4c260]" : "text-white/60")}><Cable size={14} /></button>
+        <div className="flex items-center rounded border border-white/10 bg-[#2a2a2c]/90 p-0.5 shadow-lg backdrop-blur">
+          {viewButtons.map((button) => (
+            <button
+              key={button.id}
+              type="button"
+              onClick={() => pickView(button.id)}
+              className={cn(
+                "rounded-sm px-2 py-1 font-mono text-[9px] uppercase tracking-wider transition",
+                view === button.id && fitNonce === 0 ? "bg-[var(--app-accent)] font-semibold text-white" : "text-white/55 hover:bg-white/10 hover:text-white",
+              )}
+            >
+              {t(button.label)}
+            </button>
+          ))}
+          <div className="mx-1 h-4 w-px bg-white/15" />
+          <button
+            type="button"
+            onClick={() => setFitNonce((value) => value + 1)}
+            className="flex items-center gap-1 rounded-sm px-1.5 py-1 font-mono text-[9px] uppercase tracking-wider text-white/55 transition hover:bg-white/10 hover:text-white"
+            title={t("Focus selection")}
+          >
+            <Focus size={11} /> {t("Fit")} </button>
+          <button type="button" onClick={() => pickView("iso")} className="rounded-sm p-1 text-white/55 transition hover:bg-white/10 hover:text-white" title={t("Reset view")}>
+            <RotateCw size={11} />
+          </button>
+          {mobile && <button type="button" aria-label={t("View options")} aria-expanded={viewMenu} onClick={() => setViewMenu((v) => !v)} className="rounded-sm p-1 text-white/70 hover:bg-white/10"><Settings2 size={15} /></button>}
+        </div>
+        <div className={cn("extra-view-controls flex items-center rounded border border-white/10 bg-[#2a2a2c]/90 p-0.5 shadow-lg backdrop-blur", mobile && "hidden")}>
+          <button
+            type="button"
+            onClick={() => setGridVisible((v) => !v)}
+            className={cn("rounded-sm p-1.5 transition", gridVisible ? "bg-white/10 text-[var(--app-accent-bright)]" : "text-white/40 hover:text-white/80")}
+            title={t("Toggle floor grid")}
+          >
+            <Grid3X3 size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShell((v) => !v)}
+            className={cn("rounded-sm p-1.5 transition", shell ? "bg-white/10 text-[var(--app-accent-bright)]" : "text-white/40 hover:text-white/80")}
+            title={t("Toggle factory building")}
+          >
+            <Building2 size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setHudVisible((v) => !v)}
+            className={cn("rounded-sm p-1.5 transition", hudVisible ? "bg-white/10 text-[var(--app-accent-bright)]" : "text-white/40 hover:text-white/80")}
+            title={t("Toggle selection panel")}
+          >
+            <Eye size={12} />
+          </button>
+          <button type="button" onClick={toggleFullscreen} className="rounded-sm p-1.5 text-white/40 transition hover:bg-white/10 hover:text-white/90" title={t("Fullscreen")}>
+            <Maximize2 size={12} />
+          </button>
+          <button type="button" aria-label={t("Collapse panels")} onClick={() => setPanelsOpen(!panelsOpen)} className="rounded-sm p-1.5 text-white/40 hover:bg-white/10 hover:text-white/90"><Layers3 size={12} /></button>
+        </div>
+      </div>
+
+      {mobile && viewMenu && <div className="absolute right-3 top-[62px] z-30 flex w-[205px] flex-col rounded border border-white/15 bg-[#29292c]/95 p-1 text-[12px] text-white/80 shadow-xl">
+        <button type="button" onClick={() => setGridVisible((v) => !v)} className="flex min-h-10 items-center justify-between rounded px-3 hover:bg-white/10">{t("Floor grid")}<span className="text-[var(--app-accent-bright)]">{t(gridVisible ? "On" : "off")}</span></button>
+        <button type="button" onClick={() => setShell((v) => !v)} className="flex min-h-10 items-center justify-between rounded px-3 hover:bg-white/10">{t("Factory building")}<span className="text-[var(--app-accent-bright)]">{t(shell ? "On" : "off")}</span></button>
+        <button type="button" onClick={() => setHudVisible((v) => !v)} className="flex min-h-10 items-center justify-between rounded px-3 hover:bg-white/10">{t("Selection panel")}<span className="text-[var(--app-accent-bright)]">{t(hudVisible ? "On" : "off")}</span></button>
+        <button type="button" onClick={() => { pickView("left"); setViewMenu(false); }} className="min-h-10 rounded px-3 text-left hover:bg-white/10">{t("Left view")}</button>
+        <button type="button" onClick={() => { pickView("back"); setViewMenu(false); }} className="min-h-10 rounded px-3 text-left hover:bg-white/10">{t("Back view")}</button>
+        <button type="button" onClick={() => { toggleFullscreen(); setViewMenu(false); }} className="min-h-10 rounded px-3 text-left hover:bg-white/10">{t("Fullscreen")}</button>
+      </div>}
+
+      <div className={cn("absolute bottom-3 left-3 hidden md:block", mobile && "!hidden")}>
+        <ViewCube view={view} onPick={pickView} />
+      </div>
+      <div className={cn("absolute bottom-3 right-3 hidden md:block", mobile && "!hidden")}>
+        <FloorMap items={items} selectedId={selectedId} onSelect={onSelect} onExpand={onShowFloorMap} />
+      </div>
+      <div className={cn("viewport-hint pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#2a2a2c]/85 px-3 py-1 shadow-lg backdrop-blur lg:flex", mobile && "!hidden")}>
+        <span className="whitespace-nowrap font-mono text-[8.5px] uppercase tracking-[0.1em] text-white/55">
+          {t(tool === "select" ? "Left drag: box select · middle drag: orbit · wheel: zoom" : tool === "move" ? "Drag a component to move it" : tool === "rotate" ? "Drag around a component to rotate it" : "Teach PTP points with the robot gizmo")}
+          {t(selected && (selected.kind === "conveyor" || selected.kind === "roller") ? (tool === "select" ? " · choose Move to bend the spline" : " · drag the white handles to bend the spline") : "")}
+        </span>
+      </div>
+
+      {mobile && <div className="pointer-events-none absolute inset-x-0 bottom-[84px] text-center text-[10px] text-[#5c6974]">{t(selected ? "Tap a component, then choose Move to reposition it." : "One finger to orbit. Pinch to zoom.")}</div>}
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed border-[var(--app-accent)]/70 bg-[var(--app-accent)]/[0.06]">
+          <div className="flex items-center gap-2 rounded border border-[var(--app-accent)]/50 bg-[#2a2a2c]/95 px-4 py-2.5 shadow-2xl">
+            <Layers3 size={14} className="text-[var(--app-accent-bright)]" />
+            <span className="text-[12px] font-medium text-white">{t("Release to place component or import files")}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+function KpiChips({ running, items }: { running: boolean; items: number }) {
+  const snap = useSimSnapshot(500);
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="rounded border border-white/10 bg-[#2a2a2c]/85 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-white/60">{items} {t("components")}</span>
+      <span className="rounded border border-[#6DBE45]/30 bg-[#2a2a2c]/85 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-[#9bdc78]">
+        {snap.placed} {t("stacked")} </span>
+      {snap.lost > 0 && (
+        <span className="rounded border border-[#e5703f]/40 bg-[#2a2a2c]/85 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-[#ff9d6e]">{snap.lost} {t("dropped")}</span>
+      )}
+      {running && (
+        <span className="flex items-center gap-1 rounded border border-[var(--teal)]/35 bg-[#2a2a2c]/85 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-[#6fe0ec]">
+          <span className="h-1 w-1 animate-pulse rounded-full bg-[var(--teal)]" /> {t("Live")} </span>
+      )}
+    </div>
+  );
+}

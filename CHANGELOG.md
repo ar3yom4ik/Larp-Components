@@ -2,6 +2,103 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.13] - 2026-11-06 (prerelease)
+
+- Fixed keyboard shortcuts to work regardless of the active system keyboard layout. Shortcuts now use physical key positions (event.code) instead of layout-dependent characters (event.key), so Ctrl+Z works even when the keyboard is set to Russian or any other layout.
+- Improved laser and color-sensor trigger reliability by increasing detection tolerance from 2cm to 5cm. Sensors now more reliably detect objects passing through the beam, reducing missed triggers from fast-moving or slightly misaligned parts.
+- Robot visual workflows already support the requested sorting setup: pick from a filled pallet source, move to a color sensor for inspection, and sort to multiple output pallets based on sensor signals. The robot continues cycling while the trigger remains active.
+- Material selection UI is unified across all components (sensors, stairs, platforms, floors, walls). All use the same PBR material catalog with building materials, imported model materials and workpiece colors. Custom imported PBR materials can be applied to floors and other surfaces.
+
+## [3.0.0-alpha.12] - 2026-11-05 (prerelease)
+
+- Overhauled the graphics pipeline with bounded VXGI, temporal ray accumulation and adaptive quality recovery. Low preset disables antialiasing for better performance. Added VXGI strength slider and improved standard shadow quality.
+
+## [3.0.0-alpha.11] - 2026-11-05 (prerelease)
+
+- Added a resizable PTP teaching pendant beside the 3D gizmos on desktop and mobile. Jog the live TCP, teach/touch up and reorder robot-local waypoints, edit XYZ, speed and dwell, and run/repeat the sequence with signal gating and completion outputs. Programs persist, copy and synchronize; disabling PTP restores the previous task or script.
+- Implemented coordinated joint interpolation with forward kinematics and new world/local PTP script commands. The existing simplified four-joint arm constrains tool orientation to its local vertical; arm collision checks, real joint limits and full six-axis programming are not implemented.
+- Added AI Factory PTP point editing, standalone motion-only robots, placement and signal connections, while keeping material-flow validation for connected workflows. Guests jog through the host only while paused and within reach; concurrent edits to one PTP program are last-writer-wins.
+- Improved helper shutdown on termination and startup errors: active HTTP/WebSocket clients and UDP/TCP listeners are closed promptly without terminating unrelated processes. Added active-session, port-rebinding, transformed-robot, UI/mobile, offline and multiplayer regressions. Native Windows/macOS shutdown has not been separately tested.
+
+## [3.0.0-alpha.10] - 2026-11-05 (prerelease)
+
+- Includes the alpha.9 LAN multiplayer, mixed-pallet depalletizing, sorting and AI Factory features.
+- Replaced a console-colour-dependent browser test readiness check with HTTP health checks and isolated LAN browser/package regressions in CI.
+
+## [3.0.0-alpha.9] - 2026-11-05 (prerelease)
+
+- Added opt-in LAN multiplayer: UDP session discovery, nickname and host approval, joinability, kick/disconnect, per-player 3D camera avatars, chat, field-merged shared scenes and host-authoritative simulation. Viewports and graphics settings remain local.
+- Added prefilled mixed-product pallets, deterministic shuffled stock and reset, pallet-source robot workflows, color-sensor inspection before sorting, generated scripts and AI Factory source-pallet nodes. Multiple robots can share stock; occupied and reserved slots prevent collisions.
+- Added real two-helper/two-browser and packaged-standalone LAN tests, pallet graph/UI and 10,100-part inventory tests. The multiplayer ZIP includes the standalone app, helper, launchers and third-party notices. LAN traffic is unencrypted and intended for trusted participants.
+
+## [3.0.0-alpha.8] - 2026-11-03 (prerelease)
+
+- Unified named, searchable material previews in imported models, color sensors, building surfaces and graph nodes. Original texture thumbnails are embedded when available; platforms, stairs and spline walls can use imported textures and follow source edits. Sensors match base colors, not individual texture pixels.
+- Robots can target multiple pallets in both the graph and visual task editor. Unwired pallets fill in order; color-sensor outputs wired to pallets latch the matching signal on each observed part, avoiding misrouting when multiple parts are present. Full pallets can be retained or automatically exchanged.
+- Fixed authored restitution on gentle and swept workpiece impacts, including surface/product contacts. Tightened broad-phase queries for small workpieces while conservatively covering moving and oversized parts; precomputed laser blockers reduce repeated geometry work.
+- Bloom now uses emissive-only sources rather than bright reflections, with depth and transparency in the WebGL mask. WebGPU uses an emissive render target with transparent blending and a black clear color. Its node/MRT path is pixel-tested with Three’s WebGL backend; a SwiftShader WebGPU device failed during rendering and the app fell back to WebGL. Physical WebGPU hardware has not been tested for this release.
+- Improved compatible-port proximity snapping and previews in the node graph and 3D signal view. Catalog requests now have bounded deadlines/downloads and recoverable partial failures, include Gobkit's curated CC0 entries, and remove cancelled/stale loading ghosts. External provider availability and CORS remain outside the editor's control.
+- Added simulation, randomized spatial/raycast, browser texture, pallet-routing, signal-snap, catalog-cancellation and bloom pixel regressions.
+
+## [3.0.0-alpha.7] - 2026-11-03 (prerelease)
+
+- Added source-only detectors, independent color-sensor outputs and per-input robot workflows; added editable building surfaces and improved material/texture editing.
+- Improved current-view component placement, movable/cancellable import ghosts, catalog controls, model projection, emissive rendering and robot/conveyor behavior.
+- Expanded graph, physics, catalog, signal, rendering and standalone browser regression coverage.
+
+## [3.0.0-alpha.6] - 2026-11-03 (prerelease)
+
+- Added viewport box and modifier multi-selection, group move/rotate, middle-button camera orbit, and right-click/keyboard copy, cut and paste with internal signal-link remapping.
+- Fixed texture-file chooser cancellation and imported-model thumbnail rendering. The resizable shared catalog editor now offers proportional scale/dimension fields, X-up orientation and an interactive 3D preview.
+- Unified search and embedded imports for CC0 Poly Haven, Gobkit and the Kenney mirror, with source and licence information saved in projects. Other linked providers require manual downloads; availability depends on external services and browser CORS.
+- Added browser regressions for selection, dynamic bodies, spline handles, thumbnail/preview pixels, chooser cancellation, shared edits, provenance and catalog failures. Provider live checks are separate and non-blocking.
+
+## [3.0.0-alpha.5] - 2026-11-03 (prerelease)
+
+- Made laser, proximity, push-button and PLC triggers editable physical graph nodes. Pickup sensors and their two signal links are created for new conveyor-to-robot connections and placed at the robot's source station; old graphs migrate their existing pickup choices.
+- Added expandable numbered IN/function/OUT pairs, per-channel functions and wire colours. Signal feedback is independent of material flow and survives graph and project export; built scene wires use the same colours and glow on activation.
+- Added per-channel simulation for detector gates, PLC relays/inverters, feeder pulses, conveyor state, robot moving/operation-end outputs, machine/worker enable and pallet status. Mounted lasers can retain a manually edited beam length.
+- Prevented continuous detector signals from stalling queued pickup parts and made graph IDs robust across reloads. Added graph, runtime, serialization, feedback, browser and offline regression coverage; the simulator remains an approximation, not an industrial safety or PLC system.
+
+## [3.0.0-alpha.4] - 2026-11-03 (prerelease)
+
+- Removed fixed scene, workpiece, signal-target and live-product count ceilings; rendering grows as needed. The 180 MB project-size limit and device resources still apply.
+- Added shared imported-model catalog entries with generated previews, fullscreen browsing, drag-to-scene, animated import placeholder and a resizable base editor. Material/unit changes propagate across instances; submodels can be removed or restored with updated bounds/collision. Poly Haven imports directly; links to Sloyd, Poly Pizza and Thingiverse support manual downloads under each model's licence.
+- Feeder and machine product pickers in AI Factory include searchable built-in and imported products. Robot pickup defaults to a mounted laser; proximity and no-sensor options are available.
+- Connected buttons control conveyors; buttons can toggle or use retriggerable timed pulses. Robot operation-end output can request another feeder part. Added low mounted laser/proximity sensors, adjustable placement and proximity-range visualization.
+- Added conveyor width, belt/roller selection and signed typed speed, welded straight-belt colliders, accurate/box collision options, and retained full pallets that wait for replacement. These remain approximate physics, not engineering guarantees.
+- Preserve the viewport across settings changes and restore the Cornell GI benchmark toggle. Added a layout context menu while keeping camera gestures.
+- Added focused unit and browser tests for large scenes, signals, belt support, pallet replacement, sensors, catalog editing, camera restoration and persistence. Existing 180 MB project, per-import and browser/device limits remain.
+
+## [Unreleased]
+
+### Graphics overhaul for alpha.12
+
+## [3.0.0-alpha.3] - 2026-11-02 (prerelease)
+
+- Fixed simulation-speed scaling for scripted and visual robots, conveyor workpieces, workers, feeders, machine cycles and rigid-body physics. JavaScript robot commands can resume between fixed substeps even when several substeps share one rendered frame.
+- Belt textures, worker mixers and equipment animations now follow completed simulation time; slow GPUs receive a larger bounded simulation slice. A measured-rate warning identifies device-limited speeds, and stale overloaded demand is cleared on pause or a speed change.
+- Added a startup/recovery screen for disabled or blocked JavaScript and a workspace error boundary. This helps diagnose startup failures but does not guarantee an external preview proxy can be reached.
+- Added fixed-step, real-time browser, overload, pause/resume, visual synchronization and startup-failure regressions. The release includes a downloadable standalone HTML file.
+
+- Added delayed button-name tooltips, deeper graph zoom and fit-to-view; collapsed nodes retain connected ports and physical node types have distinct colours.
+- Added box/shift selection, multi-node move/copy with internal wires, rearrangement and persistent named, custom-coloured group frames that become overview nodes at distant zoom. Inserting a node into a wire makes room automatically.
+- Feeders, robots and operators can feed a shared conveyor directly with automatically generated physical inlets. Multiple robots/operators can share a conveyor output with automatically placed stations, product reservations and queueing. General conveyor-to-conveyor splitters remain unsupported.
+
+- AI Factory now merges multiple conveyor inputs into a shared, simulated line, with selectable multi-head and side-entry junction geometry, backpressure and fair access. Splitters remain unsupported.
+- Graph node dragging previews locally and persists one undoable edit on release; unchanged topology does not recompile the factory. Wire hit targets and multi-input removal were improved.
+- Signal ports support mouse/touch drag, rerouting and disconnect; direct robot inputs queue edges for visual programs and `robot.waitForSignal()`, and robot outputs can pulse after a successful place.
+- Added XYZ move/rotation gizmos, snapping, editable height and persisted three-axis rotations. Conveyor spline points have Y gizmos/fields for 3D slopes and stacked layers; elevated platforms and stairs provide adjustable upper floors.
+- Added fixed-step dynamic/kinematic rigid bodies, configurable mass, gravity, sleep, oriented compound proxy collisions and rotated support surfaces. Added swept compound collision checks for fast bodies/products, including relative motion and conservative rotational sweeps. Existing operational simulation remains in control of belts, mechanisms and worker tasks; complex collision geometry remains approximate.
+- Imported models can serve as feeder, machine and pallet workpieces using their configured weight and mesh-derived compound collision patches. The saved workpiece and embedded asset remain available after the source scene object is deleted.
+- Added floor-aware stair/deck routing, ledge checks, relative-height patrol controls and cross-floor worker tasks. Added physics, imported-product, moving-wire, autosave and browser regressions plus a reproducible headless physics benchmark.
+- Added unit and browser regressions for merges, robot signals, transformed scenes, gesture interactions and graph editing.
+
+- Added resizable dialogs, floating windows, simulation settings and touch sheets. Settings window size and position are remembered, with reset controls.
+- Feeders can receive signals from buttons, proximity sensors, lasers, PLCs and robot outputs. Each incoming rising edge requests one part, respecting the interval, output clearance and any supply requirements; unconnected feeders stay automatic.
+- Signal sources can connect to multiple destinations. Each source has an independent saved wire colour; active wires glow and show a directional pulse. Connections remain undoable and persist in project archives.
+- Added engine and browser regression coverage for feeder signals, wire appearance, connections and desktop/touch resizing.
+
 ## [3.0.0-alpha.2] - 2026-11-01 (prerelease)
 
 - Keep the workspace visible when 3D renderer creation fails, with a retry button and guidance for enabling WebGL. The viewport still requires a working renderer.
@@ -18,7 +115,7 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 - Added `.LCMX` compressed project archives, including deduplicated embedded custom model, texture and worker assets, alongside legacy text project support. Archive imports validate structure, limits and checksums before accepting a scene.
 - Save picks `.lcmx` where browser file access is available and autosaves to the chosen handle; ordered writes prevent older autosaves overtaking newer ones. Other browsers download a copy instead. Browser sandboxes cannot set an arbitrary default local folder.
-- Added project archive unit and browser tests and an incremental roadmap. The Rust rewrite is dropped; the experimental code remains historical and opt-in. Remaining roadmap features, VC interoperability and robot-controller code are not implemented.
+- Added project archive unit and browser tests and an incremental roadmap. Remaining roadmap features, VC interoperability and robot-controller code are not implemented.
 
 ## [2.5.0-alpha.13] - 2026-11-01 (prerelease)
 
@@ -31,71 +128,19 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 - Updated vulnerable fflate, Vite and esbuild dependencies; `npm audit` reported zero vulnerabilities after a clean install.
 - Rechecked TypeScript simulation parity and benchmarks, production and offline builds, import formats and worker workflows. No new simulation optimization was merged in this maintenance audit.
-- Four older UI test scripts did not complete, Mixamo-specific tests were skipped and native Cargo tests were unavailable. Existing component graph branching and 3D I/O work remain incomplete. See `docs/AUDIT_2.5.0-alpha.12.md` for coverage and limitations.
+- Four older UI test scripts did not complete, Mixamo-specific tests were skipped. Existing component graph branching and 3D I/O work remain incomplete. See `docs/AUDIT_2.5.0-alpha.12.md` for coverage and limitations.
 
 ## [2.5.0-alpha.11] - 2026-11-01 (prerelease)
 
 - Continued simulation optimization in TypeScript. Larger product sets use conveyor-specific candidate groups for blocking checks; product contact checks avoid temporary axis arrays. No visual quality or simulation fidelity settings were reduced.
 - Fixed spatial-index query stamps colliding when the same object belongs to multiple indexes. Added a before/after TypeScript parity test and benchmark, including crowded conveyor transfers.
 - In one Node benchmark, median total simulation-step time was 9.7–10.7% lower in two dense scenarios; the human-cell result was 0.6% higher. Browser FPS and broader workloads were not measured. See `docs/TYPESCRIPT_OPTIMIZATION.md`.
-- TypeScript remains the default. Rust prototypes remain experimental and opt-in; the Rust port is incomplete.
-
-## [2.5.0-alpha.10] - 2026-11-01 (prerelease)
-
-- Reduced temporary allocations in the experimental feeder, machine, robot and product Wasm bridges and refreshed views after shared-memory growth, including growth in feeder callbacks.
-- Added forced-memory-growth regression coverage and an interleaved comparison against the alpha.9 bridge. In one Node run the optimized bridge was 5–9% faster than alpha.9, but remained slower than the pre-Rust and current TypeScript engines in those scenes. Results are noisy and do not establish browser performance.
-- The full Rust port and complete parity remain unfinished. See `docs/RUST_HYBRID_BENCHMARK.md`.
-
-## [2.5.0-alpha.9] - 2026-11-01 (prerelease)
-
-- Added reproducible side-by-side Node benchmarks of the historical pre-Rust engine, current TypeScript engine, and combined experimental Rust hybrid, plus per-frame selected-state hybrid comparisons. The historical engine is linked to current shared dependencies.
-- The hybrid was 15.7–23.7% slower than the pre-Rust engine by median total step time in three measured scenes. Parity passed only for selected fields and scenes; full migration, universal parity, browser behavior and performance remain unverified. See `docs/RUST_HYBRID_BENCHMARK.md`.
-- Avoided empty Rust signal evaluation when a scene contains no logic items. Experimental paths remain opt-in.
-
-## [2.5.0-alpha.8] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm free-product integration (`?rustProducts=1`): gravity, support response, conveyor motion, friction and tilt. Support lookup, collision response, statistics and lifecycle remain TypeScript; the default remains TypeScript.
-- Added 10,000 motion comparisons and live factory, pallet, collector, floor and fence tests. Browser behavior, performance and full-engine parity remain unverified. The Rust port is still incomplete.
-
-## [2.5.0-alpha.7] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm robot reachability and inverse kinematics (`?rustKinematics=1`), with host-managed transforms, programs, commands and motion. The default remains TypeScript.
-- Added 20,000 randomized comparisons, a 130-second factory comparison and a JavaScript robot-script test. These are not full robot or engine parity; browser behavior and performance remain unverified. The Rust port is incomplete.
-
-## [2.5.0-alpha.6] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm bounded A* route planning for humans (`?rustNavigation=1`). Destination projection, task logic, steering and motion remain TypeScript; the default remains TypeScript.
-- In 500 route comparisons, reachability and grid cost matched but five routes took different equal-cost paths. Four human-task scenarios completed with the Rust planner; full behavior parity and browser performance are not established.
-- The complete Rust port is still unfinished.
-
-## [2.5.0-alpha.5] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm automation signals for buttons, lasers, proximity sensors and PLCs (`?rustLogic=1`), with ordered signal propagation. Wiring, user input and robot signals remain host-managed. The default remains TypeScript.
-- Added 3,000 randomized circuit comparisons and an engine integration test. The full Rust migration, full-engine parity, browser behavior and performance remain unverified.
-
-## [2.5.0-alpha.4] - 2026-11-01 (prerelease)
-
-- Experimental Rust/Wasm automatic machine workflow (`?rustMachineWorkflow=1`): selection, assembly and cycle decisions. The TypeScript host retains spatial candidate ordering, product mutations and explicit robot/human process calls. The default remains TypeScript.
-- Added generated-factory hybrid comparisons and machine edge-case/randomized tests. Browser behavior, performance and full-engine parity are not established; the Rust migration is still incomplete.
 
 ## [2.5.0-alpha.3] - 2026-11-01 (prerelease)
 
-- Experimental Rust/Wasm machine cycle clock, independently opt-in via `?rustMachines=1`. All machine decisions and product transitions still run in TypeScript; this is not a complete machine or engine port.
-- Added numerical edge-case and actual machine-cycle comparisons, and enabled the clock in the hybrid factory tests. Browser behavior and performance remain unverified.
-- The full Rust engine migration, full-engine parity, physical graph branching/merging and 3D I/O editing remain unfinished.
-
-## [2.5.0-alpha.2] - 2026-11-01 (prerelease)
-
-- Experimental batched Rust/Wasm feeder decisions can be enabled with `?rustFeeders=1`; the default remains TypeScript. The rest of the factory simulation still runs in TypeScript with Three.js rendering.
-- Added side-by-side tests of selected state for generated factories and feeder edge cases. Both sides share all non-feeder systems; this is not full-engine parity. Browser behavior and performance have not been validated.
-- The full Rust migration, physical graph branching and merging, and 3D I/O editing remain incomplete. See `docs/RUST_ENGINE_MIGRATION.md`.
+- At that release, physical graph branching/merging and 3D I/O editing remained unfinished.
 
 ## [2.5.0-alpha.1] - 2026-11-01 (prerelease)
-
-### Experimental: Rust engine migration
-- A Rust/WebAssembly navigation prototype implements point-to-segment distance and obstacle/barrier checks against a packed scene. The real Wasm module is tested against the TypeScript reference (10,000 distance cases and 20,000 scene queries), alongside the existing simulator regression suite.
-- **The migration is not complete.** The released application still runs the TypeScript simulation, including its JavaScript robot programs. The Rust prototype is not wired into the production simulation; no claim of full feature parity, improved speed or Rust-based app runtime is made.
-- A Node microbenchmark of the prototype showed no performance benefit in this environment; further batched engine work and browser measurements are needed before switching production paths. See `docs/RUST_ENGINE_MIGRATION.md`.
 
 ### Other work in progress
 - The graph editor contains early physical feeder, conveyor, robot, machine, human and pallet nodes; it supports selected linear production setups, not arbitrary branching/merging. Node insertion, search, copy/paste and disconnected nodes are experimental.
@@ -172,6 +217,12 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ## [Unreleased]
 
+### Graphics overhaul for alpha.12
+
+- Added delayed button-name tooltips, deeper graph zoom and fit-to-view; collapsed nodes retain connected ports and physical node types have distinct colours.
+- Added box/shift selection, multi-node move/copy with internal wires, rearrangement and persistent named, custom-coloured group frames that become overview nodes at distant zoom. Inserting a node into a wire makes room automatically.
+- Feeders, robots and operators can feed a shared conveyor directly with automatically generated physical inlets. Multiple robots/operators can share a conveyor output with automatically placed stations, product reservations and queueing. General conveyor-to-conveyor splitters remain unsupported.
+
 ### Fixed
 - Camera no longer snaps back to the default view when an object is selected. Only explicit camera actions (view buttons, Fit, or a new layout) re-frame the view.
 
@@ -190,3 +241,5 @@ All notable changes to this project are documented here. Versions follow the Lar
 
 ### Notes
 - Application branding remains "Larp Components 5.1"; V2 is the numbered release.
+
+### alpha.12

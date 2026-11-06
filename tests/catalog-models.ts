@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import type {ImportedModelData} from '../src/types';
+import {modelMeshList,modelSubset,removeModelMeshes} from '../src/utils/modelSubset';
+import {makeItem} from '../src/data/library';
+import {getProduct, importedProductId, importedProducts,itemsWithWorkpieces,updateWorkpieceCatalog} from '../src/data/products';
+import {parseProject,serializeProject} from '../src/utils/project';
+
+const root=new THREE.Group(), first=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial());
+first.name='First';const child=new THREE.Mesh(new THREE.BoxGeometry(.5,.5,.5),new THREE.MeshStandardMaterial());child.name='Child';child.position.x=-2;first.add(child);root.add(first);
+const second=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial());second.name='Second';second.position.x=4;root.add(second);
+assert.deepEqual(modelMeshList(root).map(m=>m.name),['First','Child','Second']);
+const filtered=removeModelMeshes(root.clone(true),[0]);
+assert.ok(filtered.getObjectByName('Child'),'removing a mesh retains child transforms');
+assert.ok(filtered.getObjectByName('First') instanceof THREE.Group,'removed surfaces become transform-only groups');
+const original=modelSubset(root,[]), reduced=modelSubset(root,[2]);
+assert.ok(original.sourceSize && reduced.sourceSize && original.sourceSize[0]>reduced.sourceSize[0]);
+assert.ok(reduced.collision && reduced.collision.boxes.length>0);
+const model:ImportedModelData={asset:{id:'shared',entry:'model.obj',files:[{path:'model.obj',dataUrl:'data:text/plain;base64,YQ=='}]},axis:'y',units:'m',materials:[],meshCount:3,triangleCount:36,hiddenMeshes:[2],...reduced};
+const base=makeItem('imported-model',[0,0,0],0,{name:'Base',imported:model}), copy=makeItem('imported-model',[2,0,0],0,{name:'Copy',imported:model,props:{catalogBaseId:base.id}});
+const catalog=updateWorkpieceCatalog([base,copy]);assert.equal(catalog.length,1,'copies must share a single catalog base');
+let available=itemsWithWorkpieces([base,copy],catalog);assert.equal(importedProducts(available).length,1);
+assert.equal(getProduct(importedProductId(copy),available).name,'Copy','legacy instance references still resolve');
+available=itemsWithWorkpieces([copy],catalog);assert.equal(importedProducts(available)[0].id,importedProductId(base),'base ID survives deletion of its original placement');
+const project=parseProject(serializeProject({items:[base,copy],workpieces:catalog,projectName:'Catalog',layoutName:'Test',activeLayoutId:null}));
+assert.deepEqual(project.items[0].imported?.hiddenMeshes,[2]);assert.deepEqual(project.items[0].imported?.sourceSize,reduced.sourceSize);
+assert.equal(updateWorkpieceCatalog(project.items,project.workpieces).length,1);
+console.log('catalog: subset collision, child preservation, stable base identity and project round-trip OK');

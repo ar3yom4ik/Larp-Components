@@ -1,0 +1,43 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+const b=await chromium.launch({args:['--enable-unsafe-swiftshader']});
+try {
+  const page=await b.newPage({viewport:{width:1600,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
+  await page.goto(process.env.TEST_URL||'http://127.0.0.1:4173',{waitUntil:'networkidle',timeout:120000});
+  const ids=await page.evaluate(async()=>{
+    const {makeItem}=await import('/src/data/library.ts');
+    const a=makeItem('button',[-3,0,0],0,{name:'Signal A'}), sensor=makeItem('sensor',[0,0,0],0,{name:'Signal B'}), robot=makeItem('robot',[3,0,0],0,{name:'Robot Target'});
+    window.__larpProject.setItems([a,sensor,robot]); return {a:a.id,b:sensor.id,robot:robot.id};
+  });
+  await page.getByRole('button',{name:'Edit signal connections'}).click();
+  await page.getByRole('button',{name:'Signal output: Signal A'}).click();
+  await page.getByRole('button',{name:'Signal input: Robot Target'}).click();
+  await page.waitForFunction(({a,robot})=>window.__larp.items.find(i=>i.id===a)?.props.connectedTo===robot,ids);
+  await page.getByRole('button',{name:'Signal output: Signal B'}).click();
+  await page.getByRole('button',{name:'Signal input: Robot Target'}).click();
+  await page.waitForFunction(({b,robot})=>window.__larp.items.find(i=>i.id===b)?.props.connectedTo===robot,ids);
+  await page.evaluate(({a})=>window.__larp.setButton(a,true),ids);
+  await page.waitForFunction(({robot})=>window.__larp.signalFor(robot),ids);
+  const text=await page.evaluate(()=>window.__larpProject.getText());
+  assert.ok(text.includes(ids.robot));
+  await page.getByRole('button',{name:'Signal output: Signal A'}).click();
+  await page.getByRole('button',{name:'Disconnect signal'}).click();
+  await page.waitForFunction(({a})=>window.__larp.items.find(i=>i.id===a)?.props.connectedTo==='',ids);
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(({a,robot})=>window.__larp.items.find(i=>i.id===a)?.props.connectedTo===robot,ids);
+  await page.getByRole('button',{name:'Edit signal connections'}).click();
+  assert.equal(await page.getByRole('button',{name:'Signal output: Signal A'}).count(),0);
+  assert.deepEqual(errors,[]);
+  await page.close();
+  const phone=await b.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  await phone.addInitScript(() => localStorage.setItem('larp-appearance', JSON.stringify({graphicsRevision:4,graphics:'low',gfx:{shadows:false,contactShadows:false,ao:false,pixelRatio:.5}})));
+  await phone.goto(process.env.TEST_URL||'http://127.0.0.1:4173',{waitUntil:'networkidle',timeout:120000});
+  const phoneIds=await phone.evaluate(async()=>{const {makeItem}=await import('/src/data/library.ts');const sensor=makeItem('sensor',[-2,0,0],0,{name:'Touch Sensor'}),robot=makeItem('robot',[2,0,0],0,{name:'Touch Robot'});window.__larpProject.setItems([sensor,robot]);return {sensor:sensor.id,robot:robot.id};});
+  await phone.getByRole('button',{name:'Edit signal connections'}).click();
+  await phone.getByRole('button',{name:'Signal output: Touch Sensor'}).click();
+  await phone.getByRole('button',{name:'Signal input: Touch Robot'}).click();
+  await phone.waitForFunction(({sensor,robot})=>window.__larp.items.find(i=>i.id===sensor)?.props.connectedTo===robot,phoneIds);
+  await phone.close();
+  console.log('3D signal ports: desktop/touch, multiple sources, live signal, disconnect, undo and serialization PASS');
+} finally {await b.close();}
