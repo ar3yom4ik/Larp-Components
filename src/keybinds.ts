@@ -107,11 +107,28 @@ export function importBindings(input: unknown): number {
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'OS']);
 const NAMED: Record<string, string> = { ' ': 'Space', Escape: 'Escape', Delete: 'Delete', Backspace: 'Backspace', Enter: 'Enter', Tab: 'Tab', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
+/** Map physical key codes to their US-layout characters for layout-independent shortcuts. */
+const CODE_TO_KEY: Record<string, string> = {
+  'KeyA': 'A', 'KeyB': 'B', 'KeyC': 'C', 'KeyD': 'D', 'KeyE': 'E', 'KeyF': 'F', 'KeyG': 'G', 'KeyH': 'H',
+  'KeyI': 'I', 'KeyJ': 'J', 'KeyK': 'K', 'KeyL': 'L', 'KeyM': 'M', 'KeyN': 'N', 'KeyO': 'O', 'KeyP': 'P',
+  'KeyQ': 'Q', 'KeyR': 'R', 'KeyS': 'S', 'KeyT': 'T', 'KeyU': 'U', 'KeyV': 'V', 'KeyW': 'W', 'KeyX': 'X',
+  'KeyY': 'Y', 'KeyZ': 'Z',
+  'Digit0': '0', 'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4',
+  'Digit5': '5', 'Digit6': '6', 'Digit7': '7', 'Digit8': '8', 'Digit9': '9',
+  'Minus': '-', 'Equal': '=', 'BracketLeft': '[', 'BracketRight': ']', 'Semicolon': ';',
+  'Quote': "'", 'Backquote': '`', 'Backslash': '\\', 'Comma': ',', 'Period': '.', 'Slash': '/',
+  'Space': 'Space', 'Escape': 'Escape', 'Delete': 'Delete', 'Backspace': 'Backspace',
+  'Enter': 'Enter', 'Tab': 'Tab', 'ArrowUp': 'Up', 'ArrowDown': 'Down', 'ArrowLeft': 'Left', 'ArrowRight': 'Right',
+  'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4', 'F5': 'F5', 'F6': 'F6',
+  'F7': 'F7', 'F8': 'F8', 'F9': 'F9', 'F10': 'F10', 'F11': 'F11', 'F12': 'F12',
+};
 
-/** Converts a keyboard event to a binding string, or null for modifier-only presses. */
+/** Converts a keyboard event to a binding string, or null for modifier-only presses.
+ * Uses event.code for letters/numbers to work regardless of keyboard layout. */
 export function bindingFromEvent(event: KeyboardEvent): string | null {
   if (MODIFIER_KEYS.has(event.key)) return null;
-  const name = NAMED[event.key] ?? (event.key.length === 1 ? event.key.toUpperCase() : event.key);
+  // Use event.code for physical key position (layout-independent)
+  const name = CODE_TO_KEY[event.code] ?? NAMED[event.key] ?? (event.key.length === 1 ? event.key.toUpperCase() : event.key);
   const parts: string[] = [];
   if (event.ctrlKey || event.metaKey) parts.push('Ctrl');
   if (event.altKey) parts.push('Alt');

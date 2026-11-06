@@ -3646,7 +3646,8 @@ export class Engine {
         const beamY = item.position[1] + (item.props.mountedTo ? .1 : .85) * item.scale;
         const colors = this.detectedColors.get(item.id) ?? new Set<string>(); colors.clear();
         for (const box of this.boxes) {
-          if (box.state === "dead" || box.state === "dying" || box.state === "inside" || Math.abs(box.y - beamY) > box.hy + .02 || distanceToSegment(box.x, box.z, a, b).distance >= box.r + .02) continue;
+          // Increased tolerance from 0.02 to 0.05 for more reliable detection
+          if (box.state === "dead" || box.state === "dying" || box.state === "inside" || Math.abs(box.y - beamY) > box.hy + .05 || distanceToSegment(box.x, box.z, a, b).distance >= box.r + .05) continue;
           const source = importedProductSource(box.productId, this.items);
           const materials = source?.imported?.materials;
           const base = `#${box.color.toString(16).padStart(6,'0')}`.toLowerCase();
@@ -3677,11 +3678,12 @@ export class Engine {
         const a: P2 = [item.position[0] - range * c, item.position[2] + range * sn];
         const b: P2 = [item.position[0] + range * c, item.position[2] - range * sn];
         const beamY = item.position[1] + (item.props.mountedTo ? .1 : .85) * item.scale;
+        // Increased tolerance from 0.02 to 0.05 for more reliable detection
         signal = this.boxes.some((box) => {
           if (box.state === "dead" || box.state === "dying" || box.state === "inside") return false;
           const source = importedProductSource(box.productId, this.items);
           const transparent = source?.imported?.materials.length ? source.imported.materials.every(material => material.opacity < .95) : ["glass", "empty-bottle", "vial", "jar"].includes(box.productId);
-          return !transparent && Math.abs(box.y - beamY) <= box.hy + .02 && distanceToSegment(box.x, box.z, a, b).distance < box.r + .02;
+          return !transparent && Math.abs(box.y - beamY) <= box.hy + .05 && distanceToSegment(box.x, box.z, a, b).distance < box.r + .05;
         });
         if (!signal) signal = this.beamBlockers.some(blocker => blocker.id !== item.id && blocker.id !== item.props.mountedTo && blocker.test([a[0],beamY,a[1]],[b[0],beamY,b[1]]));
         if (item.props.normallyClosed === true) signal = !signal;

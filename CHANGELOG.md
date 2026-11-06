@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. Versions follow the Larp Factory release numbering.
 
+## [3.0.0-alpha.13] - 2026-11-06 (prerelease)
+
+- Fixed keyboard shortcuts to work regardless of the active system keyboard layout. Shortcuts now use physical key positions (event.code) instead of layout-dependent characters (event.key), so Ctrl+Z works even when the keyboard is set to Russian or any other layout.
+- Improved laser and color-sensor trigger reliability by increasing detection tolerance from 2cm to 5cm. Sensors now more reliably detect objects passing through the beam, reducing missed triggers from fast-moving or slightly misaligned parts.
+- Robot visual workflows already support the requested sorting setup: pick from a filled pallet source, move to a color sensor for inspection, and sort to multiple output pallets based on sensor signals. The robot continues cycling while the trigger remains active.
+- Material selection UI is unified across all components (sensors, stairs, platforms, floors, walls). All use the same PBR material catalog with building materials, imported model materials and workpiece colors. Custom imported PBR materials can be applied to floors and other surfaces.
+
+## [3.0.0-alpha.12] - 2026-11-05 (prerelease)
+
+- Overhauled the graphics pipeline with bounded VXGI, temporal ray accumulation and adaptive quality recovery. Low preset disables antialiasing for better performance. Added VXGI strength slider and improved standard shadow quality.
+
 ## [3.0.0-alpha.11] - 2026-11-05 (prerelease)
 
 - Added a resizable PTP teaching pendant beside the 3D gizmos on desktop and mobile. Jog the live TCP, teach/touch up and reorder robot-local waypoints, edit XYZ, speed and dwell, and run/repeat the sequence with signal gating and completion outputs. Programs persist, copy and synchronize; disabling PTP restores the previous task or script.

@@ -120,10 +120,11 @@ export function FactoryStudio({
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || (event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable=true]')) return;
-      const key = event.key.toLowerCase();
-      if (key === 'z' || key === 'y') {
+      // Use event.code for layout-independent shortcuts
+      const code = event.code;
+      if (code === 'KeyZ' || code === 'KeyY') {
         event.preventDefault(); event.stopImmediatePropagation();
-        if (key === 'y' || event.shiftKey) redoGraph(); else undoGraph();
+        if (code === 'KeyY' || event.shiftKey) redoGraph(); else undoGraph();
       }
     };
     window.addEventListener('keydown', keydown, true);
