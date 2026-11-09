@@ -1,0 +1,19 @@
+# Six-month PPM schedule / График ППР на 6 месяцев — palletizing cell, zone D
+# Basis: FANUC periodic table (<=3840 h/yr) converted at the cell's measured duty of ~350 h/month
+# Robot: FANUC LR Mate 200iD/7L, s/n ______  Controller: R-30iB Plus, s/n ______, SW V______
+week;date;frequency;task;owner;downtime_h;work_order;done;signature;notes
+1;2026-11-16;repair visit;J5 tension measurement, backlash, belt replacement, master J5+J6;technician;4;;;;
+1;2026-11-16;backup;ALL_OF_ABOVE + SYSMAST.SV stored in two locations;technician;0.5;;;;
+1-27;every shift;daily;visual inspection A+B+C, cables, dust, alarm review;operator;0;;;;
+1-27;every Friday;weekly;gripper cups, vacuum, fence, interlocks, beacon;setter;0;;;;
+5;2026-12-14;monthly;connectors, dust removal, controller ventilation, oil-seepage look;technician;1;;;;
+9;2027-01-11;monthly;monthly scope + verify backups restore;technician;1;;;;
+13;2027-02-08;monthly;monthly scope;technician;1;;;;
+14;2027-02-15;quarterly Q1;bolt torque all listed fasteners, J5/J6 tension+backlash, brake test, grease condition, cycle-time trend;technician;3;;;;
+17;2027-03-08;monthly;monthly scope;technician;1;;;;
+21;2027-04-05;monthly;monthly scope + controller battery voltage 3.1-3.3 VDC;technician;1;;;;
+25;2027-05-03;quarterly Q2;same scope as Q1;technician;3;;;;
+27;2027-05-17;half-year;6-month trend report, spares audit, next schedule issued, programme signed off;engineer;1;;;;
+due;when due;annual;battery replacement: robot APC with power ON; controller battery within 30 min of power-off;technician;1;;;;
+due;when due;4-year;replenish reducer grease (J5/J6 1.8 g each) + replace mechanical-unit cable;FANUC service;48;;;;
+# Totals: planned downtime 12 h over 6 months. Unplanned at one INTP-106/week (35 min): 91 h.

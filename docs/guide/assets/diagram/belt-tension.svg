@@ -1,0 +1,106 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 960 580' width='960' height='580' role='img' aria-label='J5 belt tension measurement'>
+<title>J5 belt tension measurement</title>
+<defs>
+<marker id='ar-ink' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1c2024'/></marker>
+<marker id='ar-mut' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#4a535c'/></marker>
+<marker id='ar-fa' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#77818c'/></marker>
+<marker id='ar-ln' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c3c9d1'/></marker>
+<marker id='ar-br' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b4472e'/></marker>
+<marker id='ar-st' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1d6fb8'/></marker>
+<marker id='ar-am' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c8891a'/></marker>
+<marker id='ar-gr' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#2f7d4f'/></marker>
+<marker id='ar-rd' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b3261e'/></marker>
+</defs>
+<style>text{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,'Helvetica Neue',sans-serif;fill:#1c2024;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:11.5px}.b{font-weight:650}.m{fill:#4a535c}.f{fill:#77818c;font-size:11.5px}.s{font-size:11.5px}.xs{font-size:10.5px;fill:#77818c}.tt{font-size:17px;font-weight:700}.st{font-size:12.5px;fill:#4a535c}.cap{font-size:12px;fill:#4a535c}.white{fill:#fff;font-weight:650}</style>
+<rect width='960' height='580' fill='#ffffff'/>
+<text x='24' y='32' class='tt' text-anchor='start'>Measuring J5 belt tension — pose, span, settings, result</text>
+<text x='24' y='52' class='st' text-anchor='start'>Измерение натяжения ремня J5 — поза, ветвь, установки, результат</text>
+<text x='936' y='32' class='f' text-anchor='end'>Part 2 · Часть 2</text>
+<line x1='24' y1='64' x2='936' y2='64' stroke='#dfe3e8' stroke-width='1.2'/>
+<text x='40' y='106' class='b' text-anchor='start'>wrist opened / кисть вскрыта</text>
+<circle cx='150' cy='300' r='46' fill='#f1f3f5' stroke='#c3c9d1' stroke-width='2'/>
+<circle cx='150' cy='300' r='10' fill='#fff' stroke='#c3c9d1' stroke-width='1.5'/>
+<circle cx='410' cy='300' r='32' fill='#f1f3f5' stroke='#c3c9d1' stroke-width='2'/>
+<circle cx='410' cy='300' r='8' fill='#fff' stroke='#c3c9d1' stroke-width='1.5'/>
+<line x1='150' y1='254' x2='410' y2='268' stroke='#b4472e' stroke-width='6'/>
+<line x1='150' y1='346' x2='410' y2='332' stroke='#d9a08f' stroke-width='6'/>
+<line x1='168' y1='254.0' x2='168' y2='268.0' stroke='#fff' stroke-width='2'/>
+<line x1='188' y1='255.15' x2='188' y2='269.15' stroke='#fff' stroke-width='2'/>
+<line x1='208' y1='256.3' x2='208' y2='270.3' stroke='#fff' stroke-width='2'/>
+<line x1='228' y1='257.45' x2='228' y2='271.45' stroke='#fff' stroke-width='2'/>
+<line x1='248' y1='258.6' x2='248' y2='272.6' stroke='#fff' stroke-width='2'/>
+<line x1='268' y1='259.75' x2='268' y2='273.75' stroke='#fff' stroke-width='2'/>
+<line x1='288' y1='260.9' x2='288' y2='274.9' stroke='#fff' stroke-width='2'/>
+<line x1='308' y1='262.05' x2='308' y2='276.05' stroke='#fff' stroke-width='2'/>
+<line x1='328' y1='263.2' x2='328' y2='277.2' stroke='#fff' stroke-width='2'/>
+<line x1='348' y1='264.35' x2='348' y2='278.35' stroke='#fff' stroke-width='2'/>
+<line x1='368' y1='265.5' x2='368' y2='279.5' stroke='#fff' stroke-width='2'/>
+<line x1='388' y1='266.65' x2='388' y2='280.65' stroke='#fff' stroke-width='2'/>
+<line x1='150' y1='236' x2='410' y2='236' stroke='#b4472e' stroke-width='1.1'/>
+<line x1='150' y1='232' x2='150' y2='240' stroke='#b4472e' stroke-width='1.1'/>
+<line x1='410' y1='232' x2='410' y2='240' stroke='#b4472e' stroke-width='1.1'/>
+<text x='280.0' y='224' class='s' text-anchor='middle'>free span 187 mm</text>
+<text x='150' y='388' class='xs' text-anchor='middle'>J5 motor pulley</text>
+<text x='410' y='360' class='xs' text-anchor='middle'>J5 output</text>
+<rect x='240' y='150' width='86' height='40' rx='6' fill='#fff' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='283' y='168' class='xs' text-anchor='middle'>sensor head</text>
+<text x='283' y='182' class='xs' text-anchor='middle'>no contact</text>
+<path d='M283 192 q0 20 0 44' stroke='#1d6fb8' stroke-width='1.4' fill='none' stroke-dasharray='3 3'/>
+<path d='M262 208 q21 14 42 0' stroke='#1d6fb8' stroke-width='1.2' fill='none' stroke-dasharray='3 3'/>
+<path d='M268 220 q15 10 30 0' stroke='#1d6fb8' stroke-width='1.2' fill='none' stroke-dasharray='3 3'/>
+<rect x='40' y='404' width='420' height='108' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='50' y='426' class='b' text-anchor='start'>Pose and access / Поза и доступ</text>
+<text x='50' y='442' class='s' text-anchor='start'>• power OFF, lock out, arm supported</text>
+<text x='50' y='458' class='s' text-anchor='start'>• jog first to J3 = 80°, J5 = ±90° — the same pose every time</text>
+<text x='50' y='474' class='s' text-anchor='start'>• remove cover bolt + cover, then the gasket (clean side up)</text>
+<text x='50' y='490' class='s' text-anchor='start'>• cover bolt on reassembly: 5.6 N·m, fresh witness marks</text>
+<text x='50' y='506' class='s' text-anchor='start'>• pluck once, read when stable, three readings per axis</text>
+<rect x='500' y='100' width='436' height='116' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='510' y='122' class='b' text-anchor='start'>Tensionmeter A97L-0218-0700 — settings / установки</text>
+<text x='510' y='138' class='mono' text-anchor='start'>belt type            timing belt, metric</text>
+<text x='510' y='154' class='mono' text-anchor='start'>belt mass per length 0.02083 kg/m</text>
+<text x='510' y='170' class='mono' text-anchor='start'>belt width           4 mm</text>
+<text x='510' y='186' class='mono' text-anchor='start'>span length          187 mm   (J6: 116 mm)</text>
+<text x='510' y='202' class='mono' text-anchor='start'>result unit          N        strands: 1</text>
+<rect x='500' y='228' width='436' height='84' rx='8' fill='#fde7e5' stroke='#b3261e' stroke-width='1.3'/>
+<text x='510' y='250' class='b' text-anchor='start'>Three readings, J5 / Три отсчёта, J5</text>
+<text x='510' y='267' class='mono' text-anchor='start'>12.8 N      13.1 N      12.9 N      →  mean 12.9 N</text>
+<text x='510' y='284' class='s' text-anchor='start'>specification 15.6–20.6 N  →  BELOW by 2.7 N / ниже нормы</text>
+<text x='510' y='301' class='s' text-anchor='start'>J6 control: 17.4 / 17.6 / 17.5 → mean 17.5 N — in band / в норме</text>
+<text x='500' y='348' class='b' text-anchor='start'>N</text>
+<line x1='500' y1='372' x2='936' y2='372' stroke='#c3c9d1' stroke-width='1.4'/>
+<rect x='674.4' y='362' width='155.71428571428578' height='20' rx='3' fill='#e2f3e9' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='752.2571428571429' y='358' class='xs' text-anchor='middle'>specification band 15.6–20.6 N</text>
+<line x1='500.0' y1='372' x2='500.0' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='500.0' y='394' class='xs' text-anchor='middle'>10</text>
+<line x1='562.2857142857143' y1='372' x2='562.2857142857143' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='562.2857142857143' y='394' class='xs' text-anchor='middle'>12</text>
+<line x1='624.5714285714286' y1='372' x2='624.5714285714286' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='624.5714285714286' y='394' class='xs' text-anchor='middle'>14</text>
+<line x1='686.8571428571429' y1='372' x2='686.8571428571429' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='686.8571428571429' y='394' class='xs' text-anchor='middle'>16</text>
+<line x1='749.1428571428571' y1='372' x2='749.1428571428571' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='749.1428571428571' y='394' class='xs' text-anchor='middle'>18</text>
+<line x1='811.4285714285714' y1='372' x2='811.4285714285714' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='811.4285714285714' y='394' class='xs' text-anchor='middle'>20</text>
+<line x1='873.7142857142857' y1='372' x2='873.7142857142857' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='873.7142857142857' y='394' class='xs' text-anchor='middle'>22</text>
+<line x1='936.0' y1='372' x2='936.0' y2='380' stroke='#c3c9d1' stroke-width='1.2'/>
+<text x='936.0' y='394' class='xs' text-anchor='middle'>24</text>
+<line x1='590.3142857142857' y1='372' x2='590.3142857142857' y2='352' stroke='#b3261e' stroke-width='2'/>
+<circle cx='590.3142857142857' cy='350' r='4' fill='#b3261e' stroke='#b3261e' stroke-width='1.3'/>
+<text x='590.3142857142857' y='342' class='xs' text-anchor='middle'>measured 12.9 N</text>
+<line x1='733.5714285714286' y1='372' x2='733.5714285714286' y2='404' stroke='#2f7d4f' stroke-width='2'/>
+<circle cx='733.5714285714286' cy='406' r='4' fill='#2f7d4f' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='739.5714285714286' y='420' class='xs' text-anchor='start'>J6 17.5 N</text>
+<line x1='749.1428571428571' y1='362' x2='749.1428571428571' y2='344' stroke='#c8891a' stroke-width='2'/>
+<circle cx='749.1428571428571' cy='342' r='4' fill='#c8891a' stroke='#c8891a' stroke-width='1.3'/>
+<text x='757.1428571428571' y='336' class='xs' text-anchor='start'>re-tension target ≈ 18 N</text>
+<rect x='500' y='436' width='436' height='76' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='509' y='457' class='b' text-anchor='start'>Decisions / Решения</text>
+<text x='509' y='473' class='s' text-anchor='start'>below 15.6 N  →  re-tension or replace A98L-0040-0286#004-157, then master J5 + J6</text>
+<text x='509' y='489' class='s' text-anchor='start'>in band       →  the wrist is fine; hunt electrical, path and interlock causes</text>
+<text x='509' y='505' class='s' text-anchor='start'>above 20.6 N  →  over-tensioned: motor bearings and reducer loaded; loosen to the middle</text>
+<line x1='24' y1='546' x2='936' y2='546' stroke='#dfe3e8' stroke-width='1.2'/>
+<text x='24' y='566' class='xs' text-anchor='start'>Belt parameters from Maintenance Manual B-83495EN §6.1; the example readings are the guide’s scenario values.</text>
+</svg>

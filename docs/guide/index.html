@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decorative Brick Factory in Visual Components 4.8 — complete guide</title>
+<meta name="description" content="Step-by-step guide: build a decorative brick factory with a FANUC LR Mate 200iD/7L pick-and-place palletizing cell in Visual Components 4.8, plus INTP-106 diagnostics, J5 belt tension check, 6-month maintenance programme (ППР), mastering recovery and claim paperwork.">
+<meta name="theme-color" content="#b4472e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='7' width='20' height='10' rx='1.5' fill='%23b4472e'/%3E%3Cpath d='M2 12h20M8.5 7v10M15.5 7v10' stroke='%23f6e3dc' stroke-width='1.4'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <button class="btn icon-btn" id="menuToggle" aria-label="Menu"></button>
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <div class="brand-text">
+      <div class="brand-title" id="t-title">Decorative Brick Factory</div>
+      <div class="brand-sub" id="t-sub">Visual Components 4.8 · FANUC LR Mate 200iD/7L · R-30iB Plus</div>
+    </div>
+  </div>
+  <div class="topbar-spacer"></div>
+  <div class="searchbox">
+    <span id="searchIcon"></span>
+    <input id="search" type="search" placeholder="Search the guide…  ( / )" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="langswitch" role="group" aria-label="Language">
+    <button id="langEn" aria-pressed="true">EN</button>
+    <button id="langRu" aria-pressed="false">RU</button>
+  </div>
+  <button class="btn icon-btn" id="themeToggle" title="Theme" aria-label="Toggle theme"></button>
+  <button class="btn icon-btn" id="printBtn" title="Print / PDF" aria-label="Print"></button>
+</header>
+
+<div class="progress" id="progress"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav id="nav" aria-label="Guide contents"></nav>
+  </aside>
+
+  <main class="content">
+    <div class="hero">
+      <img id="heroImg" src="assets/media/cell-hero.jpg" alt="">
+      <div class="hero-overlay">
+        <div class="hero-kicker" id="heroKicker"></div>
+        <h1 id="heroTitle"></h1>
+        <p id="heroText"></p>
+        <div class="hero-meta" id="heroMeta"></div>
+      </div>
+    </div>
+
+    <div id="main"></div>
+    <div class="noresult" id="noresult">Nothing matches that search.</div>
+  </main>
+</div>
+
+<div class="lightbox" id="lightbox"><button class="close" aria-label="Close">×</button><img id="lightboxImg" alt=""></div>
+<button class="totop" id="totop" aria-label="Back to top"></button>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

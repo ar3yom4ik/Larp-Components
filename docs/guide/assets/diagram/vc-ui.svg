@@ -1,0 +1,152 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 960 620' width='960' height='620' role='img' aria-label='Visual Components 4.8 interface map'>
+<title>Visual Components 4.8 interface map</title>
+<defs>
+<marker id='ar-ink' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1c2024'/></marker>
+<marker id='ar-mut' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#4a535c'/></marker>
+<marker id='ar-fa' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#77818c'/></marker>
+<marker id='ar-ln' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c3c9d1'/></marker>
+<marker id='ar-br' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b4472e'/></marker>
+<marker id='ar-st' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1d6fb8'/></marker>
+<marker id='ar-am' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c8891a'/></marker>
+<marker id='ar-gr' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#2f7d4f'/></marker>
+<marker id='ar-rd' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b3261e'/></marker>
+</defs>
+<style>text{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,'Helvetica Neue',sans-serif;fill:#1c2024;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:11.5px}.b{font-weight:650}.m{fill:#4a535c}.f{fill:#77818c;font-size:11.5px}.s{font-size:11.5px}.xs{font-size:10.5px;fill:#77818c}.tt{font-size:17px;font-weight:700}.st{font-size:12.5px;fill:#4a535c}.cap{font-size:12px;fill:#4a535c}.white{fill:#fff;font-weight:650}</style>
+<rect width='960' height='620' fill='#ffffff'/>
+<text x='24' y='32' class='tt' text-anchor='start'>Visual Components 4.8 — where each step happens</text>
+<text x='24' y='52' class='st' text-anchor='start'>Visual Components 4.8 — где выполняется каждый шаг</text>
+<text x='936' y='32' class='f' text-anchor='end'>Part 1 · Часть 1</text>
+<line x1='24' y1='64' x2='936' y2='64' stroke='#dfe3e8' stroke-width='1.2'/>
+<rect x='24' y='84' width='912' height='486' rx='10' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<rect x='24' y='84' width='912' height='26' rx='10' fill='#eceef1' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='38' y='101' class='s' text-anchor='start'>BrickPlant_v01.vcmx — Visual Components 4.8</text>
+<circle cx='880' cy='97' r='4.5' fill='#e05c4b' stroke='#e05c4b' stroke-width='1.3'/>
+<circle cx='898' cy='97' r='4.5' fill='#e0a33c' stroke='#e0a33c' stroke-width='1.3'/>
+<circle cx='916' cy='97' r='4.5' fill='#5cb860' stroke='#5cb860' stroke-width='1.3'/>
+<rect x='34' y='116' width='47.6' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='57.8' y='132' class='mut' text-anchor='middle'>FILE</text>
+<rect x='87.6' y='116' width='47.6' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='111.39999999999999' y='132' class='mut' text-anchor='middle'>HOME</text>
+<rect x='141.2' y='116' width='148.4' height='24' rx='5' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<text x='215.39999999999998' y='132' class='b' text-anchor='middle'>PROCESS MODELING</text>
+<rect x='295.6' y='116' width='72.80000000000001' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='332.0' y='132' class='mut' text-anchor='middle'>PROGRAM</text>
+<rect x='374.40000000000003' y='116' width='72.80000000000001' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='410.80000000000007' y='132' class='mut' text-anchor='middle'>DRAWING</text>
+<rect x='453.20000000000005' y='116' width='47.6' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='477.00000000000006' y='132' class='mut' text-anchor='middle'>HELP</text>
+<rect x='34' y='144' width='892' height='40' rx='6' fill='#fbfbfc' stroke='#dfe3e8' stroke-width='1.3'/>
+<rect x='44' y='152' width='118' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='103' y='168' class='xs' text-anchor='middle'>Products</text>
+<rect x='170' y='152' width='118' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='229' y='168' class='xs' text-anchor='middle'>Flow</text>
+<rect x='296' y='152' width='118' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='355' y='168' class='xs' text-anchor='middle'>Transport Link</text>
+<rect x='422' y='152' width='118' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='481' y='168' class='xs' text-anchor='middle'>Flow Group</text>
+<rect x='548' y='152' width='118' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='607' y='168' class='xs' text-anchor='middle'>Process Editor</text>
+<rect x='674' y='152' width='118' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='733' y='168' class='xs' text-anchor='middle'>Chart(s)</text>
+<rect x='800' y='152' width='118' height='24' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='859' y='168' class='xs' text-anchor='middle'>Statistics</text>
+<rect x='34' y='192' width='196' height='300' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='46' y='212' class='b' text-anchor='start'>eCatalog</text>
+<rect x='46' y='220' width='172' height='20' rx='4' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='54' y='234' class='xs' text-anchor='start'>search: LR Mate 200iD/7L</text>
+<text x='46' y='262' class='s' text-anchor='start'>Collections</text>
+<text x='46' y='280' class='s' text-anchor='start'>Models by Type</text>
+<text x='46' y='298' class='xs' text-anchor='start'>  › Robots › FANUC</text>
+<text x='46' y='316' class='xs' text-anchor='start'>  › Flow Components</text>
+<text x='46' y='334' class='xs' text-anchor='start'>  › PM Flow Components</text>
+<text x='46' y='352' class='xs' text-anchor='start'>  › PM Transport Controllers</text>
+<text x='46' y='370' class='xs' text-anchor='start'>  › Conveyors</text>
+<text x='46' y='388' class='xs' text-anchor='start'>  › Tools</text>
+<text x='46' y='406' class='xs' text-anchor='start'>  › Facilities - Factory</text>
+<text x='46' y='424' class='xs' text-anchor='start'>  › Products and Containers</text>
+<text x='46' y='442' class='xs' text-anchor='start'>  › Resources</text>
+<text x='46' y='460' class='s' text-anchor='start'>My Components</text>
+<rect x='238' y='192' width='452' height='300' rx='8' fill='#f4f6f8' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='250' y='212' class='b' text-anchor='start'>3D world</text>
+<line x1='283.2' y1='220' x2='283.2' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='328.4' y1='220' x2='328.4' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='373.6' y1='220' x2='373.6' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='418.8' y1='220' x2='418.8' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='464.0' y1='220' x2='464.0' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='509.20000000000005' y1='220' x2='509.20000000000005' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='554.4000000000001' y1='220' x2='554.4000000000001' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='599.6' y1='220' x2='599.6' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='644.8' y1='220' x2='644.8' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='690.0' y1='220' x2='690.0' y2='492' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='238' y1='265' x2='690' y2='265' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='238' y1='310' x2='690' y2='310' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='238' y1='355' x2='690' y2='355' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='238' y1='400' x2='690' y2='400' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='238' y1='445' x2='690' y2='445' stroke='#e6e9ed' stroke-width='0.8'/>
+<line x1='238' y1='490' x2='690' y2='490' stroke='#e6e9ed' stroke-width='0.8'/>
+<rect x='262' y='336' width='170' height='26' rx='4' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='347' y='330' class='xs' text-anchor='middle'>infeed conveyor</text>
+<rect x='272' y='340' width='18' height='12' rx='2' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='299' y='340' width='18' height='12' rx='2' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='326' y='340' width='18' height='12' rx='2' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='353' y='340' width='18' height='12' rx='2' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='380' y='340' width='18' height='12' rx='2' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='407' y='340' width='18' height='12' rx='2' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<circle cx='500' cy='356' r='16' fill='#fff' stroke='#b4472e' stroke-width='2'/>
+<path d='M500 356 L500 306 L545 281' stroke='#b4472e' stroke-width='5' fill='none'/>
+<circle cx='545' cy='281' r='7' fill='#f6e3dc' stroke='#b4472e' stroke-width='2'/>
+<text x='500' y='388' class='xs' text-anchor='middle'>LR Mate 200iD/7L</text>
+<circle cx='500' cy='356' r='96' fill='none' stroke='#b4472e' stroke-width='1.2' stroke-dasharray='5 4'/>
+<text x='560' y='250' class='xs' text-anchor='start'>envelope 911 mm</text>
+<rect x='560' y='306' width='108' height='72' rx='4' fill='#fdf1da' stroke='#c8891a' stroke-width='1.3'/>
+<text x='614' y='396' class='xs' text-anchor='middle'>pallet on indexer</text>
+<rect x='568' y='314' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='600' y='314' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='632' y='314' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='568' y='334' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='600' y='334' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='632' y='334' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='568' y='354' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='600' y='354' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='632' y='354' width='26' height='14' rx='1' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<rect x='250' y='256' width='428' height='226' rx='1.6' fill='none' stroke='#77818c' stroke-width='1.3' stroke-dasharray='9 5'/>
+<rect x='250' y='452' width='40' height='34' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='270' y='474' class='xs' text-anchor='middle'>View</text>
+<rect x='698' y='192' width='228' height='176' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='710' y='212' class='b' text-anchor='start'>Properties</text>
+<text x='710' y='234' class='s' text-anchor='start'>Default</text>
+<text x='710' y='253' class='s' text-anchor='start'>WorkSpace  · Envelope</text>
+<text x='710' y='272' class='s' text-anchor='start'>Collisions</text>
+<text x='710' y='291' class='s' text-anchor='start'>I/O and signals</text>
+<text x='710' y='310' class='s' text-anchor='start'>Geometry</text>
+<text x='710' y='329' class='s' text-anchor='start'>Component tools</text>
+<text x='710' y='352' class='xs' text-anchor='start'>selected: Pick And Place</text>
+<text x='710' y='366' class='xs' text-anchor='start'>Transport Controller</text>
+<rect x='698' y='376' width='228' height='116' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='710' y='396' class='b' text-anchor='start'>Cell Graph</text>
+<text x='710' y='416' class='mono' text-anchor='start'>World</text>
+<text x='710' y='431' class='mono' text-anchor='start'> ├ BrickFeeder</text>
+<text x='710' y='446' class='mono' text-anchor='start'> ├ InfeedConveyor</text>
+<text x='710' y='461' class='mono' text-anchor='start'> ├ LR Mate 200iD/7L</text>
+<text x='710' y='476' class='mono' text-anchor='start'> │  └ VacuumGripper</text>
+<text x='710' y='491' class='mono' text-anchor='start'> └ PalletIndexer</text>
+<rect x='34' y='500' width='892' height='58' rx='8' fill='#f2f4f6' stroke='#c3c9d1' stroke-width='1.3'/>
+<rect x='48' y='512' width='62' height='26' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='79.0' y='529' class='s' text-anchor='middle'>Reset</text>
+<rect x='118' y='512' width='62' height='26' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='149.0' y='529' class='s' text-anchor='middle'>Play</text>
+<rect x='188' y='512' width='62' height='26' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='219.0' y='529' class='s' text-anchor='middle'>Stop</text>
+<rect x='258' y='512' width='40' height='26' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='278.0' y='529' class='s' text-anchor='middle'>1×</text>
+<rect x='306' y='512' width='40' height='26' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='326.0' y='529' class='s' text-anchor='middle'>4×</text>
+<rect x='354' y='512' width='46' height='26' rx='5' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='377.0' y='529' class='s' text-anchor='middle'>Max</text>
+<text x='430' y='529' class='s' text-anchor='start'>Simulation time 00:19:12   ·   Products 1 152   ·   Robot utilisation 87 %</text>
+<text x='48' y='552' class='xs' text-anchor='start'>status bar: snap, units (mm), selection</text>
+<rect x='24' y='578' width='912' height='34' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='34' y='600' class='s' text-anchor='start'>1.2 products · 1.7 processes · 1.8 flow → PROCESS MODELING    1.4 robot · 1.5 gripper · 1.9 safety → eCatalog + Properties    1.11 → PROGRAM    1.13 → simulation</text>
+<line x1='24' y1='586' x2='936' y2='586' stroke='#dfe3e8' stroke-width='1.2'/>
+<text x='24' y='606' class='xs' text-anchor='start'>Ribbon, panels and controls as named in the VC 4.8 help; the schematic layout is illustrative.</text>
+</svg>

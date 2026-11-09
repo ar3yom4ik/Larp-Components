@@ -1,0 +1,90 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 960 600' width='960' height='600' role='img' aria-label='INTP-106 fault tree'>
+<title>INTP-106 fault tree</title>
+<defs>
+<marker id='ar-ink' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1c2024'/></marker>
+<marker id='ar-mut' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#4a535c'/></marker>
+<marker id='ar-fa' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#77818c'/></marker>
+<marker id='ar-ln' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c3c9d1'/></marker>
+<marker id='ar-br' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b4472e'/></marker>
+<marker id='ar-st' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1d6fb8'/></marker>
+<marker id='ar-am' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c8891a'/></marker>
+<marker id='ar-gr' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#2f7d4f'/></marker>
+<marker id='ar-rd' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b3261e'/></marker>
+</defs>
+<style>text{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,'Helvetica Neue',sans-serif;fill:#1c2024;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:11.5px}.b{font-weight:650}.m{fill:#4a535c}.f{fill:#77818c;font-size:11.5px}.s{font-size:11.5px}.xs{font-size:10.5px;fill:#77818c}.tt{font-size:17px;font-weight:700}.st{font-size:12.5px;fill:#4a535c}.cap{font-size:12px;fill:#4a535c}.white{fill:#fff;font-weight:650}</style>
+<rect width='960' height='600' fill='#ffffff'/>
+<text x='24' y='32' class='tt' text-anchor='start'>INTP-106 — from symptom to measurable root cause</text>
+<text x='24' y='52' class='st' text-anchor='start'>INTP-106 — от симптома к измеримой первопричине</text>
+<text x='936' y='32' class='f' text-anchor='end'>Part 2 · Часть 2</text>
+<line x1='24' y1='64' x2='936' y2='64' stroke='#dfe3e8' stroke-width='1.2'/>
+<rect x='200' y='84' width='560' height='52' rx='8' fill='#fde7e5' stroke='#b3261e' stroke-width='1.3'/>
+<text x='209' y='105' class='mono' text-anchor='start'>INTP-106  PAUSE.L (%s^4, %d^5)  Continue request failed</text>
+<text x='209' y='123' class='s' text-anchor='start'>The program is paused and cannot be resumed — a SYMPTOM, not a cause / симптом, а не причина</text>
+<line x1='480' y1='138' x2='480' y2='162' stroke='#b3261e' stroke-width='1.8' marker-end='url(#ar-rd)'/>
+<rect x='240' y='166' width='480' height='44' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='248' y='186' class='b' text-anchor='start'>Read the alarm log:  MENU → 4 ALARM → LOG → DETAIL</text>
+<text x='248' y='202' class='s' text-anchor='start'>the cause sits ABOVE this entry in time order / причина выше по времени</text>
+<line x1='480' y1='212' x2='480' y2='234' stroke='#77818c' stroke-width='1.6' marker-end='url(#ar-fa)'/>
+<line x1='110' y1='236' x2='846' y2='236' stroke='#77818c' stroke-width='1.4'/>
+<rect x='24' y='240' width='172' height='34' rx='7' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<text x='110.0' y='255' class='b' text-anchor='middle'>MECHANICAL</text>
+<text x='110.0' y='268' class='xs' text-anchor='middle'>Механика</text>
+<line x1='110.0' y1='236' x2='110.0' y2='240' stroke='#77818c' stroke-width='1.4'/>
+<rect x='24' y='282' width='172' height='96' rx='8' fill='#fff' stroke='#b4472e' stroke-width='1.3'/>
+<text x='33' y='303' class='s' text-anchor='start'>J5 belt slack (&lt; 15.6 N)</text>
+<text x='33' y='318' class='s' text-anchor='start'>loose fasteners, reducer wear</text>
+<text x='33' y='333' class='s' text-anchor='start'></text>
+<text x='33' y='348' class='xs' text-anchor='start'>check: tensionmeter 2.3 +</text>
+<text x='33' y='363' class='xs' text-anchor='start'>dial gauge 2.5 → ranks 1–3</text>
+<rect x='208' y='240' width='172' height='34' rx='7' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='294.0' y='255' class='b' text-anchor='middle'>ELECTRICAL</text>
+<text x='294.0' y='268' class='xs' text-anchor='middle'>Электрика</text>
+<line x1='294.0' y1='236' x2='294.0' y2='240' stroke='#77818c' stroke-width='1.4'/>
+<rect x='208' y='282' width='172' height='96' rx='8' fill='#fff' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='217' y='303' class='s' text-anchor='start'>APC battery (SRVO-062 BZAL)</text>
+<text x='217' y='318' class='s' text-anchor='start'>coder cable at the wrist bend</text>
+<text x='217' y='333' class='s' text-anchor='start'></text>
+<text x='217' y='348' class='xs' text-anchor='start'>check: battery date, wiggle</text>
+<text x='217' y='363' class='xs' text-anchor='start'>test in T1 with log open</text>
+<rect x='392' y='240' width='172' height='34' rx='7' fill='#fdf1da' stroke='#c8891a' stroke-width='1.3'/>
+<text x='478.0' y='255' class='b' text-anchor='middle'>MOTION / PATH</text>
+<text x='478.0' y='268' class='xs' text-anchor='middle'>Движение</text>
+<line x1='478.0' y1='236' x2='478.0' y2='240' stroke='#77818c' stroke-width='1.4'/>
+<rect x='392' y='282' width='172' height='96' rx='8' fill='#fff' stroke='#c8891a' stroke-width='1.3'/>
+<text x='401' y='303' class='s' text-anchor='start'>singularity, wrist limit</text>
+<text x='401' y='318' class='s' text-anchor='start'>configuration conflict at a point</text>
+<text x='401' y='333' class='s' text-anchor='start'></text>
+<text x='401' y='348' class='xs' text-anchor='start'>check: line number + joint</text>
+<text x='401' y='363' class='xs' text-anchor='start'>values at the failing point</text>
+<rect x='576' y='240' width='172' height='34' rx='7' fill='#e2f3e9' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='662.0' y='255' class='b' text-anchor='middle'>EXTERNAL</text>
+<text x='662.0' y='268' class='xs' text-anchor='middle'>Внешние сигналы</text>
+<line x1='662.0' y1='236' x2='662.0' y2='240' stroke='#77818c' stroke-width='1.4'/>
+<rect x='576' y='282' width='172' height='96' rx='8' fill='#fff' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='585' y='303' class='s' text-anchor='start'>gate / light curtain pause</text>
+<text x='585' y='318' class='s' text-anchor='start'>DeviceNet abort (DEV LST)</text>
+<text x='585' y='333' class='s' text-anchor='start'></text>
+<text x='585' y='348' class='xs' text-anchor='start'>check: DI/UI monitor at the</text>
+<text x='585' y='363' class='xs' text-anchor='start'>moment of pause, DEV LST</text>
+<rect x='760' y='240' width='172' height='34' rx='7' fill='#ece8f7' stroke='#5b4b8a' stroke-width='1.3'/>
+<text x='846.0' y='255' class='b' text-anchor='middle'>PROGRAM LOGIC</text>
+<text x='846.0' y='268' class='xs' text-anchor='middle'>Логика</text>
+<line x1='846.0' y1='236' x2='846.0' y2='240' stroke='#77818c' stroke-width='1.4'/>
+<rect x='760' y='282' width='172' height='96' rx='8' fill='#fff' stroke='#5b4b8a' stroke-width='1.3'/>
+<text x='769' y='303' class='s' text-anchor='start'>pause inside a motion that</text>
+<text x='769' y='318' class='s' text-anchor='start'>cannot be continued</text>
+<text x='769' y='333' class='s' text-anchor='start'></text>
+<text x='769' y='348' class='xs' text-anchor='start'>check: simplified test</text>
+<text x='769' y='363' class='xs' text-anchor='start'>program reproduces it</text>
+<rect x='24' y='402' width='912' height='60' rx='8' fill='#fdf1da' stroke='#c8891a' stroke-width='1.3'/>
+<text x='33' y='423' class='b' text-anchor='start'>Discriminating rule / Различающее правило</text>
+<text x='33' y='440' class='s' text-anchor='start'>tension &lt; 15.6 N  →  re-tension or replace the belt, then master J5 + J6      tension in band but backlash &gt; 0.18 mm  →  fasteners, then the reducer</text>
+<text x='33' y='457' class='s' text-anchor='start'>both in band  →  the wrist is innocent: work ranks 4–9 (cable, battery, path, interlock, network, logic)</text>
+<rect x='24' y='474' width='912' height='78' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='33' y='495' class='b' text-anchor='start'>Clear and restart, per the manual remedy / Сброс и перезапуск по remedy руководства</text>
+<text x='33' y='512' class='s' text-anchor='start'>1  correct the cause found in the log      2  RESET to release the alarm      3  T1, ≤ 30 % override, jog to a safe posture</text>
+<text x='33' y='529' class='s' text-anchor='start'>4  restart the cycle from the program start      5  if it still refuses: controlled start (PREV + NEXT at power-on → 3 Controlled start)</text>
+<text x='33' y='546' class='xs' text-anchor='start'>a controlled start never erases programs or mastering data — but back up first, and never press INITIAL START</text>
+<line x1='24' y1='566' x2='936' y2='566' stroke='#dfe3e8' stroke-width='1.2'/>
+<text x='24' y='586' class='xs' text-anchor='start'>Ranks are from Part 2.2. Every branch ends in a measurement, so two faults are never fixed at once.</text>
+</svg>

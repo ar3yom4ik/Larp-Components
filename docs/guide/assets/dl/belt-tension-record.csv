@@ -1,0 +1,21 @@
+# Belt tension record / Бланк измерения натяжения ремней — FANUC LR Mate 200iD/7L
+# Instrument: A97L-0218-0700 (Mitsuboshi DOCTOR TENSION TYPE-III), non-contact vibration type
+# Specification source: Maintenance Manual B-83495EN, section 6.1
+# Pose for every reading: J3 = 80 deg, J5 = +/-90 deg. Power OFF, lock out, arm supported.
+# Settings J5/J6: belt mass 0.02083 kg/m, width 4 mm, span 187 mm (J5) / 116 mm (J6)
+# Settings J1/J2 (7L): belt mass 0.0367 / 0.0290 kg/m, width 6 mm, span 167.5 mm
+# Alarm trigger: raise a work order at or below the trigger value, not only at the limit.
+date;running_hours;axis;pose;reading1_N;reading2_N;reading3_N;mean_N;spec_N;trigger_N;backlash_mm;limit_mm;visual;action;technician;signature
+2026-11-16;13480;J5;J3=80 J5=+90;12.8;13.1;12.9;12.9;15.6-20.6;16.5;0.46;0.18;tooth-root cracks;replaced belt A98L-0040-0286#004-157, mastered J5+J6;Ivanov I.I.;
+2026-11-16;13480;J6;J3=80 J5=+90;17.4;17.6;17.5;17.5;15.6-20.6;16.5;0.06;0.15;ok;none;Ivanov I.I.;
+2026-11-16;13480;J1;J3=80 J5=+90;;;;;49-65;51;;0.52;ok;none;Ivanov I.I.;
+2026-11-16;13480;J2;J3=80 J5=+90;;;;;49-65;51;;0.25;ok;none;Ivanov I.I.;
+;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;
+# Rules: three readings per axis; repeatability worse than +/-0.5 N means wrong inputs.
+# After any belt, motor or reducer work: single-axis mastering. J5 belt work masters J5 AND J6.
+# Cover bolt torque on reassembly 5.6 N.m; new gasket; fresh witness marks; LOCTITE 243/263.

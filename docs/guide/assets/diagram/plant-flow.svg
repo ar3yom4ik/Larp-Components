@@ -1,0 +1,97 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 960 480' width='960' height='480' role='img' aria-label='Plant material flow'>
+<title>Plant material flow</title>
+<defs>
+<marker id='ar-ink' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1c2024'/></marker>
+<marker id='ar-mut' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#4a535c'/></marker>
+<marker id='ar-fa' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#77818c'/></marker>
+<marker id='ar-ln' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c3c9d1'/></marker>
+<marker id='ar-br' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b4472e'/></marker>
+<marker id='ar-st' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1d6fb8'/></marker>
+<marker id='ar-am' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c8891a'/></marker>
+<marker id='ar-gr' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#2f7d4f'/></marker>
+<marker id='ar-rd' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b3261e'/></marker>
+</defs>
+<style>text{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,'Helvetica Neue',sans-serif;fill:#1c2024;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:11.5px}.b{font-weight:650}.m{fill:#4a535c}.f{fill:#77818c;font-size:11.5px}.s{font-size:11.5px}.xs{font-size:10.5px;fill:#77818c}.tt{font-size:17px;font-weight:700}.st{font-size:12.5px;fill:#4a535c}.cap{font-size:12px;fill:#4a535c}.white{fill:#fff;font-weight:650}</style>
+<rect width='960' height='480' fill='#ffffff'/>
+<text x='24' y='32' class='tt' text-anchor='start'>Plant flow — zones A to E, with zone D expanded</text>
+<text x='24' y='52' class='st' text-anchor='start'>Поток завода — зоны A–E, зона D раскрыта</text>
+<text x='936' y='32' class='f' text-anchor='end'>Part 1 · Часть 1</text>
+<line x1='24' y1='64' x2='936' y2='64' stroke='#dfe3e8' stroke-width='1.2'/>
+<rect x='24' y='92' width='166' height='92' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<circle cx='44' cy='112' r='12' fill='#1d6fb8' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='44' y='117' class='white' text-anchor='middle'>A</text>
+<text x='64' y='117' class='b' text-anchor='start'>Raw &amp; forming</text>
+<text x='64' y='133' class='xs' text-anchor='start'>Сырьё и формовка</text>
+<text x='36' y='156' class='s' text-anchor='start'>mixer · press · cutter</text>
+<text x='36' y='174' class='f' text-anchor='start'>20/min wet</text>
+<line x1='192' y1='138' x2='206' y2='138' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<rect x='206' y='92' width='166' height='92' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<circle cx='226' cy='112' r='12' fill='#1d6fb8' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='226' y='117' class='white' text-anchor='middle'>B</text>
+<text x='246' y='117' class='b' text-anchor='start'>Drying &amp; firing</text>
+<text x='246' y='133' class='xs' text-anchor='start'>Сушка и обжиг</text>
+<text x='218' y='156' class='s' text-anchor='start'>dryer 45 min · kiln 6 h</text>
+<text x='218' y='174' class='f' text-anchor='start'>modelled 1:60</text>
+<line x1='374' y1='138' x2='388' y2='138' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<rect x='388' y='92' width='166' height='92' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<circle cx='408' cy='112' r='12' fill='#1d6fb8' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='408' y='117' class='white' text-anchor='middle'>C</text>
+<text x='428' y='117' class='b' text-anchor='start'>Unloading &amp; QC</text>
+<text x='428' y='133' class='xs' text-anchor='start'>Разгрузка и контроль</text>
+<text x='400' y='156' class='s' text-anchor='start'>brush · QC · reject 2 %</text>
+<text x='400' y='174' class='f' text-anchor='start'>19.6/min good</text>
+<line x1='556' y1='138' x2='570' y2='138' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<rect x='570' y='92' width='166' height='92' rx='8' fill='#f6e3dc' stroke='#b4472e' stroke-width='2'/>
+<circle cx='590' cy='112' r='12' fill='#b4472e' stroke='#b4472e' stroke-width='1.3'/>
+<text x='590' y='117' class='white' text-anchor='middle'>D</text>
+<text x='610' y='117' class='b' text-anchor='start'>PALLETIZING CELL</text>
+<text x='610' y='133' class='xs' text-anchor='start'>Ячейка паллетирования</text>
+<text x='582' y='156' class='s' text-anchor='start'>robot · indexer · shuttle</text>
+<text x='582' y='174' class='f' text-anchor='start'>600/h target</text>
+<line x1='738' y1='138' x2='752' y2='138' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<rect x='752' y='92' width='166' height='92' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<circle cx='772' cy='112' r='12' fill='#1d6fb8' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='772' y='117' class='white' text-anchor='middle'>E</text>
+<text x='792' y='117' class='b' text-anchor='start'>Wrapping</text>
+<text x='792' y='133' class='xs' text-anchor='start'>Обмотка и отгрузка</text>
+<text x='764' y='156' class='s' text-anchor='start'>wrapper 90 s · forklift</text>
+<text x='764' y='174' class='f' text-anchor='start'>2.9 pallets/h</text>
+<rect x='24' y='214' width='912' height='190' rx='10' fill='#fff' stroke='#b4472e' stroke-width='1.3' stroke-dasharray='6 4'/>
+<text x='38' y='236' class='b' text-anchor='start'>Zone D expanded / Зона D раскрыта</text>
+<text x='430' y='236' class='xs' text-anchor='middle'>material flow / материальный поток</text>
+<rect x='46' y='252' width='130' height='50' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='54' y='272' class='b' text-anchor='start'>Brick feeder 3.0 s</text>
+<text x='54' y='288' class='s' text-anchor='start'>Фидер кирпича</text>
+<rect x='46' y='316' width='130' height='50' rx='8' fill='#e2f3e9' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='54' y='336' class='b' text-anchor='start'>Pallet feeder</text>
+<text x='54' y='352' class='s' text-anchor='start'>Фидер паллет</text>
+<rect x='200' y='252' width='140' height='50' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='208' y='272' class='b' text-anchor='start'>Infeed conveyor</text>
+<text x='208' y='288' class='s' text-anchor='start'>3000 mm · 100 mm/s</text>
+<rect x='362' y='252' width='128' height='50' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='370' y='272' class='b' text-anchor='start'>Pick process</text>
+<text x='370' y='288' class='s' text-anchor='start'>stopper · sensor</text>
+<rect x='506' y='300' width='146' height='50' rx='8' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<text x='514' y='320' class='b' text-anchor='start'>LR Mate 200iD/7L</text>
+<text x='514' y='336' class='s' text-anchor='start'>vacuum 2-cup · 6.0 s</text>
+<rect x='668' y='300' width='140' height='50' rx='8' fill='#fdf1da' stroke='#c8891a' stroke-width='1.3'/>
+<text x='676' y='320' class='b' text-anchor='start'>Pallet indexer 180°</text>
+<text x='676' y='336' class='s' text-anchor='start'>2-position shuttle</text>
+<rect x='824' y='300' width='104' height='50' rx='8' fill='#e2f3e9' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='832' y='320' class='b' text-anchor='start'>Out conveyor</text>
+<text x='832' y='336' class='s' text-anchor='start'>→ zone E</text>
+<line x1='178' y1='277' x2='196' y2='277' stroke='#77818c' stroke-width='1.6' marker-end='url(#ar-fa)'/>
+<line x1='178' y1='341' x2='196' y2='292' stroke='#77818c' stroke-width='1.5' marker-end='url(#ar-fa)'/>
+<line x1='342' y1='277' x2='358' y2='277' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<line x1='492' y1='285' x2='504' y2='316' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<line x1='654' y1='325' x2='664' y2='325' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<line x1='810' y1='325' x2='820' y2='325' stroke='#77818c' stroke-width='1.8' marker-end='url(#ar-fa)'/>
+<text x='200' y='378' class='xs' text-anchor='start'>10 brick positions · 60 s buffer</text>
+<text x='579' y='378' class='xs' text-anchor='middle'>takt 6.0 s = 600/h</text>
+<text x='738' y='378' class='xs' text-anchor='start'>8 indexes per pallet · 64 s</text>
+<rect x='24' y='414' width='912' height='48' rx='8' fill='#fdf1da' stroke='#c8891a' stroke-width='1.3'/>
+<text x='32' y='434' class='s' text-anchor='start'>Bottleneck: the pallet exchange. One position = 21.2 min/pallet (543/h). Two-position shuttle + indexer = 20.3 min (568/h).</text>
+<text x='32' y='450' class='s' text-anchor='start'>Double gripper (Capacity 2) halves the fill time and restores a large margin over the 600/h target.</text>
+<line x1='24' y1='446' x2='936' y2='446' stroke='#dfe3e8' stroke-width='1.2'/>
+<text x='24' y='466' class='xs' text-anchor='start'>Rates are the guide’s own arithmetic from Part 0; zone B is modelled at a reduced time scale.</text>
+</svg>
