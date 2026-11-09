@@ -20,6 +20,7 @@ const FILES = [
   'src/content/04-mastering.js',
   'src/content/05-report.js',
   'src/content/06-sources.js',
+  'src/content/07-prompt.js',
   'src/content/index.js',
   'src/app.js',
 ];

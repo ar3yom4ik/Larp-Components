@@ -5,8 +5,9 @@ import { part3 } from './03-ppm.js';
 import { part4 } from './04-mastering.js';
 import { part5 } from './05-report.js';
 import { part6 } from './06-sources.js';
+import { part7 } from './07-prompt.js';
 
-export const parts = [part0, part1, part2, part3, part4, part5, part6];
+export const parts = [part0, part1, part2, part3, part4, part5, part6, part7];
 
 export const meta = {
   docTitle: {

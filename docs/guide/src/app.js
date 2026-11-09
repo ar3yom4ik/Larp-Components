@@ -86,6 +86,44 @@ function buildBody() {
   foot.innerHTML = meta.pageFoot[state.lang];
   main.appendChild(foot);
   wireMedia();
+  wireCopyButtons();
+}
+
+function wireCopyButtons() {
+  const label = () => (state.lang === 'ru' ? 'Копировать' : 'Copy');
+  $$('#main .code-head').forEach((head) => {
+    const pre = head.nextElementSibling;
+    if (!pre || pre.tagName !== 'PRE') return;
+    if (pre.textContent.length > 3000) pre.classList.add('tall');
+    if (head.querySelector('.copy-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.type = 'button';
+    btn.textContent = label();
+    btn.addEventListener('click', async () => {
+      const text = pre.textContent;
+      let ok = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; }
+      } catch (e) { ok = false; }
+      if (!ok) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.top = '-1000px';
+          document.body.appendChild(ta);
+          ta.select();
+          ok = document.execCommand('copy');
+          ta.remove();
+        } catch (e) { ok = false; }
+      }
+      btn.textContent = ok ? (state.lang === 'ru' ? 'Скопировано ✓' : 'Copied ✓') : (state.lang === 'ru' ? 'Не вышло' : 'Failed');
+      setTimeout(() => { btn.textContent = label(); }, 1800);
+    });
+    head.appendChild(btn);
+  });
 }
 
 function wireMedia() {
