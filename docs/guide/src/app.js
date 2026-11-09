@@ -1,13 +1,18 @@
 import { renderMarkdown } from './md.js';
 import { parts, meta } from './content/index.js';
 
+/* Safe storage wrapper: sandboxed iframes (opaque origin) throw on access. */
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } },
+};
+
 /* ---------------------------------------------------------------- state -- */
 const STORE = { lang: 'lc-lang', theme: 'lc-theme' };
 const state = {
-  lang: localStorage.getItem(STORE.lang) || (navigator.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en',
-  theme: localStorage.getItem(STORE.theme) || 'light',
+  lang: store.get(STORE.lang) || ((navigator.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en'),
+  theme: store.get(STORE.theme) || 'light',
 };
-state.lang = localStorage.getItem(STORE.lang) || ((navigator.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en');
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -159,7 +164,7 @@ function onScroll() {
     const sb = $('#sidebar');
     if (link) {
       const r = link.getBoundingClientRect(), sr = sb.getBoundingClientRect();
-      if (r.top < sr.top + 40 || r.bottom > sr.bottom - 40) link.scrollIntoView({ block: 'center' });
+      if ((r.top < sr.top + 40 || r.bottom > sr.bottom - 40) && typeof link.scrollIntoView === 'function') link.scrollIntoView({ block: 'center' });
     }
   }
 }
@@ -180,7 +185,7 @@ $('#langEn').addEventListener('click', () => setLang('en'));
 $('#langRu').addEventListener('click', () => setLang('ru'));
 function setLang(l) {
   state.lang = l;
-  localStorage.setItem(STORE.lang, l);
+  store.set(STORE.lang, l);
   $('#langEn').setAttribute('aria-pressed', String(l === 'en'));
   $('#langRu').setAttribute('aria-pressed', String(l === 'ru'));
   render();
@@ -190,7 +195,7 @@ $('#langRu').setAttribute('aria-pressed', String(state.lang === 'ru'));
 
 $('#themeToggle').addEventListener('click', () => {
   state.theme = state.theme === 'dark' ? 'light' : 'dark';
-  localStorage.setItem(STORE.theme, state.theme);
+  store.set(STORE.theme, state.theme);
   $('#themeToggle').innerHTML = state.theme === 'dark' ? SVG.sun : SVG.moon;
   document.documentElement.dataset.theme = state.theme;
 });
