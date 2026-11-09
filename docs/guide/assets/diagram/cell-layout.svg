@@ -1,0 +1,72 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 960 760' width='960' height='760' role='img' aria-label='Zone D cell layout, top view'>
+<title>Zone D cell layout, top view</title>
+<defs>
+<marker id='ar-ink' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1c2024'/></marker>
+<marker id='ar-mut' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#4a535c'/></marker>
+<marker id='ar-fa' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#77818c'/></marker>
+<marker id='ar-ln' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c3c9d1'/></marker>
+<marker id='ar-br' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b4472e'/></marker>
+<marker id='ar-st' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1d6fb8'/></marker>
+<marker id='ar-am' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c8891a'/></marker>
+<marker id='ar-gr' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#2f7d4f'/></marker>
+<marker id='ar-rd' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b3261e'/></marker>
+</defs>
+<style>text{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,'Helvetica Neue',sans-serif;fill:#1c2024;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:11.5px}.b{font-weight:650}.m{fill:#4a535c}.f{fill:#77818c;font-size:11.5px}.s{font-size:11.5px}.xs{font-size:10.5px;fill:#77818c}.tt{font-size:17px;font-weight:700}.st{font-size:12.5px;fill:#4a535c}.cap{font-size:12px;fill:#4a535c}.white{fill:#fff;font-weight:650}</style>
+<rect width='960' height='760' fill='#ffffff'/>
+<text x='24' y='32' class='tt' text-anchor='start'>Zone D — cell layout, top view, real dimensions</text>
+<text x='24' y='52' class='st' text-anchor='start'>Зона D — планировка ячейки, вид сверху, реальные размеры</text>
+<text x='936' y='32' class='f' text-anchor='end'>Part 1 · Часть 1</text>
+<line x1='24' y1='64' x2='936' y2='64' stroke='#dfe3e8' stroke-width='1.2'/>
+<rect x='200' y='96' width='575.0' height='517.5' rx='6' fill='#fbfbfc' stroke='#77818c' stroke-width='2'/>
+<text x='208' y='116' class='xs' text-anchor='start'>fence 5000 × 4500 × 2000 mm / ограждение</text>
+<circle cx='579.5' cy='400.75' r='96' fill='#fff' stroke='#b4472e' stroke-width='2'/>
+<text x='579.5' y='405.75' class='b' text-anchor='middle'>R</text>
+<text x='579.5' y='522.75' class='xs' text-anchor='middle'>robot base / основание робота</text>
+<circle cx='579.5' cy='400.75' r='104.765' fill='none' stroke='#b4472e' stroke-width='1.3' stroke-dasharray='7 5'/>
+<text x='468.735' y='370.75' class='xs' text-anchor='start'>reach 911 mm</text>
+<circle cx='579.5' cy='326.0' r='87.4' fill='none' stroke='#c8891a' stroke-width='1.3' stroke-dasharray='6 4'/>
+<rect x='510.5' y='280.0' width='138.0' height='92.0' rx='3' fill='#fdf1da' stroke='#c8891a' stroke-width='1.3'/>
+<text x='579.5' y='270.0' class='xs' text-anchor='middle'>pallet 1200 × 800 on 180° indexer</text>
+<rect x='510.5' y='326.0' width='138.0' height='46.0' rx='1.4' fill='none' stroke='#b4472e' stroke-width='1.3' stroke-dasharray='4 3'/>
+<text x='658.5' y='345.0' class='xs' text-anchor='start'>working window</text>
+<text x='658.5' y='361.0' class='xs' text-anchor='start'>600 × 400 mm</text>
+<circle cx='510.5' cy='326.0' r='4' fill='#b3261e' stroke='#b3261e' stroke-width='1.3'/>
+<line x1='579.5' y1='400.75' x2='510.5' y2='326.0' stroke='#b3261e' stroke-width='1.2' stroke-dasharray='4 3'/>
+<text x='449.0' y='367.375' class='xs' text-anchor='start'>r = 884 mm ≤ 911 ✔</text>
+<rect x='142.5' y='199.5' width='161.0' height='46.0' rx='3' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='223.0' y='189.5' class='xs' text-anchor='middle'>infeed conveyor 3000 × 400 mm · 100 mm/s</text>
+<rect x='151.7' y='213.3' width='14.950000000000001' height='18.400000000000002' rx='1.5' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='181.6' y='213.3' width='14.950000000000001' height='18.400000000000002' rx='1.5' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='211.5' y='213.3' width='14.950000000000001' height='18.400000000000002' rx='1.5' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='241.39999999999998' y='213.3' width='14.950000000000001' height='18.400000000000002' rx='1.5' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='271.3' y='213.3' width='14.950000000000001' height='18.400000000000002' rx='1.5' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<rect x='273.6' y='199.5' width='23.0' height='46.0' rx='3' fill='#e2f3e9' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='285.1' y='263.5' class='xs' text-anchor='middle'>pick station · stopper</text>
+<line x1='579.5' y1='400.75' x2='285.1' y2='222.5' stroke='#1d6fb8' stroke-width='1.2' stroke-dasharray='4 3'/>
+<text x='440.3' y='334.125' class='xs' text-anchor='start'>≈ 1100 mm</text>
+<rect x='763.0' y='257.0' width='12' height='138.0' rx='2' fill='#fde7e5' stroke='#b3261e' stroke-width='1.3'/>
+<text x='795.0' y='314.5' class='xs' text-anchor='start'>light curtain</text>
+<text x='795.0' y='330.5' class='xs' text-anchor='start'>at the pallet</text>
+<text x='795.0' y='346.5' class='xs' text-anchor='start'>opening</text>
+<rect x='372.5' y='601.5' width='126.5' height='12' rx='2' fill='#e2f3e9' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='372.5' y='639.5' class='xs' text-anchor='start'>personnel gate with interlock / калитка с блокировкой</text>
+<rect x='28' y='395.0' width='112' height='210' rx='4' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='84' y='385.0' class='xs' text-anchor='middle'>R-30iB Plus cabinet</text>
+<text x='84' y='422.6' class='xs' text-anchor='middle'>outside the fence,</text>
+<text x='84' y='436.6' class='xs' text-anchor='middle'>ventilation clear</text>
+<line x1='200' y1='74' x2='775.0' y2='74' stroke='#4a535c' stroke-width='1.1'/>
+<line x1='200' y1='70' x2='200' y2='78' stroke='#4a535c' stroke-width='1.1'/>
+<line x1='775.0' y1='70' x2='775.0' y2='78' stroke='#4a535c' stroke-width='1.1'/>
+<text x='487.5' y='68' class='s' text-anchor='middle'>5000 mm</text>
+<line x1='178' y1='96' x2='178' y2='613.5' stroke='#4a535c' stroke-width='1.1'/>
+<line x1='174' y1='96' x2='182' y2='96' stroke='#4a535c' stroke-width='1.1'/>
+<line x1='174' y1='613.5' x2='182' y2='613.5' stroke='#4a535c' stroke-width='1.1'/>
+<text x='184' y='358.75' class='s' text-anchor='start'>4500 mm</text>
+<rect x='24' y='656' width='912' height='66' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='33' y='677' class='b' text-anchor='start'>Layout rules / Правила планировки</text>
+<text x='33' y='693' class='s' text-anchor='start'>• base 650 mm from the indexer centre, on the long-side centreline   • farthest stack point 884 mm ≤ 911 mm reach</text>
+<text x='33' y='709' class='s' text-anchor='start'>• 705 mm height clearance above the arm   • fence outside the stopping envelope (J1 travels up to 69° on a power-off stop)</text>
+<text x='33' y='725' class='s' text-anchor='start'>• cabinet outside the fence with ventilation unobstructed   • 500 mm maintenance clearance where a technician must stand</text>
+<line x1='24' y1='726' x2='936' y2='726' stroke='#dfe3e8' stroke-width='1.2'/>
+<text x='24' y='746' class='xs' text-anchor='start'>Drawn to scale at 0.115 px/mm. Distances are the guide’s design values; verify them against the envelope view in VC 4.8.</text>
+</svg>

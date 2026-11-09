@@ -1,0 +1,71 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 960 560' width='960' height='560' role='img' aria-label='J5 backlash action tree'>
+<title>J5 backlash action tree</title>
+<defs>
+<marker id='ar-ink' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1c2024'/></marker>
+<marker id='ar-mut' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#4a535c'/></marker>
+<marker id='ar-fa' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#77818c'/></marker>
+<marker id='ar-ln' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c3c9d1'/></marker>
+<marker id='ar-br' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b4472e'/></marker>
+<marker id='ar-st' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#1d6fb8'/></marker>
+<marker id='ar-am' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#c8891a'/></marker>
+<marker id='ar-gr' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#2f7d4f'/></marker>
+<marker id='ar-rd' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6.5' markerHeight='6.5' orient='auto-start-reverse'><path d='M0 0 L10 5 L0 10 z' fill='#b3261e'/></marker>
+</defs>
+<style>text{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,'Helvetica Neue',sans-serif;fill:#1c2024;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:11.5px}.b{font-weight:650}.m{fill:#4a535c}.f{fill:#77818c;font-size:11.5px}.s{font-size:11.5px}.xs{font-size:10.5px;fill:#77818c}.tt{font-size:17px;font-weight:700}.st{font-size:12.5px;fill:#4a535c}.cap{font-size:12px;fill:#4a535c}.white{fill:#fff;font-weight:650}</style>
+<rect width='960' height='560' fill='#ffffff'/>
+<text x='24' y='32' class='tt' text-anchor='start'>J5 backlash — four work packages, cheapest first</text>
+<text x='24' y='52' class='st' text-anchor='start'>Люфт J5 — четыре пакета работ, от дешёвого к дорогому</text>
+<text x='936' y='32' class='f' text-anchor='end'>Part 2 · Часть 2</text>
+<line x1='24' y1='64' x2='936' y2='64' stroke='#dfe3e8' stroke-width='1.2'/>
+<rect x='300' y='84' width='360' height='48' rx='8' fill='#f8f9fa' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='309' y='105' class='b' text-anchor='start'>Two measurements / Два измерения</text>
+<text x='309' y='122' class='s' text-anchor='start'>tension (2.3–2.4)  +  backlash at 180 mm (2.5)</text>
+<rect x='24' y='168' width='300' height='56' rx='8' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='33' y='189' class='s' text-anchor='start'>tension out of band / натяжение вне диапазона</text>
+<text x='33' y='205' class='s' text-anchor='start'></text>
+<text x='33' y='221' class='xs' text-anchor='start'>measured in 2.3–2.5 / измерено в 2.3–2.5</text>
+<rect x='360' y='168' width='300' height='56' rx='8' fill='#f6e3dc' stroke='#b4472e' stroke-width='1.3'/>
+<text x='369' y='189' class='b' text-anchor='start'>L1  Re-tension + fastener torque check</text>
+<text x='369' y='205' class='s' text-anchor='start'></text>
+<text x='369' y='221' class='xs' text-anchor='start'>45 min · LOCTITE 243/263 · master only if the arm moved</text>
+<line x1='326' y1='196' x2='356' y2='196' stroke='#77818c' stroke-width='1.6' marker-end='url(#ar-fa)'/>
+<rect x='24' y='238' width='300' height='56' rx='8' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='33' y='259' class='s' text-anchor='start'>belt damaged or will not hold tension / ремень повреждён</text>
+<text x='33' y='275' class='s' text-anchor='start'></text>
+<text x='33' y='291' class='xs' text-anchor='start'>measured in 2.3–2.5 / измерено в 2.3–2.5</text>
+<rect x='360' y='238' width='300' height='56' rx='8' fill='#fdf1da' stroke='#c8891a' stroke-width='1.3'/>
+<text x='369' y='259' class='b' text-anchor='start'>L2  Replace the J5 belt</text>
+<text x='369' y='275' class='s' text-anchor='start'></text>
+<text x='369' y='291' class='xs' text-anchor='start'>2–3 h · A98L-0040-0286#004-157 · MASTER J5 + J6 mandatory</text>
+<line x1='326' y1='266' x2='356' y2='266' stroke='#77818c' stroke-width='1.6' marker-end='url(#ar-fa)'/>
+<rect x='24' y='308' width='300' height='56' rx='8' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='33' y='329' class='s' text-anchor='start'>backlash stays &gt; 0.18 mm with a good belt / люфт при хорошем ремне</text>
+<text x='33' y='345' class='s' text-anchor='start'></text>
+<text x='33' y='361' class='xs' text-anchor='start'>measured in 2.3–2.5 / измерено в 2.3–2.5</text>
+<rect x='360' y='308' width='300' height='56' rx='8' fill='#fde7e5' stroke='#b3261e' stroke-width='1.3'/>
+<text x='369' y='329' class='b' text-anchor='start'>L3  Replace the J5 reducer</text>
+<text x='369' y='345' class='s' text-anchor='start'></text>
+<text x='369' y='361' class='xs' text-anchor='start'>1 day + 1 h cure · LOCTITE 518 · grease 1.8 g · master mandatory</text>
+<line x1='326' y1='336' x2='356' y2='336' stroke='#77818c' stroke-width='1.6' marker-end='url(#ar-fa)'/>
+<rect x='24' y='378' width='300' height='56' rx='8' fill='#fff' stroke='#c3c9d1' stroke-width='1.3'/>
+<text x='33' y='399' class='s' text-anchor='start'>intermittent, position-dependent alarms / прерывистые аварии</text>
+<text x='33' y='415' class='s' text-anchor='start'></text>
+<text x='33' y='431' class='xs' text-anchor='start'>measured in 2.3–2.5 / измерено в 2.3–2.5</text>
+<rect x='360' y='378' width='300' height='56' rx='8' fill='#e2eefb' stroke='#1d6fb8' stroke-width='1.3'/>
+<text x='369' y='399' class='b' text-anchor='start'>L4  Replace the mechanical-unit cable</text>
+<text x='369' y='415' class='s' text-anchor='start'></text>
+<text x='369' y='431' class='xs' text-anchor='start'>4 h · 4-year / 15360 h interval item · no mastering normally</text>
+<line x1='326' y1='406' x2='356' y2='406' stroke='#77818c' stroke-width='1.6' marker-end='url(#ar-fa)'/>
+<rect x='700' y='168' width='236' height='252' rx='8' fill='#e2f3e9' stroke='#2f7d4f' stroke-width='1.3'/>
+<text x='710' y='190' class='b' text-anchor='start'>After any package / После любого пакета</text>
+<text x='710' y='207' class='s' text-anchor='start'>1  re-measure tension: middle of band</text>
+<text x='710' y='224' class='s' text-anchor='start'>2  re-measure backlash ≤ 0.18 mm</text>
+<text x='710' y='241' class='s' text-anchor='start'>3  master the axes the work touched</text>
+<text x='710' y='258' class='xs' text-anchor='start'>   (J5 belt ⇒ J5 and J6)</text>
+<text x='710' y='275' class='s' text-anchor='start'>4  test cycle 10 % → 50 % → 100 %</text>
+<text x='710' y='292' class='s' text-anchor='start'>5  witness marks, gasket, cover 5.6 N·m</text>
+<text x='710' y='309' class='s' text-anchor='start'>6  write the log entry — the step whose</text>
+<text x='710' y='326' class='xs' text-anchor='start'>   absence started this whole task</text>
+<line x1='24' y1='526' x2='936' y2='526' stroke='#dfe3e8' stroke-width='1.2'/>
+<text x='24' y='546' class='xs' text-anchor='start'>Order is cost and downtime ascending. Never skip L1: it is 45 minutes and eliminates two of the four causes.</text>
+</svg>
