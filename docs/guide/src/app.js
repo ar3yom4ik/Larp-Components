@@ -20,8 +20,10 @@ function fatal(stage, err) {
     const msg = (err && err.message) ? err.message : String(err);
     const stack = (err && err.stack) ? err.stack.split('\n').slice(1, 4).join('\n') : '';
     box.textContent += (box.textContent ? '\n' : '') + 'boot failed @ ' + stage + ': ' + msg + (stack ? '\n' + stack : '');
+    ping('fatal:' + stage + ':' + msg);
   } catch (e) { /* nothing left to try */ }
 }
+function ping(msg) { try { if (navigator.sendBeacon) navigator.sendBeacon('/__boot', String(msg)); } catch (e) { /* ignore */ } }
 window.addEventListener('error', (e) => fatal((e.filename || 'script').split('/').pop() + ':' + e.lineno, e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => fatal('promise', e.reason));
 
@@ -104,6 +106,7 @@ function buildBody() {
     }
     sec.innerHTML = h;
     main.appendChild(sec);
+    ping('part:' + p.id);
   }
   const foot = document.createElement('div');
   foot.className = 'pagefoot';
@@ -270,11 +273,16 @@ window.addEventListener('keydown', (e) => {
 onScroll();
 }
 
+ping('parse');
 try {
   buildChrome();
+  ping('chrome');
   render();
+  ping('rendered');
   wireEvents();
+  ping('wire');
   window.__GUIDE_BOOTED__ = true;
+  ping('booted');
 } catch (err) {
   fatal('boot', err);
 }

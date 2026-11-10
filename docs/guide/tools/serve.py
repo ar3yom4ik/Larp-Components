@@ -21,6 +21,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Expires', '0')
         super().end_headers()
 
+    def do_POST(self):
+        if self.path == '/__boot':
+            n = int(self.headers.get('Content-Length') or 0)
+            body = self.rfile.read(n).decode('utf-8', 'replace') if n else ''
+            sys.stderr.write('BOOT %s %s\n' % (self.client_address[0], body))
+            sys.stderr.flush()
+            self.send_response(204)
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
+
     def guess_type(self, path):
         if path.endswith('.mjs'):
             return 'text/javascript'
