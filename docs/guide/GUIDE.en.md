@@ -2968,7 +2968,7 @@ This last page is the deliverable in machine-readable form: a single English pro
 
 > NOTE — The prompt is intentionally English even in the Russian version of this guide: model names, property names and signal names in Visual Components are English, and an English spec avoids a translation step between the document and the application.
 
-[Download the prompt as a file](assets/dl/visualcomponents-factory-prompt.md)
+[Download the prompt as a file](assets/dl/visualcomponents-factory-prompt.md) · [PDF version](assets/dl/visualcomponents-factory-prompt.pdf)
 
 ## 7.1 The prompt — complete factory build plan
 

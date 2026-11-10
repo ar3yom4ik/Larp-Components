@@ -2968,7 +2968,7 @@ _Один английский промпт, который пересобира
 
 > NOTE — Промпт намеренно английский и в русской версии руководства: имена моделей, свойств и сигналов в Visual Components английские, и английский текст убирает лишний перевод между документом и приложением.
 
-[Скачать промпт файлом](assets/dl/visualcomponents-factory-prompt.md)
+[Скачать промпт файлом](assets/dl/visualcomponents-factory-prompt.md) · [версия PDF](assets/dl/visualcomponents-factory-prompt.pdf)
 
 ## 7.1 Промпт — полный план сборки завода
 

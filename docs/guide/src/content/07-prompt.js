@@ -103,7 +103,7 @@ This last page is the deliverable in machine-readable form: a single English pro
 
 > NOTE — The prompt is intentionally English even in the Russian version of this guide: model names, property names and signal names in Visual Components are English, and an English spec avoids a translation step between the document and the application.
 
-[Download the prompt as a file](assets/dl/visualcomponents-factory-prompt.md)
+[Download the prompt as a file](assets/dl/visualcomponents-factory-prompt.md) · [PDF version](assets/dl/visualcomponents-factory-prompt.pdf)
 `,
         ru: `
 Последняя страница — результат в машиночитаемом виде: один английский промпт, в котором лежит весь план сборки завода: зоны, продукты, координаты, данные робота и инструмента, сигналы, процессы, инструкции «запустить и измерить» и приёмный чек-лист. Отдайте его любому исполнителю: ИИ-агенту, который сам управляет Visual Components, ИИ, которого просят написать Python-скрипт для консоли VC, или человеку, работающему по спецификации.
@@ -118,7 +118,7 @@ This last page is the deliverable in machine-readable form: a single English pro
 
 > NOTE — Промпт намеренно английский и в русской версии руководства: имена моделей, свойств и сигналов в Visual Components английские, и английский текст убирает лишний перевод между документом и приложением.
 
-[Скачать промпт файлом](assets/dl/visualcomponents-factory-prompt.md)
+[Скачать промпт файлом](assets/dl/visualcomponents-factory-prompt.md) · [версия PDF](assets/dl/visualcomponents-factory-prompt.pdf)
 `,
       },
     },
