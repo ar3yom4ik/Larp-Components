@@ -6500,6 +6500,24 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } },
 };
 
+/* Visible crash banner: a white screen is undiagnosable, a red box is not. */
+function fatal(stage, err) {
+  try {
+    let box = document.getElementById('bootfail');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'bootfail';
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#7a1414;color:#fff;font:12px/1.55 ui-monospace,monospace;padding:12px 14px;border-radius:10px;white-space:pre-wrap;max-height:45vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.4)';
+      document.body.appendChild(box);
+    }
+    const msg = (err && err.message) ? err.message : String(err);
+    const stack = (err && err.stack) ? err.stack.split('\n').slice(1, 4).join('\n') : '';
+    box.textContent += (box.textContent ? '\n' : '') + 'boot failed @ ' + stage + ': ' + msg + (stack ? '\n' + stack : '');
+  } catch (e) { /* nothing left to try */ }
+}
+window.addEventListener('error', (e) => fatal((e.filename || 'script').split('/').pop() + ':' + e.lineno, e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => fatal('promise', e.reason));
+
 /* ---------------------------------------------------------------- state -- */
 const STORE = { lang: 'lc-lang', theme: 'lc-theme' };
 const state = {
@@ -6567,7 +6585,13 @@ function buildBody() {
       ${p.sub[state.lang] ? `<p class="part-sub">${p.sub[state.lang]}</p>` : ''}
     </div></div>`;
     for (const s of p.sections) {
-      const rendered = renderMarkdown(s.body[state.lang], { idPrefix: 's-' + s.id + '-' });
+      let rendered;
+      try {
+        rendered = renderMarkdown(s.body[state.lang], { idPrefix: 's-' + s.id + '-' });
+      } catch (err) {
+        fatal('render ' + p.id + '/' + s.id, err);
+        rendered = `<div class="callout"><p>Render error in section ${s.id}: ${err.message}</p></div>`;
+      }
       const anchor = `<h3 id="s-${s.id}" class="sec-anchor">${s.title[state.lang]}</h3>`;
       h += anchor + rendered;
     }
@@ -6701,9 +6725,7 @@ function onScroll() {
 }
 
 /* ------------------------------------------------------------------ boot --- */
-buildChrome();
-render();
-
+function wireEvents() {
 let scrollTick = false;
 window.addEventListener('scroll', () => {
   if (scrollTick) return;
@@ -6739,5 +6761,15 @@ window.addEventListener('keydown', (e) => {
   if (e.key === '/' && document.activeElement !== $('#search')) { e.preventDefault(); $('#search').focus(); }
 });
 onScroll();
+}
+
+try {
+  buildChrome();
+  render();
+  wireEvents();
+  window.__GUIDE_BOOTED__ = true;
+} catch (err) {
+  fatal('boot', err);
+}
 
 })();
